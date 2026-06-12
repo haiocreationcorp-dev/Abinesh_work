@@ -1,0 +1,112 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  USER
+  ADMIN
+}
+
+enum AssetCategory {
+  CHARACTER
+  BACKGROUND
+  EXPRESSION
+  PROP
+  EFFECT
+  COSTUME
+  BUBBLE
+  SOUND
+  BODY_PART
+}
+
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  name      String?
+  password  String
+  role      Role     @default(USER)
+  comics    Comic[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Asset {
+  id            String        @id @default(cuid())
+  name          String
+  category      AssetCategory
+  tags          String[]
+  filename      String
+  filePath      String
+  thumbnailPath String?
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+}
+
+model Comic {
+  id        String   @id @default(cuid())
+  title     String
+  userId    String
+  pages     Json     @default("[]")
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  panels    Panel[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// Panel data JSON shape:
+// {
+//   background: { assetId, filePath } | null,
+//   characters: [{ instanceId, assetId, filePath, name, position:{x,y}, scale, rotation, flipX, bodyParts:{partId:{rotate}} }],
+//   props:      [{ instanceId, assetId, filePath, position:{x,y}, scale, rotation }],
+//   effects:    [{ instanceId, assetId, filePath, position:{x,y}, scale, rotation }],
+//   speechBubbles: [{ instanceId, type, text, position:{x,y}, width, height, tailX, tailY, style:{fillColor,strokeColor,fontSize,fontFamily} }]
+// }
+model Panel {
+  id        String   @id @default(cuid())
+  comicId   String
+  comic     Comic    @relation(fields: [comicId], references: [id], onDelete: Cascade)
+  order     Int
+  layout    String   @default("single")
+  data      Json     @default("{}")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([comicId, order])
+}
+
+model Pose {
+  id        String   @id @default(cuid())
+  name      String
+  rotations Json
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model LightingPreset {
+  id          String   @id
+  label       String
+  icon        String   @default("✨")
+  intensity   Int      @default(100)
+  temperature Int      @default(0)
+  tint        Int      @default(0)
+  brightness  Int      @default(0)
+  contrast    Int      @default(0)
+  highlights  Int      @default(0)
+  shadows     Int      @default(0)
+  saturation  Int      @default(0)
+  vibrance    Int      @default(0)
+  bloom       Int      @default(0)
+  glow        Int      @default(0)
+  blur        Int      @default(0)
+  rays        Boolean  @default(false)
+  flash       Boolean  @default(false)
+  overlayColor      String? // hex color, e.g. "#1e3a8a" — custom tint layer on top of the slider-driven grade
+  overlayBlendMode  String  @default("multiply")
+  overlayOpacity    Int     @default(0) // 0 = no custom overlay layer
+  updatedAt   DateTime @updatedAt
+}

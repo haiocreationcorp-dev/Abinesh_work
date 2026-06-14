@@ -1,22 +1,23 @@
 import { useState, useEffect } from 'react';
 import AssetUploadForm from '../components/admin/AssetUploadForm.jsx';
 import FolderUploadForm from '../components/admin/FolderUploadForm.jsx';
-import PoseEditor from '../components/admin/PoseEditor.jsx';
-import CharacterCreator from '../components/admin/CharacterCreator.jsx';
 import LightingAdjuster from '../components/admin/LightingAdjuster.jsx';
+import FaceBuilder from '../components/admin/FaceBuilder.jsx';
+import DressBuilder from '../components/admin/DressBuilder.jsx';
 import AssetGrid from '../components/library/AssetGrid.jsx';
 import { getAdminUsers, updateUserRole } from '../api/assets.js';
 import { CATEGORY_IDS } from '../constants/categories.js';
 
-const TABS = ['Upload Asset', 'Folder Upload', 'Pose Creator', 'Character Creator', 'Lighting Adjuster', 'Browse Assets', 'Manage Users'];
+const TABS = ['Upload Asset', 'Folder Upload', 'F_B Edit', 'Lighting Adjuster', 'Browse Assets', 'Manage Users'];
 
 export default function AdminPage() {
   const [tab, setTab] = useState(0);
   const [users, setUsers] = useState([]);
   const [category, setCategory] = useState('CHARACTER');
+  const [fbMode, setFbMode] = useState('face');
 
   useEffect(() => {
-    if (tab === 6) getAdminUsers().then(setUsers);
+    if (tab === 5) getAdminUsers().then(setUsers);
   }, [tab]);
 
   const handleRoleToggle = async (user) => {
@@ -43,13 +44,23 @@ export default function AdminPage() {
 
           {tab === 1 && <FolderUploadForm />}
 
-          {tab === 2 && <PoseEditor />}
+          {tab === 2 && (
+            <div>
+              <div style={{ ...styles.tabs, marginBottom: 16 }}>
+                <button className={`btn ${fbMode === 'face' ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setFbMode('face')}>
+                  Face
+                </button>
+                <button className={`btn ${fbMode === 'dress' ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setFbMode('dress')}>
+                  Dress
+                </button>
+              </div>
+              {fbMode === 'face' ? <FaceBuilder /> : <DressBuilder />}
+            </div>
+          )}
 
-          {tab === 3 && <CharacterCreator />}
+          {tab === 3 && <LightingAdjuster />}
 
-          {tab === 4 && <LightingAdjuster />}
-
-          {tab === 5 && (
+          {tab === 4 && (
             <div>
               <div style={styles.categoryRow}>
                 {CATEGORY_IDS.map((c) => (
@@ -62,7 +73,7 @@ export default function AdminPage() {
             </div>
           )}
 
-          {tab === 6 && (
+          {tab === 5 && (
             <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
               <table style={styles.table}>
                 <thead>

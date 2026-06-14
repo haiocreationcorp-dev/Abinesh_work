@@ -2,10 +2,12 @@ import { useRef, useState, useEffect, useMemo, Fragment } from 'react';
 import { useComic } from '../../context/ComicContext.jsx';
 import { useDrag } from '../../context/DragContext.jsx';
 import CharacterRig from './CharacterRig.jsx';
+import FaceRig from './FaceRig.jsx';
 import { useLightingOverlays } from '../../lighting/lightingEngine.js';
 
 const KIND_KEY = {
   CHARACTER: 'characters',
+  FACE: 'faces',
   PROP: 'props',
   EFFECT: 'effects',
   COSTUME: 'costumes',
@@ -480,6 +482,9 @@ export default function Panel({ panel, panelIndex, canvasW = 800, canvasH = 450,
           case 'CHARACTER':
             d({ type: 'REMOVE_CHARACTER', panelIndex: pi, instanceId: sel.instanceId });
             break;
+          case 'FACE':
+            d({ type: 'REMOVE_FACE', panelIndex: pi, instanceId: sel.instanceId });
+            break;
           case 'PROP':
           case 'EFFECT':
           case 'COSTUME':
@@ -523,6 +528,7 @@ export default function Panel({ panel, panelIndex, canvasW = 800, canvasH = 450,
 
     const dispatchPos = (pos, preview = true) => {
       if (kind === 'CHARACTER') dispatch({ type: 'UPDATE_CHARACTER', panelIndex, instanceId, updates: { position: pos }, preview });
+      else if (kind === 'FACE') dispatch({ type: 'UPDATE_FACE', panelIndex, instanceId, updates: { position: pos }, preview });
       else if (kind === 'BUBBLE') dispatch({ type: 'UPDATE_BUBBLE', panelIndex, instanceId, updates: { position: pos }, preview });
       else dispatch({ type: 'UPDATE_PLACED_ITEM', panelIndex, instanceId, kind: kind.toLowerCase() + 's', updates: { position: pos }, preview });
     };
@@ -842,6 +848,66 @@ export default function Panel({ panel, panelIndex, canvasW = 800, canvasH = 450,
             );
           })}
 
+          {/* Faces */}
+          {(data.faces || []).map((face) => {
+            if (draggingOut === face.instanceId) return null;
+            const isFaceSelected = selected?.instanceId === face.instanceId;
+            return (
+              <Fragment key={face.instanceId}>
+                <div
+                  style={{
+                    ...styles.placed,
+                    left: face.position.x,
+                    top: face.position.y,
+                    width: BASE_W,
+                    height: BASE_H,
+                    transform: `rotate(${face.rotation || 0}deg) scaleX(${face.flipX ? -1 : 1}) scale(${face.scale || 1})`,
+                    transformOrigin: 'center center',
+                    cursor: 'grab',
+                    zIndex: isFaceSelected ? 10 : 1,
+                  }}
+                  onMouseDown={(e) => {
+                    selectItem({ kind: 'FACE', instanceId: face.instanceId });
+                    startDrag(e, 'FACE', face.instanceId, face.position);
+                  }}
+                  onWheel={(e) => {
+                    if (!isFaceSelected) return;
+                    e.preventDefault();
+                    e.stopPropagation();
+                    const current = face.scale || 1;
+                    const factor = e.deltaY < 0 ? 1.1 : 0.9;
+                    const ns = Math.max(0.15, Math.min(10, current * factor));
+                    dispatch({ type: 'UPDATE_FACE', preview: true, panelIndex, instanceId: face.instanceId, updates: { scale: Math.round(ns * 100) / 100 } });
+                  }}
+                >
+                  <FaceRig face={face} />
+                </div>
+
+                {isFaceSelected && (
+                  <div style={{
+                    position: 'absolute',
+                    left: face.position.x + BASE_W / 2,
+                    top: face.position.y + BASE_H / 2,
+                    width: 0, height: 0,
+                    transform: `rotate(${face.rotation || 0}deg) scaleX(${face.flipX ? -1 : 1})`,
+                    transformOrigin: '0 0',
+                    overflow: 'visible',
+                    zIndex: 12,
+                    pointerEvents: 'none',
+                  }}>
+                    <FaceTransformHandles
+                      face={face}
+                      panelIndex={panelIndex}
+                      dispatch={dispatch}
+                      canvasRef={canvasRef}
+                      canvasW={CANVAS_W}
+                    />
+                  </div>
+                )}
+              </Fragment>
+            );
+          })}
+
           {/* Props */}
           {(data.props || []).filter((item) => item.instanceId !== draggingOut).map((item) => (
             <PlacedItem key={item.instanceId} item={item} kind="PROP" panelIndex={panelIndex}
@@ -1109,6 +1175,124 @@ function TransformHandles({ char, panelIndex, dispatch, canvasRef, canvasW, onDe
       ))}
 
       {/* Rotation knob — always 26px */}
+      <div
+        onMouseDown={startRotate}
+        style={{
+          position: 'absolute',
+          top: visMY, left: bR + 26,
+          transform: 'translateY(-50%)',
+          width: 26, height: 26, background: SEL_COLOR, border: '2.5px solid #fff',
+          borderRadius: '50%', cursor: 'grab',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          color: '#fff', fontSize: 14, userSelect: 'none',
+          boxShadow: `0 2px 8px rgba(124,58,237,0.45)`,
+          pointerEvents: 'auto',
+        }}
+        title="Drag to rotate"
+      >↻</div>
+    </>
+  );
+}
+
+// ── Transform handles for FACE items — same visual language as TransformHandles, no crop ──
+function FaceTransformHandles({ face, panelIndex, dispatch, canvasRef, canvasW }) {
+  const s = face.scale || 1;
+
+  const visL = (-BASE_W / 2) * s;
+  const visR = ( BASE_W / 2) * s;
+  const visT = (-BASE_H / 2) * s;
+  const visB = ( BASE_H / 2) * s;
+  const visMX = (visL + visR) / 2;
+  const visMY = (visT + visB) / 2;
+
+  const bL = visL - 2, bR = visR + 2, bT = visT - 2, bB = visB + 2;
+  const HW = 12, hh = 6;
+
+  const getCenterInScreen = () => {
+    const rect = canvasRef.current.getBoundingClientRect();
+    const ratio = rect.width / canvasW;
+    return {
+      cx: rect.left + (face.position.x + BASE_W / 2) * ratio,
+      cy: rect.top  + (face.position.y + BASE_H / 2) * ratio,
+    };
+  };
+
+  const startRotate = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    dispatch({ type: 'PUSH_HISTORY' });
+    const { cx, cy } = getCenterInScreen();
+    let lastAngle = Math.atan2(e.clientY - cy, e.clientX - cx) * (180 / Math.PI);
+    let currentRot = face.rotation || 0;
+    const onMove = (ev) => {
+      const newAngle = Math.atan2(ev.clientY - cy, ev.clientX - cx) * (180 / Math.PI);
+      let delta = newAngle - lastAngle;
+      if (delta >  180) delta -= 360;
+      if (delta < -180) delta += 360;
+      currentRot += delta;
+      lastAngle = newAngle;
+      dispatch({ type: 'UPDATE_FACE', preview: true, panelIndex, instanceId: face.instanceId, updates: { rotation: Math.round(currentRot) } });
+    };
+    const onUp = () => { window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp); };
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+  };
+
+  const startScale = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    dispatch({ type: 'PUSH_HISTORY' });
+    const { cx, cy } = getCenterInScreen();
+    const startDist = Math.hypot(e.clientX - cx, e.clientY - cy);
+    const startScaleVal = face.scale || 1;
+    const onMove = (ev) => {
+      const dist = Math.hypot(ev.clientX - cx, ev.clientY - cy);
+      if (!startDist) return;
+      const ns = Math.max(0.15, Math.min(10, startScaleVal * (dist / startDist)));
+      dispatch({ type: 'UPDATE_FACE', preview: true, panelIndex, instanceId: face.instanceId, updates: { scale: Math.round(ns * 100) / 100 } });
+    };
+    const onUp = () => { window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp); };
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+  };
+
+  const scaleHandles = [
+    { top: bT - hh, left: bL  - hh, cursor: 'nwse-resize' },
+    { top: bT - hh, left: visMX - hh, cursor: 'n-resize' },
+    { top: bT - hh, left: bR  - hh, cursor: 'nesw-resize' },
+    { top: visMY - hh, left: bL - hh, cursor: 'w-resize' },
+    { top: bB - hh, left: bL  - hh, cursor: 'nesw-resize' },
+    { top: bB - hh, left: visMX - hh, cursor: 's-resize' },
+    { top: bB - hh, left: bR  - hh, cursor: 'nwse-resize' },
+  ];
+
+  return (
+    <>
+      <div style={{
+        position: 'absolute',
+        top: bT, left: bL, width: bR - bL, height: bB - bT,
+        border: `2px solid ${SEL_COLOR}`, borderRadius: 8, pointerEvents: 'none',
+      }} />
+
+      <div style={{
+        position: 'absolute', top: visMY, left: bR,
+        width: 26, height: 2,
+        background: SEL_COLOR, transform: 'translateY(-50%)', pointerEvents: 'none',
+      }} />
+
+      {scaleHandles.map((pos, i) => (
+        <div
+          key={i}
+          onMouseDown={startScale}
+          style={{
+            position: 'absolute', ...pos,
+            width: HW, height: HW,
+            background: '#fff', border: `2px solid ${SEL_COLOR}`,
+            borderRadius: '50%', cursor: pos.cursor, pointerEvents: 'auto',
+          }}
+        />
+      ))}
+
       <div
         onMouseDown={startRotate}
         style={{

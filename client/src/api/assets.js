@@ -19,5 +19,20 @@ export const uploadFolder = (formData, onProgress) =>
 export const getAdminUsers = () => api.get('/admin/users').then((r) => r.data);
 export const updateUserRole = (id, role) => api.patch(`/admin/users/${id}/role`, { role }).then((r) => r.data);
 
-export const saveAssembledCharacter = (name, svgContent) =>
-  api.post('/admin/characters/assemble', { name, svgContent }).then((r) => r.data);
+export const saveAssembledFace = (name, svgContent, layout) =>
+  api.post('/admin/faces/assemble', { name, svgContent, layout }).then((r) => r.data);
+
+export const saveAssembledDress = (name, svgContent, layout) =>
+  api.post('/admin/dresses/assemble', { name, svgContent, layout }).then((r) => r.data);
+
+export const saveAssembledExpression = (name, svgContent, layout) =>
+  api.post('/admin/expressions/assemble', { name, svgContent, layout }).then((r) => r.data);
+
+export const getFacePartAlignmentsPublic = (faceAssetId) =>
+  api.get(`/assets/faces/${faceAssetId}/part-alignments`).then((r) => r.data);
+
+export const getFacePartAlignment = (faceAssetId, partAssetId, partType) =>
+  api.get('/admin/face-part-alignment', { params: { faceAssetId, partAssetId, partType } }).then((r) => r.data);
+
+export const saveFacePartAlignment = (alignment) =>
+  api.post('/admin/face-part-alignment', alignment).then((r) => r.data);

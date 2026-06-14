@@ -10,6 +10,10 @@ export const ASSET_CATEGORIES = [
   { id: 'SOUND',      label: 'Sound',       icon: '🔊' },
   { id: 'BUBBLE',     label: 'Bubbles',     icon: '💬' },
   { id: 'BODY_PART',  label: 'Body Parts',  icon: '🦴' },
+  { id: 'FACE_PART',  label: 'Face Parts',  icon: '👁️' },
+  { id: 'FACE',       label: 'Faces',       icon: '😀' },
+  { id: 'DRESS_PART', label: 'Dress Parts', icon: '🧵' },
+  { id: 'DRESS',      label: 'Dresses',     icon: '👕' },
 ];
 
 export const CATEGORY_IDS = ASSET_CATEGORIES.map((c) => c.id);

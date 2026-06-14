@@ -62,4 +62,9 @@ const deleteAssets = async (req, res) => {
   res.json({ deleted: assets.length });
 };
 
-module.exports = { getAssets, getAssetById, deleteAsset, deleteAssets };
+const getFacePartAlignments = async (req, res) => {
+  const rows = await prisma.facePartAlignment.findMany({ where: { faceAssetId: req.params.faceAssetId } });
+  res.json(rows);
+};
+
+module.exports = { getAssets, getAssetById, deleteAsset, deleteAssets, getFacePartAlignments };

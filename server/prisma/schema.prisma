@@ -22,6 +22,10 @@ enum AssetCategory {
   BUBBLE
   SOUND
   BODY_PART
+  FACE_PART
+  FACE
+  DRESS_PART
+  DRESS
 }
 
 model User {
@@ -43,6 +47,7 @@ model Asset {
   filename      String
   filePath      String
   thumbnailPath String?
+  layoutPath    String?
   createdAt     DateTime      @default(now())
   updatedAt     DateTime      @updatedAt
 }
@@ -85,6 +90,25 @@ model Pose {
   rotations Json
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+}
+
+// Remembers the calibrated position/size/rotation of a face part (hairstyle, nose, etc.)
+// on a specific face, so the same face+part pairing can be auto-positioned next time.
+model FacePartAlignment {
+  id          String   @id @default(cuid())
+  faceAssetId String
+  partAssetId String
+  partType    String
+  x           Float
+  y           Float
+  w           Float
+  h           Float
+  rotation    Float    @default(0)
+  flipX       Boolean  @default(false)
+  flipY       Boolean  @default(false)
+  updatedAt   DateTime @updatedAt
+
+  @@unique([faceAssetId, partAssetId, partType])
 }
 
 model LightingPreset {

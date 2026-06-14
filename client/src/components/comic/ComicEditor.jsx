@@ -8,6 +8,8 @@ import AssetGrid from '../library/AssetGrid.jsx';
 import ExportControls from './ExportControls.jsx';
 import SpeechBubbleEditor from './SpeechBubble.jsx';
 import { AlignIcon, ColorSwatch, CustomSelect, FONTS, SIZES } from './BubbleUiKit.jsx';
+import { getAssets, getFacePartAlignmentsPublic } from '../../api/assets.js';
+import { FACE_SECTIONS, FACE_CANVAS_W, FACE_CANVAS_H, classifyFacePart, matchesFaceSection, defaultPartOverlay } from '../../utils/faceLayout.js';
 
 // ── SVG icon components ───────────────────────────────────────────────────────
 function IconCharacters() {
@@ -15,6 +17,16 @@ function IconCharacters() {
     <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
       <circle cx="12" cy="8" r="4"/>
       <path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/>
+    </svg>
+  );
+}
+function IconFace() {
+  return (
+    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M12 2c-3.5 0-5 3-5 7s1 9 5 11c4-2 5-7 5-11s-1.5-7-5-7z"/>
+      <circle cx="9.5" cy="10" r="0.8" fill="currentColor" stroke="none"/>
+      <circle cx="14.5" cy="10" r="0.8" fill="currentColor" stroke="none"/>
+      <path d="M10 14c.5.7 1.2 1 2 1s1.5-.3 2-1"/>
     </svg>
   );
 }
@@ -102,6 +114,7 @@ function IconExport() {
 
 const SIDEBAR_ITEMS = [
   { id: 'CHARACTER',  Icon: IconCharacters,  label: 'Characters' },
+  { id: 'FACE',       Icon: IconFace,        label: 'Face' },
   { id: 'BACKGROUND', Icon: IconBackgrounds, label: 'Backgrounds' },
   { id: 'EXPRESSION', Icon: IconExpressions, label: 'Expressions' },
   { id: 'PROP',       Icon: IconProps,       label: 'Props' },
@@ -234,6 +247,9 @@ export default function ComicEditor() {
   const [effectSub, setEffectSub] = useState(null);
   const [bgSub, setBgSub] = useState(null);
   const [search, setSearch] = useState('');
+  const [faceParts, setFaceParts] = useState([]);
+  const [faceSection, setFaceSection] = useState('hairstyle');
+  const [faceAlignments, setFaceAlignments] = useState({});
   const [insertPickerAt, setInsertPickerAt] = useState(null);
   const [dragIdx, setDragIdx] = useState(null);
   const [dragOverIdx, setDragOverIdx] = useState(null);
@@ -354,6 +370,18 @@ export default function ComicEditor() {
   const activePanelIndex = state.activePanelIndex;
   const canvas = LAYOUT_CANVAS[activePage?.layout] || LAYOUT_CANVAS.single;
 
+  // Load the FACE_PART library once, when the Face tool is first opened
+  useEffect(() => {
+    if (activeSidebar === 'FACE' && faceParts.length === 0) {
+      getAssets({ category: 'FACE_PART' }).then(setFaceParts).catch(() => setFaceParts([]));
+    }
+  }, [activeSidebar, faceParts.length]);
+
+  // Currently-selected FACE element in the panel (if any)
+  const selectedFace = state.activeSelection?.kind === 'FACE'
+    ? (state.panels[state.activeSelection.panelIndex]?.data?.faces || []).find((f) => f.instanceId === state.activeSelection.instanceId)
+    : null;
+
   // Opacity helpers — read from selected item or background
   const getSelOpacity = () => {
     if (state.activeSelection) {
@@ -413,6 +441,8 @@ export default function ComicEditor() {
   const handleAssetSelect = (asset) => {
     if (activeSidebar === 'CHARACTER') {
       dispatch({ type: 'ADD_CHARACTER_TO_PANEL', panelIndex: activePanelIndex, asset });
+    } else if (activeSidebar === 'FACE') {
+      handleFaceAssetSelect(asset);
     } else if (activeSidebar === 'BACKGROUND') {
       dispatch({ type: 'SET_BACKGROUND', panelIndex: activePanelIndex, background: { assetId: asset.id, filePath: asset.filePath } });
     } else if (activeSidebar === 'BUBBLE') {
@@ -420,6 +450,61 @@ export default function ComicEditor() {
     } else if (['PROP', 'EFFECT', 'COSTUME', 'SOUND'].includes(activeSidebar)) {
       dispatch({ type: 'ADD_PROP_TO_PANEL', panelIndex: activePanelIndex, asset, kind: activeSidebar.toLowerCase() + 's' });
     }
+  };
+
+  // Add a Face preset: parse its assembled layout into a face-shape + 4 swappable parts
+  const handleFaceAssetSelect = async (asset) => {
+    let faceShape = null;
+    const parts = {};
+    if (asset.layoutPath) {
+      try {
+        const layout = await fetch(asset.layoutPath).then((r) => r.json());
+        for (const part of layout) {
+          const cls = classifyFacePart(part.customName || part.name);
+          if (!cls) continue;
+          const entry = {
+            assetId: part.assetId, filePath: part.filePath,
+            x: part.x, y: part.y, w: part.w, h: part.h,
+            rotation: part.rotation || 0, flipX: !!part.flipX, flipY: !!part.flipY,
+          };
+          if (cls === 'faceShape') faceShape = entry;
+          else parts[cls] = entry;
+        }
+      } catch { /* fall back below */ }
+    }
+    if (!faceShape) {
+      faceShape = {
+        assetId: asset.id, filePath: asset.filePath,
+        x: 0, y: 0, w: FACE_CANVAS_W, h: FACE_CANVAS_H,
+        rotation: 0, flipX: false, flipY: false,
+      };
+    }
+    const instanceId = crypto.randomUUID();
+    dispatch({ type: 'ADD_FACE_TO_PANEL', panelIndex: activePanelIndex, asset, faceShape, parts, instanceId });
+    dispatch({ type: 'SELECT_ITEM_IN_PANEL', kind: 'FACE', instanceId, panelIndex: activePanelIndex });
+  };
+
+  // Swap a hair/eye/nose/mouth part on the selected face, applying its calibrated alignment
+  const handleFacePartSelect = async (asset) => {
+    if (!selectedFace) return;
+    const partType = faceSection;
+    let aligns = faceAlignments[selectedFace.faceAssetId];
+    if (!aligns) {
+      try { aligns = await getFacePartAlignmentsPublic(selectedFace.faceAssetId); } catch { aligns = []; }
+      setFaceAlignments((prev) => ({ ...prev, [selectedFace.faceAssetId]: aligns }));
+    }
+    const partAssetId = partType === 'hairstyle' ? asset.id : '__ALL__';
+    const match = aligns.find((a) => a.partType === partType && a.partAssetId === partAssetId);
+    const current = selectedFace.parts?.[partType];
+    let part;
+    if (match) {
+      part = { assetId: asset.id, filePath: asset.filePath, x: match.x, y: match.y, w: match.w, h: match.h, rotation: match.rotation, flipX: match.flipX, flipY: match.flipY };
+    } else if (current) {
+      part = { assetId: asset.id, filePath: asset.filePath, x: current.x, y: current.y, w: current.w, h: current.h, rotation: current.rotation, flipX: current.flipX, flipY: current.flipY };
+    } else {
+      part = defaultPartOverlay(asset.id, asset.filePath);
+    }
+    dispatch({ type: 'SET_FACE_PART', panelIndex: state.activeSelection.panelIndex, instanceId: selectedFace.instanceId, partType, part });
   };
 
   const activeItem = SIDEBAR_ITEMS.find((i) => i.id === activeSidebar);
@@ -487,6 +572,38 @@ export default function ComicEditor() {
           </div>
 
           <div style={styles.expandContent}>
+            {activeSidebar === 'FACE' && (
+              <>
+                <p style={styles.overlayHint}>Pick a face to add it to the panel.</p>
+                <AssetGrid category="FACE" onSelect={handleAssetSelect} />
+                {selectedFace && (
+                  <div style={{ marginTop: 18 }}>
+                    <p style={{ ...styles.overlayHint, marginTop: 0 }}>Customize "{selectedFace.name}"</p>
+                    <div style={{ display: 'flex', gap: 6, marginBottom: 10, flexWrap: 'wrap' }}>
+                      {FACE_SECTIONS.map((sec) => (
+                        <button
+                          key={sec.id}
+                          className={`btn btn-sm ${faceSection === sec.id ? 'btn-primary' : 'btn-outline'}`}
+                          onClick={() => setFaceSection(sec.id)}
+                        >
+                          {sec.label}
+                        </button>
+                      ))}
+                    </div>
+                    <div style={styles.faceLibGrid}>
+                      {faceParts.filter((a) => matchesFaceSection(a, faceSection)).map((asset) => (
+                        <button key={asset.id} title={asset.name} onClick={() => handleFacePartSelect(asset)} style={styles.faceLibThumb}>
+                          <img src={asset.filePath} alt={asset.name} draggable={false} style={{ width: '100%', height: '100%', objectFit: 'contain', display: 'block' }} />
+                        </button>
+                      ))}
+                      {faceParts.filter((a) => matchesFaceSection(a, faceSection)).length === 0 && (
+                        <p style={styles.overlayHint}>No {FACE_SECTIONS.find((s) => s.id === faceSection)?.label.toLowerCase()} options found.</p>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
             {activeSidebar === 'BACKGROUND' && !bgSub && (
               <div style={styles.addPickerGrid}>
                 {BG_SUBCATEGORIES.map((sc) => (
@@ -1373,6 +1490,12 @@ const styles = {
   },
   lightingRowLabel: { fontSize: 12.5, color: 'var(--t-text)', fontWeight: 500, letterSpacing: 0.1, flex: 1 },
   overlayHint: { fontSize: 11, color: 'var(--t-text-muted)', lineHeight: 1.5, padding: '0 2px' },
+  faceLibGrid: { display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 6 },
+  faceLibThumb: {
+    background: 'var(--t-bg3)', border: '1px solid var(--t-border)', borderRadius: 8,
+    padding: 6, cursor: 'pointer', aspectRatio: '1', display: 'flex',
+    alignItems: 'center', justifyContent: 'center', transition: 'border-color 0.12s ease',
+  },
   addPickerClose: {
     width: '100%', background: 'none', border: '1px solid var(--t-border)', borderRadius: 6,
     color: 'var(--t-text-faint)', padding: '6px 0', fontSize: 11, cursor: 'pointer',

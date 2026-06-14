@@ -16,6 +16,7 @@ const EMPTY_PANEL_DATA = () => ({
   background: null,
   lightingOverlay: null,
   characters: [],
+  faces: [],
   props: [],
   effects: [],
   costumes: [],
@@ -283,6 +284,55 @@ function baseReducer(state, action) {
       const panels = state.panels.map((p, i) => {
         if (i !== action.panelIndex) return p;
         return { ...p, data: { ...p.data, characters: p.data.characters.filter((c) => c.instanceId !== action.instanceId) } };
+      });
+      return { ...state, panels, isDirty: true };
+    }
+
+    case 'ADD_FACE_TO_PANEL': {
+      const panels = state.panels.map((p, i) => {
+        if (i !== action.panelIndex) return p;
+        const face = {
+          instanceId: action.instanceId || genId(),
+          faceAssetId: action.asset.id,
+          name: action.asset.name,
+          position: action.position || { x: 80, y: 40 },
+          scale: 1,
+          rotation: 0,
+          flipX: false,
+          faceShape: action.faceShape,
+          parts: action.parts || {},
+        };
+        return { ...p, data: { ...EMPTY_PANEL_DATA(), ...p.data, faces: [...(p.data.faces || []), face] } };
+      });
+      return { ...state, panels, isDirty: true };
+    }
+
+    case 'UPDATE_FACE': {
+      const panels = state.panels.map((p, i) => {
+        if (i !== action.panelIndex) return p;
+        const faces = (p.data.faces || []).map((f) =>
+          f.instanceId === action.instanceId ? { ...f, ...action.updates } : f
+        );
+        return { ...p, data: { ...p.data, faces } };
+      });
+      return { ...state, panels, isDirty: true };
+    }
+
+    case 'SET_FACE_PART': {
+      const panels = state.panels.map((p, i) => {
+        if (i !== action.panelIndex) return p;
+        const faces = (p.data.faces || []).map((f) =>
+          f.instanceId === action.instanceId ? { ...f, parts: { ...f.parts, [action.partType]: action.part } } : f
+        );
+        return { ...p, data: { ...p.data, faces } };
+      });
+      return { ...state, panels, isDirty: true };
+    }
+
+    case 'REMOVE_FACE': {
+      const panels = state.panels.map((p, i) => {
+        if (i !== action.panelIndex) return p;
+        return { ...p, data: { ...p.data, faces: (p.data.faces || []).filter((f) => f.instanceId !== action.instanceId) } };
       });
       return { ...state, panels, isDirty: true };
     }

@@ -1,38 +1,42 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { getAssets, uploadAsset, saveAssembledCharacter } from '../../api/assets.js';
+import { getAssets, uploadAsset, saveAssembledExpression, getFacePartAlignment, saveFacePartAlignment } from '../../../api/assets.js';
+import { computeTrimRect, loadTrimRect, trimmedRect } from '../../../utils/trimRect.js';
 
 const ORANGE = '#F97316';
-const CANVAS_W = 380;
-const CANVAS_H = 560;
+const CANVAS_W = 400;
+const CANVAS_H = 600;
 const MAX_HISTORY = 50;
 const GROUP_COLORS = ['#818CF8', '#34D399', '#F472B6', '#FBBF24', '#60A5FA'];
 
 const genId = () => `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
 
-// Detects the tight non-transparent bounding box of an img element via offscreen canvas.
-function findTrimRect(img) {
-  try {
-    const nw = img.naturalWidth, nh = img.naturalHeight;
-    if (nw < 1 || nh < 1) return null;
-    const limit = 256;
-    const sc = Math.min(1, limit / nw, limit / nh);
-    const cw = Math.ceil(nw * sc), ch = Math.ceil(nh * sc);
-    const canvas = document.createElement('canvas');
-    canvas.width = cw; canvas.height = ch;
-    const ctx = canvas.getContext('2d');
-    ctx.drawImage(img, 0, 0, cw, ch);
-    const { data } = ctx.getImageData(0, 0, cw, ch);
-    let x0 = cw, y0 = ch, x1 = -1, y1 = -1;
-    for (let y = 0; y < ch; y++)
-      for (let x = 0; x < cw; x++)
-        if (data[(y * cw + x) * 4 + 3] > 5) {
-          if (x < x0) x0 = x; if (y < y0) y0 = y;
-          if (x > x1) x1 = x; if (y > y1) y1 = y;
-        }
-    if (x1 < 0) return null;
-    return { minX: x0 / sc, minY: y0 / sc, maxX: (x1 + 1) / sc, maxY: (y1 + 1) / sc, nw, nh };
-  } catch { return null; }
+// Classify a canvas part as 'nose' | 'eye' | 'mouth' | null based on its layer name.
+function classifyPartType(part) {
+  const n = (part.customName || part.name || '').toLowerCase();
+  if (n.includes('nose')) return 'nose';
+  if (n.includes('eye')) return 'eye';
+  if (n.includes('mouth')) return 'mouth';
+  return null;
 }
+
+// Classifies a part/asset as a face-part type whose position can be calibrated
+// per-face ('hairstyle' | 'nose' | 'eye' | 'mouth'), or null if it's not one of those.
+function alignablePartType(item) {
+  const n = (item.customName || item.name || '').toLowerCase();
+  if (n.includes('hair') || item.tags?.includes('hairstyle')) return 'hairstyle';
+  if (n.includes('nose') || item.tags?.includes('nose')) return 'nose';
+  if (n.includes('eye') || item.tags?.includes('eye')) return 'eye';
+  if (n.includes('mouth') || item.tags?.includes('mouth')) return 'mouth';
+  return null;
+}
+
+const ALIGNABLE_PART_LABELS = { hairstyle: 'Hairstyle', nose: 'Nose', eye: 'Eye', mouth: 'Mouth' };
+
+// Nose/eye/mouth alignments are shared across all assets of that type for a given face
+// (the "slot" doesn't move when the variant changes); only hairstyle is calibrated per-asset.
+const SHARED_ALIGNMENT_KEY = '__ALL__';
+const alignmentAssetId = (partType, assetId) => (partType === 'hairstyle' ? assetId : SHARED_ALIGNMENT_KEY);
+
 const genGroupId = () => `g-${Date.now().toString(36)}`;
 const groupColor = (gid) => { if (!gid) return null; const h = [...gid].reduce((a, c) => a + c.charCodeAt(0), 0); return GROUP_COLORS[h % GROUP_COLORS.length]; };
 
@@ -56,15 +60,33 @@ function makePartId(name, usedIds) {
   return id;
 }
 
-async function buildAssembledSvg(parts) {
+// Converts a part's file (SVG or raster) into a data URL usable as an <image> href.
+async function partFileToDataUrl(filePath) {
+  if (filePath.toLowerCase().endsWith('.svg')) {
+    const text = await fetch(filePath).then((r) => r.text());
+    return svgToDataUrl(text);
+  }
+  const blob = await fetch(filePath).then((r) => r.blob());
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = reject;
+    reader.readAsDataURL(blob);
+  });
+}
+
+async function buildAssembledSvg(parts, trimCache = {}) {
   const sorted = [...parts].sort((a, b) => a.zIndex - b.zIndex);
   const fetched = await Promise.all(
-    sorted.map((p) => fetch(p.filePath).then((r) => r.text()).catch(() => '<svg xmlns="http://www.w3.org/2000/svg"/>'))
+    sorted.map((p) => partFileToDataUrl(p.filePath).catch(() => ''))
+  );
+  const trims = await Promise.all(
+    sorted.map((p) => p.filePath in trimCache ? Promise.resolve(trimCache[p.filePath]) : loadTrimRect(p.filePath))
   );
   const defs = [];
   const usedIds = new Set();
   const groups = sorted.map((p, i) => {
-    const href = svgToDataUrl(fetched[i]);
+    const href = fetched[i];
     const cx = p.x + p.w / 2, cy = p.y + p.h / 2;
     const tfm = [
       p.rotation ? `rotate(${p.rotation} ${cx} ${cy})` : '',
@@ -72,18 +94,16 @@ async function buildAssembledSvg(parts) {
       p.flipY    ? `translate(0 ${2 * cy}) scale(1 -1)` : '',
     ].filter(Boolean).join(' ');
     const cl = p.clip?.l ?? 0, ct = p.clip?.t ?? 0, cr = p.clip?.r ?? 0, cb = p.clip?.b ?? 0;
-    const hasClip = cl > 0 || ct > 0 || cr > 0 || cb > 0;
-    const clipAttr = hasClip ? (() => {
-      const cid = `clip${i}`;
-      defs.push(`<clipPath id="${cid}"><rect x="${p.x + p.w * cl / 100}" y="${p.y + p.h * ct / 100}" width="${p.w * (1 - (cl + cr) / 100)}" height="${p.h * (1 - (ct + cb) / 100)}"/></clipPath>`);
-      return ` clip-path="url(#${cid})"`;
-    })() : '';
+    const cid = `clip${i}`;
+    defs.push(`<clipPath id="${cid}"><rect x="${p.x + p.w * cl / 100}" y="${p.y + p.h * ct / 100}" width="${p.w * (1 - (cl + cr) / 100)}" height="${p.h * (1 - (ct + cb) / 100)}"/></clipPath>`);
+    // Bake the live canvas's trim-to-content rendering into the exported SVG.
+    const rect = trimmedRect(trims[i], p.x, p.y, p.w, p.h);
     // Wrap in <g id="..."> so the Pose Editor can select each part by ID
     const partId = makePartId(p.customName || p.name, usedIds);
     const gTfm = tfm ? ` transform="${tfm}"` : '';
     return [
-      `  <g id="${partId}" inkscape:label="${partId}"${gTfm}>`,
-      `    <image x="${p.x}" y="${p.y}" width="${p.w}" height="${p.h}" href="${href}" preserveAspectRatio="xMidYMid meet"${clipAttr}/>`,
+      `  <g id="${partId}" inkscape:label="${partId}"${gTfm} clip-path="url(#${cid})">`,
+      `    <image x="${rect.x}" y="${rect.y}" width="${rect.w}" height="${rect.h}" href="${href}" preserveAspectRatio="xMidYMid meet"/>`,
       `  </g>`,
     ].join('\n');
   });
@@ -95,38 +115,89 @@ async function buildAssembledSvg(parts) {
   ].filter(Boolean).join('\n');
 }
 
-export default function CharacterCreator() {
+// Generic configurable canvas-based part assembler, used by FaceBuilder and DressBuilder.
+export default function PartAssembler({ title, libraryCategory, partTypes, onSave, nameLabel, savedCategory, expressionsCategory, enableFacePartAlignment }) {
   const [canvasParts, setCanvasParts]   = useState([]);
   const [selectedId, setSelectedId]     = useState(null);
   const [selectedIds, setSelectedIds]   = useState(new Set());
-  const [charName, setCharName]         = useState('');
+  const [itemName, setItemName]         = useState('');
   const [saving, setSaving]             = useState(false);
   const [savedMsg, setSavedMsg]         = useState('');
   const [uploadFiles, setUploadFiles]   = useState([]);
+  const [uploadType, setUploadType]     = useState(partTypes?.[0]?.id || '');
   const [uploading, setUploading]       = useState(false);
   const [uploadMsg, setUploadMsg]       = useState('');
   const [allAssets, setAllAssets]       = useState([]);
   const [loadingAssets, setLoadingAssets] = useState(false);
+  const [savedAssets, setSavedAssets]   = useState([]);
+  const [loadingSaved, setLoadingSaved] = useState(false);
+  const [loadingSavedId, setLoadingSavedId] = useState(null);
   const [searchQ, setSearchQ]           = useState('');
+  const [typeFilter, setTypeFilter]     = useState('all');
   const [zoom, setZoom]                 = useState(1);
   const [editingName, setEditingName]   = useState(null);
   const [editNameVal, setEditNameVal]   = useState('');
   const [showCrop, setShowCrop]         = useState(false);
+  const [expressions, setExpressions]   = useState([]);
+  const [loadingExpr, setLoadingExpr]   = useState(false);
+  const [exprName, setExprName]         = useState('');
+  const [savingExpr, setSavingExpr]     = useState(false);
+  const [applyingExprId, setApplyingExprId] = useState(null);
+  const [loadedFaceAssetId, setLoadedFaceAssetId] = useState(null);
+  const [savingAlignment, setSavingAlignment] = useState(false);
 
   const dragRef      = useRef(null);
   const canvasRef    = useRef(null);
+  const wrapperRef   = useRef(null);
   const historyRef   = useRef({ stack: [[]], idx: 0 });
   const zoomRef      = useRef(1);
+  const userZoomedRef = useRef(false);
   const selIdRef     = useRef(null);
   const trimCacheRef = useRef({});   // filePath → trim rect
   const [trimVersion, setTrimVersion] = useState(0); // bumped to trigger rerender after trim computed
   zoomRef.current   = zoom;
   selIdRef.current  = selectedId;
 
-  useEffect(() => {
-    setLoadingAssets(true);
-    getAssets({ category: 'BODY_PART' }).then(setAllAssets).catch(() => setAllAssets([])).finally(() => setLoadingAssets(false));
+  // Auto-fit the canvas to the available wrapper space until the user manually zooms.
+  const fitZoom = useCallback(() => {
+    const el = wrapperRef.current;
+    if (!el) return;
+    const fit = Math.min(el.clientWidth / CANVAS_W, el.clientHeight / CANVAS_H) * 0.96;
+    setZoom(Math.max(0.4, Math.min(2, Math.round(fit * 100) / 100)));
   }, []);
+
+  useEffect(() => {
+    fitZoom();
+    const el = wrapperRef.current;
+    if (!el) return;
+    const onResize = () => { if (!userZoomedRef.current) fitZoom(); };
+    const ro = new ResizeObserver(onResize);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [fitZoom]);
+
+  const refreshAssets = useCallback(() => {
+    setLoadingAssets(true);
+    getAssets({ category: libraryCategory }).then(setAllAssets).catch(() => setAllAssets([])).finally(() => setLoadingAssets(false));
+  }, [libraryCategory]);
+
+  const refreshSaved = useCallback(() => {
+    if (!savedCategory) return;
+    setLoadingSaved(true);
+    getAssets({ category: savedCategory }).then(setSavedAssets).catch(() => setSavedAssets([])).finally(() => setLoadingSaved(false));
+  }, [savedCategory]);
+
+  const refreshExpressions = useCallback(() => {
+    if (!expressionsCategory) return;
+    setLoadingExpr(true);
+    getAssets({ category: expressionsCategory }).then(setExpressions).catch(() => setExpressions([])).finally(() => setLoadingExpr(false));
+  }, [expressionsCategory]);
+
+  useEffect(() => {
+    refreshAssets();
+    refreshSaved();
+    refreshExpressions();
+  }, [refreshAssets, refreshSaved, refreshExpressions]);
 
   // ── History helpers ──
   const commitParts = useCallback((updater) => {
@@ -159,7 +230,7 @@ export default function CharacterCreator() {
   // ── Keyboard shortcuts ──
   useEffect(() => {
     const handler = (e) => {
-      if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+      if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.isContentEditable) return;
       if (e.key === 'Delete' || e.key === 'Backspace') {
         const id = selIdRef.current;
         if (id) { commitParts((prev) => prev.filter((p) => p.id !== id)); setSelectedId(null); }
@@ -181,30 +252,137 @@ export default function CharacterCreator() {
         const name = file.name.replace(/\.[^.]+$/, '');
         const fd = new FormData();
         fd.append('file', file); fd.append('name', name);
-        fd.append('category', 'BODY_PART'); fd.append('tags', name);
+        fd.append('category', libraryCategory);
+        const tags = uploadType ? `${name},${uploadType}` : name;
+        fd.append('tags', tags);
         await uploadAsset(fd); ok++;
       } catch { /* continue */ }
     }
     setUploadFiles([]);
     setUploadMsg(`Uploaded ${ok}/${uploadFiles.length} file${uploadFiles.length > 1 ? 's' : ''}`);
-    getAssets({ category: 'BODY_PART' }).then(setAllAssets);
+    refreshAssets();
     setTimeout(() => setUploadMsg(''), 4000);
     setUploading(false);
   };
 
   // ── Canvas add ──
-  const addToCanvas = (asset) => {
+  // If part(s) are selected, clicking a library asset swaps it into those parts'
+  // position/size/rotation/etc instead of adding a new part. With multiple parts
+  // selected, every selected part gets the new image (each keeps its own placement).
+  const addToCanvas = async (asset) => {
+    const selId = selIdRef.current;
+
+    // For hairstyle/nose parts, check if this face+part pair has a saved alignment
+    // and apply its position/size/rotation instead of the default placement.
+    let alignment = null;
+    const partType = alignablePartType(asset);
+    if (enableFacePartAlignment && loadedFaceAssetId && partType) {
+      try { alignment = await getFacePartAlignment(loadedFaceAssetId, alignmentAssetId(partType, asset.id), partType); } catch { /* ignore */ }
+    }
+
+    if (selectedIds.size > 1) {
+      commitParts((prev) => prev.map((p) => selectedIds.has(p.id)
+        ? { ...p, assetId: asset.id, filePath: asset.filePath, name: asset.name, customName: '',
+            ...(alignment ? { x: alignment.x, y: alignment.y, w: alignment.w, h: alignment.h, rotation: alignment.rotation, flipX: alignment.flipX, flipY: alignment.flipY } : {}) }
+        : p));
+      return;
+    }
+    if (selId) {
+      commitParts((prev) => prev.map((p) => p.id === selId
+        ? { ...p, assetId: asset.id, filePath: asset.filePath, name: asset.name, customName: '',
+            ...(alignment ? { x: alignment.x, y: alignment.y, w: alignment.w, h: alignment.h, rotation: alignment.rotation, flipX: alignment.flipX, flipY: alignment.flipY } : {}) }
+        : p));
+      return;
+    }
     commitParts((prev) => {
       const maxZ = prev.length ? Math.max(...prev.map((p) => p.zIndex)) + 1 : 50;
       return [...prev, {
         id: genId(), assetId: asset.id, filePath: asset.filePath,
         name: asset.name, customName: '',
-        x: Math.round(CANVAS_W / 2 - 50), y: Math.round(CANVAS_H / 2 - 50),
-        w: 100, h: 100, rotation: 0, zIndex: maxZ,
-        flipX: false, flipY: false, groupId: null,
+        x: alignment ? alignment.x : Math.round(CANVAS_W / 2 - 50),
+        y: alignment ? alignment.y : Math.round(CANVAS_H / 2 - 50),
+        w: alignment ? alignment.w : 100,
+        h: alignment ? alignment.h : 100,
+        rotation: alignment ? alignment.rotation : 0, zIndex: maxZ,
+        flipX: alignment ? alignment.flipX : false, flipY: alignment ? alignment.flipY : false, groupId: null,
         clip: { t: 0, r: 0, b: 0, l: 0 },
       }];
     });
+  };
+
+  // ── Expressions (nose-anchored eye+mouth combos) ──
+  // Save the 3 currently-selected parts (nose, eye, mouth — identified by layer name)
+  // as a reusable EXPRESSION asset. Eye/mouth are stored as offsets from the nose so
+  // their position can be reconstructed on any face.
+  const saveExpression = async () => {
+    if (selectedIds.size !== 3 || !exprName.trim()) return;
+    setSavingExpr(true); setSavedMsg('');
+    try {
+      const parts = canvasParts.filter((p) => selectedIds.has(p.id));
+      const nose  = parts.find((p) => classifyPartType(p) === 'nose');
+      const eye   = parts.find((p) => classifyPartType(p) === 'eye');
+      const mouth = parts.find((p) => classifyPartType(p) === 'mouth');
+      if (!nose || !eye || !mouth) {
+        setSavedMsg('Name the layers "nose", "eye" and "mouth" so they can be identified');
+        return;
+      }
+      const svg = await buildAssembledSvg([eye, mouth], trimCacheRef.current);
+      const layout = [
+        { ...eye,   type: 'eye',   dx: eye.x - nose.x,   dy: eye.y - nose.y },
+        { ...mouth, type: 'mouth', dx: mouth.x - nose.x, dy: mouth.y - nose.y },
+      ].map(({ id, ...rest }) => rest);
+      await saveAssembledExpression(exprName.trim(), svg, layout);
+      setExprName('');
+      setSavedMsg('Saved expression');
+      setTimeout(() => setSavedMsg(''), 3000);
+      refreshExpressions();
+    } catch (err) {
+      setSavedMsg(err?.response?.data?.error || 'Failed to save expression');
+    } finally {
+      setSavingExpr(false);
+    }
+  };
+
+  // Apply a saved expression onto the 3 currently-selected parts (nose, eye, mouth).
+  // Eye/mouth are repositioned and resized using the target face's nose as the anchor,
+  // and their images are swapped in from the saved expression.
+  const applyExpression = async (asset) => {
+    if (selectedIds.size !== 3 || !asset.layoutPath) return;
+    setApplyingExprId(asset.id);
+    try {
+      const layout = await fetch(asset.layoutPath).then((r) => r.json());
+      if (!Array.isArray(layout) || layout.length < 2) return;
+      const exprEye   = layout.find((p) => p.type === 'eye');
+      const exprMouth = layout.find((p) => p.type === 'mouth');
+      if (!exprEye || !exprMouth) return;
+
+      const parts = canvasParts.filter((p) => selectedIds.has(p.id));
+      const nose  = parts.find((p) => classifyPartType(p) === 'nose');
+      const eye   = parts.find((p) => classifyPartType(p) === 'eye');
+      const mouth = parts.find((p) => classifyPartType(p) === 'mouth');
+      if (!nose || !eye || !mouth) {
+        setSavedMsg('Name the layers "nose", "eye" and "mouth" so they can be identified');
+        return;
+      }
+
+      commitParts((prev) => prev.map((p) => {
+        if (p.id === eye.id) {
+          return { ...p, assetId: exprEye.assetId, filePath: exprEye.filePath, name: exprEye.name, customName: '',
+            x: nose.x + exprEye.dx, y: nose.y + exprEye.dy, w: exprEye.w, h: exprEye.h,
+            rotation: exprEye.rotation, flipX: exprEye.flipX, flipY: exprEye.flipY };
+        }
+        if (p.id === mouth.id) {
+          return { ...p, assetId: exprMouth.assetId, filePath: exprMouth.filePath, name: exprMouth.name, customName: '',
+            x: nose.x + exprMouth.dx, y: nose.y + exprMouth.dy, w: exprMouth.w, h: exprMouth.h,
+            rotation: exprMouth.rotation, flipX: exprMouth.flipX, flipY: exprMouth.flipY };
+        }
+        return p;
+      }));
+    } catch {
+      setSavedMsg('Failed to apply expression');
+    } finally {
+      setApplyingExprId(null);
+    }
   };
 
   // ── Drag ──
@@ -238,6 +416,15 @@ export default function CharacterCreator() {
         return p;
       })
     );
+  }, []);
+
+  const handleWheelZoom = useCallback((e) => {
+    e.preventDefault();
+    userZoomedRef.current = true;
+    setZoom((z) => {
+      const next = z - e.deltaY * 0.001;
+      return Math.min(2, Math.max(0.4, Math.round(next * 100) / 100));
+    });
   }, []);
 
   const handleMouseUp = useCallback(() => {
@@ -312,30 +499,96 @@ export default function CharacterCreator() {
 
   // ── Save ──
   const handleSave = async () => {
-    if (!charName.trim() || !canvasParts.length) return;
+    if (!itemName.trim() || !canvasParts.length) return;
     setSaving(true); setSavedMsg('');
     try {
-      const svg = await buildAssembledSvg(canvasParts);
-      const res = await saveAssembledCharacter(charName.trim(), svg);
+      const svg = await buildAssembledSvg(canvasParts, trimCacheRef.current);
+      // Layout: scaling, position, and layer-order data so the canvas can be recreated later.
+      const layout = canvasParts.map(({ id, ...rest }) => rest);
+      const res = await onSave(itemName.trim(), svg, layout);
       setSavedMsg(`Saved as "${res.name}"`);
       setTimeout(() => setSavedMsg(''), 5000);
+      refreshSaved();
     } catch (err) {
       setSavedMsg(err?.response?.data?.error || 'Save failed');
     } finally { setSaving(false); }
   };
 
+  // Reload a previously saved face/dress onto the canvas from its stored layout.
+  const loadSavedAsset = async (asset) => {
+    if (!asset.layoutPath) return;
+    setLoadingSavedId(asset.id);
+    try {
+      const layout = await fetch(asset.layoutPath).then((r) => r.json());
+      let parts = layout.map((part) => ({ ...part, id: genId() }));
+
+      // Override any alignable part's (hairstyle/nose/eye/mouth) position with its calibrated alignment for this face.
+      if (enableFacePartAlignment) {
+        parts = await Promise.all(parts.map(async (part) => {
+          const partType = alignablePartType(part);
+          if (!partType || !part.assetId) return part;
+          try {
+            const alignment = await getFacePartAlignment(asset.id, alignmentAssetId(partType, part.assetId), partType);
+            if (!alignment) return part;
+            return { ...part, x: alignment.x, y: alignment.y, w: alignment.w, h: alignment.h,
+              rotation: alignment.rotation, flipX: alignment.flipX, flipY: alignment.flipY };
+          } catch {
+            return part;
+          }
+        }));
+      }
+
+      commitParts(parts);
+      setSelectedId(null);
+      setSelectedIds(new Set());
+      setItemName(asset.name);
+      if (enableFacePartAlignment) setLoadedFaceAssetId(asset.id);
+    } catch {
+      setSavedMsg('Failed to load saved layout');
+    } finally {
+      setLoadingSavedId(null);
+    }
+  };
+
+  // Save the currently selected part's position/size/rotation as the
+  // remembered alignment for (loaded face, part asset, part type).
+  const saveFacePartAlignmentForSelected = async () => {
+    const part = canvasParts.find((p) => p.id === selIdRef.current);
+    const partType = part ? alignablePartType(part) : null;
+    if (!part || !loadedFaceAssetId || !part.assetId || !partType) return;
+    setSavingAlignment(true);
+    try {
+      await saveFacePartAlignment({
+        faceAssetId: loadedFaceAssetId,
+        partAssetId: alignmentAssetId(partType, part.assetId),
+        partType,
+        x: part.x, y: part.y, w: part.w, h: part.h,
+        rotation: part.rotation || 0, flipX: !!part.flipX, flipY: !!part.flipY,
+      });
+      setSavedMsg(`Saved ${partType} position`);
+      setTimeout(() => setSavedMsg(''), 3000);
+    } catch (err) {
+      setSavedMsg(err?.response?.data?.error || 'Failed to save position');
+    } finally {
+      setSavingAlignment(false);
+    }
+  };
+
   // Called when a canvas part image loads — computes trim rect once per filePath.
   const handlePartImgLoad = useCallback((e, filePath) => {
-    if (trimCacheRef.current[filePath]) return;
-    const trim = findTrimRect(e.target);
-    if (trim) { trimCacheRef.current[filePath] = trim; setTrimVersion((v) => v + 1); }
+    if (filePath in trimCacheRef.current) return;
+    const trim = computeTrimRect(e.target);
+    trimCacheRef.current[filePath] = trim;
+    setTrimVersion((v) => v + 1);
   }, []);
 
   const selectedPart = canvasParts.find((p) => p.id === selectedId);
   const sortedByZ    = [...canvasParts].sort((a, b) => b.zIndex - a.zIndex);
-  const filteredAssets = searchQ.trim()
-    ? allAssets.filter((a) => a.name.toLowerCase().includes(searchQ.toLowerCase()))
-    : allAssets;
+  const filteredAssets = allAssets.filter((a) => {
+    if (searchQ.trim() && !a.name.toLowerCase().includes(searchQ.toLowerCase())) return false;
+    if (typeFilter !== 'all' && !a.tags?.includes(typeFilter)) return false;
+    return true;
+  });
   const canUndo = historyRef.current.idx > 0;
   const canRedo = historyRef.current.idx < historyRef.current.stack.length - 1;
 
@@ -356,13 +609,21 @@ export default function CharacterCreator() {
 
         {/* Upload */}
         <div className="card" style={{ padding: 14 }}>
-          <p style={s.sectionTitle}>Upload Body Parts</p>
+          <p style={s.sectionTitle}>Upload Parts</p>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 7, marginTop: 8 }}>
+            {!!partTypes?.length && (
+              <select className="input" value={uploadType} onChange={(e) => setUploadType(e.target.value)}
+                style={{ fontSize: 12 }}>
+                {partTypes.map((t) => (
+                  <option key={t.id} value={t.id}>{t.label}</option>
+                ))}
+              </select>
+            )}
             <label style={{ ...s.fileLabel, background: uploadFiles.length ? '#FFF7ED' : '#F9FAFB', borderColor: uploadFiles.length ? ORANGE : '#E5E7EB' }}>
               {uploadFiles.length
                 ? `${uploadFiles.length} file${uploadFiles.length > 1 ? 's' : ''} selected`
-                : 'Choose SVG files…'}
-              <input type="file" accept=".svg" multiple style={{ display: 'none' }}
+                : 'Choose SVG/PNG/JPG files…'}
+              <input type="file" accept=".svg,.png,.jpg,.jpeg,.webp" multiple style={{ display: 'none' }}
                 onChange={(e) => setUploadFiles(Array.from(e.target.files))} />
             </label>
             {uploadFiles.length > 0 && (
@@ -388,9 +649,28 @@ export default function CharacterCreator() {
         <div className="card" style={{ padding: 14 }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
             <p style={s.sectionTitle}>Library <span style={{ fontWeight: 400, color: '#9CA3AF' }}>({filteredAssets.length})</span></p>
-            <button onClick={() => { setLoadingAssets(true); getAssets({ category: 'BODY_PART' }).then(setAllAssets).finally(() => setLoadingAssets(false)); }}
+            <button onClick={refreshAssets}
               style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 14, color: '#9CA3AF' }} title="Refresh">↻</button>
           </div>
+          {selectedIds.size > 1 ? (
+            <p style={{ fontSize: 11, color: ORANGE, marginTop: -4, marginBottom: 8 }}>
+              Click a part to swap {selectedIds.size} selected parts
+            </p>
+          ) : selectedPart && (
+            <p style={{ fontSize: 11, color: ORANGE, marginTop: -4, marginBottom: 8 }}>
+              Click a part to swap "{selectedPart.customName || selectedPart.name}"
+            </p>
+          )}
+          {!!partTypes?.length && (
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 8 }}>
+              <button onClick={() => setTypeFilter('all')}
+                style={{ ...s.chip, ...(typeFilter === 'all' ? s.chipActive : {}) }}>All</button>
+              {partTypes.map((t) => (
+                <button key={t.id} onClick={() => setTypeFilter(t.id)}
+                  style={{ ...s.chip, ...(typeFilter === t.id ? s.chipActive : {}) }}>{t.label}</button>
+              ))}
+            </div>
+          )}
           <input className="input" placeholder="Search…" value={searchQ} onChange={(e) => setSearchQ(e.target.value)}
             style={{ fontSize: 12, marginBottom: 8, width: '100%', boxSizing: 'border-box' }} />
           {loadingAssets ? (
@@ -409,6 +689,76 @@ export default function CharacterCreator() {
             </div>
           )}
         </div>
+
+        {/* Saved (recreate layout on canvas) */}
+        {!!savedCategory && (
+          <div className="card" style={{ padding: 14 }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+              <p style={s.sectionTitle}>Saved <span style={{ fontWeight: 400, color: '#9CA3AF' }}>({savedAssets.length})</span></p>
+              <button onClick={refreshSaved}
+                style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 14, color: '#9CA3AF' }} title="Refresh">↻</button>
+            </div>
+            {loadingSaved ? (
+              <p style={s.hint}>Loading…</p>
+            ) : savedAssets.length === 0 ? (
+              <p style={s.hint}>No saved items yet.</p>
+            ) : (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 6, maxHeight: 200, overflowY: 'auto' }}>
+                {savedAssets.map((asset) => (
+                  <button key={asset.id} title={`Load "${asset.name}"`} onClick={() => loadSavedAsset(asset)}
+                    disabled={!asset.layoutPath || loadingSavedId === asset.id} style={s.assetThumb}>
+                    <img src={asset.filePath} alt={asset.name}
+                      style={{ width: 60, height: 60, objectFit: 'contain', display: 'block', opacity: loadingSavedId === asset.id ? 0.5 : 1 }} />
+                    <p style={s.thumbLabel}>{asset.name}</p>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Expressions (eye+mouth combos) */}
+        {!!expressionsCategory && (
+          <div className="card" style={{ padding: 14 }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+              <p style={s.sectionTitle}>Expressions <span style={{ fontWeight: 400, color: '#9CA3AF' }}>({expressions.length})</span></p>
+              <button onClick={refreshExpressions}
+                style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 14, color: '#9CA3AF' }} title="Refresh">↻</button>
+            </div>
+            {selectedIds.size === 3 ? (
+              <div style={{ display: 'flex', gap: 6, marginBottom: 8 }}>
+                <input className="input" placeholder="Expression name…" value={exprName}
+                  onChange={(e) => setExprName(e.target.value)} style={{ fontSize: 12, flex: 1 }} />
+                <button className="btn btn-primary btn-sm" onClick={saveExpression}
+                  disabled={savingExpr || !exprName.trim()} style={{ fontSize: 12, flexShrink: 0 }}>
+                  {savingExpr ? 'Saving…' : 'Save'}
+                </button>
+              </div>
+            ) : (
+              <p style={{ ...s.hint, marginTop: -4, marginBottom: 8 }}>
+                Shift-select the nose, eye + mouth (3 parts, named accordingly) to save or apply an expression
+              </p>
+            )}
+            {loadingExpr ? (
+              <p style={s.hint}>Loading…</p>
+            ) : expressions.length === 0 ? (
+              <p style={s.hint}>No expressions saved yet.</p>
+            ) : (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 6, maxHeight: 200, overflowY: 'auto' }}>
+                {expressions.map((asset) => (
+                  <button key={asset.id} title={selectedIds.size === 3 ? `Apply "${asset.name}"` : asset.name}
+                    onClick={() => applyExpression(asset)}
+                    disabled={selectedIds.size !== 3 || !asset.layoutPath || applyingExprId === asset.id}
+                    style={{ ...s.assetThumb, opacity: selectedIds.size === 3 ? 1 : 0.5 }}>
+                    <img src={asset.filePath} alt={asset.name}
+                      style={{ width: 60, height: 60, objectFit: 'contain', display: 'block', opacity: applyingExprId === asset.id ? 0.5 : 1 }} />
+                    <p style={s.thumbLabel}>{asset.name}</p>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {/* ── CENTER: Canvas ── */}
@@ -422,19 +772,19 @@ export default function CharacterCreator() {
           <div style={s.tbDivider} />
 
           {/* Zoom */}
-          <span style={{ fontSize: 11, color: '#9CA3AF', whiteSpace: 'nowrap' }}>Zoom</span>
-          <input type="range" min={0.4} max={2} step={0.05} value={zoom}
-            onChange={(e) => setZoom(Number(e.target.value))}
-            style={{ width: 80, accentColor: ORANGE }} />
-          <span style={{ fontSize: 11, fontWeight: 700, color: '#374151', minWidth: 34 }}>{Math.round(zoom * 100)}%</span>
+          <button onClick={() => { userZoomedRef.current = true; setZoom((z) => Math.max(0.4, Math.round((z - 0.1) * 20) / 20)); }} title="Zoom out" style={s.iconBtn}>−</button>
+          <span style={{ fontSize: 11, fontWeight: 700, color: '#374151', minWidth: 34, textAlign: 'center' }}>{Math.round(zoom * 100)}%</span>
+          <button onClick={() => { userZoomedRef.current = true; setZoom((z) => Math.min(2, Math.round((z + 0.1) * 20) / 20)); }} title="Zoom in" style={s.iconBtn}>+</button>
+          <button onClick={() => { userZoomedRef.current = false; fitZoom(); }} title="Fit to screen" style={{ ...s.iconBtn, width: 'auto', padding: '0 8px', fontSize: 11 }}>Fit</button>
+          <span style={{ fontSize: 10, color: '#9CA3AF', whiteSpace: 'nowrap' }}>Scroll to zoom</span>
           <div style={s.tbDivider} />
 
-          <span style={{ fontWeight: 700, fontSize: 14, color: '#111827' }}>Character Creator</span>
+          <span style={{ fontWeight: 700, fontSize: 14, color: '#111827' }}>{title}</span>
           <div style={{ flex: 1 }} />
-          <input className="input" placeholder="Character name…" value={charName}
-            onChange={(e) => setCharName(e.target.value)} style={{ width: 160, fontSize: 13 }} />
+          <input className="input" placeholder={nameLabel} value={itemName}
+            onChange={(e) => setItemName(e.target.value)} style={{ width: 160, fontSize: 13 }} />
           <button className="btn btn-primary" onClick={handleSave}
-            disabled={saving || !charName.trim() || !canvasParts.length} style={{ flexShrink: 0, fontSize: 13 }}>
+            disabled={saving || !itemName.trim() || !canvasParts.length} style={{ flexShrink: 0, fontSize: 13 }}>
             {saving ? 'Saving…' : 'Save'}
           </button>
         </div>
@@ -449,8 +799,10 @@ export default function CharacterCreator() {
         )}
 
         {/* Canvas wrapper with zoom */}
-        <div className="card" style={{ padding: 12, overflow: 'auto' }}>
-          <div style={{ transform: `scale(${zoom})`, transformOrigin: 'top left', width: CANVAS_W, height: CANVAS_H }}>
+        <div className="card" ref={wrapperRef} onWheel={handleWheelZoom}
+          style={{ padding: 0, overflow: 'auto', display: 'flex', alignItems: 'center', justifyContent: 'center',
+            height: 'calc(100vh - 230px)', minHeight: 420, background: '#EEF1F5' }}>
+          <div style={{ transform: `scale(${zoom})`, transformOrigin: 'center center', width: CANVAS_W, height: CANVAS_H, flexShrink: 0 }}>
             <div ref={canvasRef}
               style={{ position: 'relative', width: CANVAS_W, height: CANVAS_H,
                 background: '#F8FAFC', border: '2px dashed #E5E7EB', borderRadius: 10, overflow: 'hidden' }}
@@ -461,13 +813,7 @@ export default function CharacterCreator() {
               <svg style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }} width={CANVAS_W} height={CANVAS_H}>
                 <line x1={CANVAS_W/2} y1="0" x2={CANVAS_W/2} y2={CANVAS_H} stroke="#E5E7EB" strokeWidth="1" strokeDasharray="5 4"/>
                 <line x1="0" y1={CANVAS_H/2} x2={CANVAS_W} y2={CANVAS_H/2} stroke="#E5E7EB" strokeWidth="1" strokeDasharray="5 4"/>
-                <rect x="120" y="10"  width="140" height="130" rx="6" fill="none" stroke="#E5E7EB" strokeWidth="1" strokeDasharray="3 3"/>
-                <rect x="100" y="150" width="180" height="190" rx="6" fill="none" stroke="#E5E7EB" strokeWidth="1" strokeDasharray="3 3"/>
-                <rect x="100" y="350" width="180" height="180" rx="6" fill="none" stroke="#E5E7EB" strokeWidth="1" strokeDasharray="3 3"/>
               </svg>
-              <span style={{ position:'absolute', left:4, top:28,   fontSize:9, color:'#D1D5DB', pointerEvents:'none', userSelect:'none' }}>HEAD</span>
-              <span style={{ position:'absolute', left:4, top:228,  fontSize:9, color:'#D1D5DB', pointerEvents:'none', userSelect:'none' }}>BODY</span>
-              <span style={{ position:'absolute', left:4, top:420,  fontSize:9, color:'#D1D5DB', pointerEvents:'none', userSelect:'none' }}>LEGS</span>
 
               {[...canvasParts].sort((a, b) => a.zIndex - b.zIndex).map((part) => {
                 const isSel   = selectedId === part.id;
@@ -480,14 +826,8 @@ export default function CharacterCreator() {
                 const trim = trimCacheRef.current[part.filePath];
                 let imgStyle;
                 if (trim) {
-                  const { minX, minY, maxX, maxY, nw, nh } = trim;
-                  const cw = maxX - minX, ch = maxY - minY;
-                  const scale = Math.min(100 / cw, 100 / ch);
-                  const imgW = nw * scale, imgH = nh * scale;
-                  const contentW = cw * scale, contentH = ch * scale;
-                  const left = -(minX * scale) + (100 - contentW) / 2;
-                  const top  = -(minY * scale) + (100 - contentH) / 2;
-                  imgStyle = { position: 'absolute', width: `${imgW}%`, height: `${imgH}%`, left: `${left}%`, top: `${top}%`, pointerEvents: 'none' };
+                  const r = trimmedRect(trim, 0, 0, 100, 100);
+                  imgStyle = { position: 'absolute', width: `${r.w}%`, height: `${r.h}%`, left: `${r.x}%`, top: `${r.y}%`, pointerEvents: 'none' };
                 } else {
                   imgStyle = { width: '100%', height: '100%', objectFit: 'contain', display: 'block', pointerEvents: 'none' };
                 }
@@ -573,6 +913,24 @@ export default function CharacterCreator() {
                 </button>
               </div>
 
+              {/* Center align buttons */}
+              <div style={{ display: 'flex', gap: 6 }}>
+                <button onClick={() => updatePart(selectedPart.id, { x: Math.round((CANVAS_W - selectedPart.w) / 2) })}
+                  style={{ ...s.ctrlBtn, flex: 1 }}>
+                  ↔ Center H
+                </button>
+                <button onClick={() => updatePart(selectedPart.id, { y: Math.round((CANVAS_H - selectedPart.h) / 2) })}
+                  style={{ ...s.ctrlBtn, flex: 1 }}>
+                  ↕ Center V
+                </button>
+              </div>
+              <button onClick={() => updatePart(selectedPart.id, {
+                x: Math.round((CANVAS_W - selectedPart.w) / 2),
+                y: Math.round((CANVAS_H - selectedPart.h) / 2),
+              })} style={s.ctrlBtn}>
+                ⊹ Center Both
+              </button>
+
               <SliderRow label="X" value={Math.round(selectedPart.x)} min={-120} max={CANVAS_W + 40}
                 onChange={(v) => updatePart(selectedPart.id, { x: v })} />
               <SliderRow label="Y" value={Math.round(selectedPart.y)} min={-120} max={CANVAS_H + 40}
@@ -610,6 +968,14 @@ export default function CharacterCreator() {
                   <button onClick={() => ungroupPart(selectedPart.id)}
                     style={{ background: 'none', border: 'none', color: '#9CA3AF', cursor: 'pointer', fontSize: 11, padding: 0 }}>✕</button>
                 </div>
+              )}
+
+              {enableFacePartAlignment && loadedFaceAssetId && alignablePartType(selectedPart) && (
+                <button onClick={saveFacePartAlignmentForSelected} disabled={savingAlignment}
+                  style={{ padding: '6px', border: '1.5px solid #BFDBFE', borderRadius: 8,
+                    background: '#EFF6FF', color: '#1D4ED8', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
+                  {savingAlignment ? 'Saving…' : `📌 Save ${ALIGNABLE_PART_LABELS[alignablePartType(selectedPart)]} Position`}
+                </button>
               )}
 
               <button onClick={() => removePart(selectedPart.id)}
@@ -700,11 +1066,17 @@ export default function CharacterCreator() {
 }
 
 function SliderRow({ label, value, min, max, onChange, unit = '' }) {
+  const clamp = (v) => Math.min(max, Math.max(min, v));
   return (
     <div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 2 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 2, gap: 6 }}>
         <span style={{ fontSize: 11, color: '#6B7280' }}>{label}</span>
-        <span style={{ fontSize: 11, fontWeight: 600, color: '#374151' }}>{value}{unit}</span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+          <input type="number" min={min} max={max} value={value}
+            onChange={(e) => { const v = Number(e.target.value); if (!Number.isNaN(v)) onChange(clamp(v)); }}
+            style={{ width: 48, fontSize: 11, fontWeight: 600, color: '#374151', border: '1px solid #E5E7EB', borderRadius: 5, padding: '1px 4px', textAlign: 'right' }} />
+          {unit && <span style={{ fontSize: 11, color: '#9CA3AF' }}>{unit}</span>}
+        </div>
       </div>
       <input type="range" min={min} max={max} value={value}
         onChange={(e) => onChange(Number(e.target.value))}
@@ -723,4 +1095,6 @@ const s = {
   ctrlBtn:      { display: 'flex', alignItems: 'center', gap: 5, padding: '5px 8px', border: '1.5px solid #E5E7EB', borderRadius: 8, background: '#F9FAFB', cursor: 'pointer', fontSize: 11, fontWeight: 600, color: '#374151' },
   arrowBtn:     { background: 'none', border: 'none', cursor: 'pointer', fontSize: 9, color: '#9CA3AF', padding: '1px 2px', lineHeight: 1 },
   tbDivider:    { width: 1, height: 20, background: '#E5E7EB', flexShrink: 0 },
+  chip:         { fontSize: 10, fontWeight: 600, color: '#6B7280', background: '#F9FAFB', border: '1.5px solid #E5E7EB', borderRadius: 12, padding: '2px 8px', cursor: 'pointer' },
+  chipActive:   { background: '#FFF7ED', borderColor: ORANGE, color: ORANGE },
 };

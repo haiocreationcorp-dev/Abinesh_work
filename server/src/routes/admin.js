@@ -20,6 +20,10 @@ const CATEGORY_TO_DIR = {
   BUBBLE: 'bubbles',
   SOUND: 'sounds',
   BODY_PART: 'body-parts',
+  FACE_PART: 'face-parts',
+  FACE: 'faces',
+  DRESS_PART: 'dress-parts',
+  DRESS: 'dresses',
 };
 
 const ALLOWED_EXTS = ['.svg', '.png', '.jpg', '.jpeg', '.gif', '.webp', '.mp3', '.wav', '.ogg', '.m4a'];
@@ -88,7 +92,7 @@ async function maybeToWebP(buffer, originalName, category) {
       .toBuffer();
     return { buffer: converted, ext: '.webp' };
   }
-  if (category === 'CHARACTER') {
+  if (['CHARACTER', 'FACE_PART', 'FACE', 'DRESS_PART', 'DRESS'].includes(category)) {
     const converted = await sharp(buffer).webp({ quality: 82 }).toBuffer();
     return { buffer: converted, ext: '.webp' };
   }
@@ -270,25 +274,71 @@ router.post('/assets/upload-folder', adminAuth, uploadBatch.array('files', 500),
   }
 });
 
-// POST /api/admin/assets/save-pose  — saves a posed SVG string as a new CHARACTER asset
-router.post('/assets/save-pose', adminAuth, express.json({ limit: '5mb' }), async (req, res) => {
+// POST /api/admin/faces/assemble — saves assembled SVG (+ layout) as a FACE asset
+router.post('/faces/assemble', adminAuth, async (req, res) => {
   try {
-    const { name, svgContent } = req.body;
+    const { name, svgContent, layout } = req.body;
     if (!name || !svgContent) return res.status(400).json({ error: 'name and svgContent required' });
 
-    const filename = `${uuidv4()}.svg`;
-    const dir = path.join(UPLOADS_ROOT, 'characters');
+    const id = uuidv4();
+    const dir = path.join(UPLOADS_ROOT, 'faces');
     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    const filename = `${id}.svg`;
     fs.writeFileSync(path.join(dir, filename), svgContent, 'utf8');
+
+    let layoutPath = null;
+    if (layout) {
+      const layoutFilename = `${id}.json`;
+      fs.writeFileSync(path.join(dir, layoutFilename), JSON.stringify(layout), 'utf8');
+      layoutPath = `/uploads/faces/${layoutFilename}`;
+    }
 
     const asset = await prisma.asset.create({
       data: {
         name,
-        category: 'CHARACTER',
-        tags: ['posed'],
+        category: 'FACE',
+        tags: ['assembled', 'face-builder'],
         filename,
-        filePath: `/uploads/characters/${filename}`,
+        filePath: `/uploads/faces/${filename}`,
         thumbnailPath: null,
+        layoutPath,
+      },
+    });
+    res.status(201).json(asset);
+  } catch (err) {
+    console.error('faces/assemble error:', err);
+    res.status(500).json({ error: err.message || 'Save failed' });
+  }
+});
+
+// POST /api/admin/dresses/assemble — saves assembled SVG (+ layout) as a DRESS asset
+router.post('/dresses/assemble', adminAuth, async (req, res) => {
+  try {
+    const { name, svgContent, layout } = req.body;
+    if (!name || !svgContent) return res.status(400).json({ error: 'name and svgContent required' });
+
+    const id = uuidv4();
+    const dir = path.join(UPLOADS_ROOT, 'dresses');
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    const filename = `${id}.svg`;
+    fs.writeFileSync(path.join(dir, filename), svgContent, 'utf8');
+
+    let layoutPath = null;
+    if (layout) {
+      const layoutFilename = `${id}.json`;
+      fs.writeFileSync(path.join(dir, layoutFilename), JSON.stringify(layout), 'utf8');
+      layoutPath = `/uploads/dresses/${layoutFilename}`;
+    }
+
+    const asset = await prisma.asset.create({
+      data: {
+        name,
+        category: 'DRESS',
+        tags: ['assembled', 'dress-builder'],
+        filename,
+        filePath: `/uploads/dresses/${filename}`,
+        thumbnailPath: null,
+        layoutPath,
       },
     });
     res.status(201).json(asset);
@@ -297,54 +347,68 @@ router.post('/assets/save-pose', adminAuth, express.json({ limit: '5mb' }), asyn
   }
 });
 
-// POST /api/admin/characters/assemble — saves assembled SVG as a CHARACTER asset
-router.post('/characters/assemble', adminAuth, express.json({ limit: '10mb' }), async (req, res) => {
+// POST /api/admin/expressions/assemble — saves a small eye+mouth combo (+ layout) as an EXPRESSION asset
+router.post('/expressions/assemble', adminAuth, async (req, res) => {
   try {
-    const { name, svgContent } = req.body;
+    const { name, svgContent, layout } = req.body;
     if (!name || !svgContent) return res.status(400).json({ error: 'name and svgContent required' });
 
-    const filename = `${uuidv4()}.svg`;
-    const dir = path.join(UPLOADS_ROOT, 'characters');
+    const id = uuidv4();
+    const dir = path.join(UPLOADS_ROOT, 'expressions');
     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    const filename = `${id}.svg`;
     fs.writeFileSync(path.join(dir, filename), svgContent, 'utf8');
+
+    let layoutPath = null;
+    if (layout) {
+      const layoutFilename = `${id}.json`;
+      fs.writeFileSync(path.join(dir, layoutFilename), JSON.stringify(layout), 'utf8');
+      layoutPath = `/uploads/expressions/${layoutFilename}`;
+    }
 
     const asset = await prisma.asset.create({
       data: {
         name,
-        category: 'CHARACTER',
-        tags: ['assembled', 'character-creator'],
+        category: 'EXPRESSION',
+        tags: ['assembled', 'expression-builder'],
         filename,
-        filePath: `/uploads/characters/${filename}`,
+        filePath: `/uploads/expressions/${filename}`,
         thumbnailPath: null,
+        layoutPath,
       },
     });
     res.status(201).json(asset);
   } catch (err) {
+    console.error('expressions/assemble error:', err);
     res.status(500).json({ error: err.message || 'Save failed' });
   }
 });
 
-// GET /api/admin/poses
-router.get('/poses', adminAuth, async (_req, res) => {
-  const poses = await prisma.pose.findMany({ orderBy: { createdAt: 'desc' } });
-  res.json(poses);
+// GET /api/admin/face-part-alignment?faceAssetId=&partAssetId=&partType= — fetch a saved alignment, if any
+router.get('/face-part-alignment', adminAuth, async (req, res) => {
+  const { faceAssetId, partAssetId, partType } = req.query;
+  if (!faceAssetId || !partAssetId || !partType) return res.status(400).json({ error: 'faceAssetId, partAssetId and partType required' });
+  const alignment = await prisma.facePartAlignment.findUnique({
+    where: { faceAssetId_partAssetId_partType: { faceAssetId, partAssetId, partType } },
+  });
+  res.json(alignment);
 });
 
-// POST /api/admin/poses
-router.post('/poses', adminAuth, express.json(), async (req, res) => {
-  const { name, rotations } = req.body;
-  if (!name || !rotations) return res.status(400).json({ error: 'name and rotations required' });
-  const pose = await prisma.pose.create({ data: { name, rotations } });
-  res.status(201).json(pose);
-});
-
-// DELETE /api/admin/poses/:id
-router.delete('/poses/:id', adminAuth, async (req, res) => {
+// POST /api/admin/face-part-alignment — save/update the alignment for a face+part pair
+router.post('/face-part-alignment', adminAuth, async (req, res) => {
   try {
-    await prisma.pose.delete({ where: { id: req.params.id } });
-    res.json({ ok: true });
-  } catch {
-    res.status(404).json({ error: 'Pose not found' });
+    const { faceAssetId, partAssetId, partType, x, y, w, h, rotation, flipX, flipY } = req.body;
+    if (!faceAssetId || !partAssetId || !partType) return res.status(400).json({ error: 'faceAssetId, partAssetId and partType required' });
+    const data = { x, y, w, h, rotation: rotation || 0, flipX: !!flipX, flipY: !!flipY };
+    const alignment = await prisma.facePartAlignment.upsert({
+      where: { faceAssetId_partAssetId_partType: { faceAssetId, partAssetId, partType } },
+      create: { faceAssetId, partAssetId, partType, ...data },
+      update: data,
+    });
+    res.status(201).json(alignment);
+  } catch (err) {
+    console.error('face-part-alignment save error:', err);
+    res.status(500).json({ error: err.message || 'Save failed' });
   }
 });
 

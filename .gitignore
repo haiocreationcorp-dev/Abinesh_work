@@ -6,7 +6,3 @@ build/
 .DS_Store
 *.log
 npm-debug.log*
-
-# Uploaded assets (keep folder structure)
-server/uploads/**/*
-!server/uploads/**/.gitkeep

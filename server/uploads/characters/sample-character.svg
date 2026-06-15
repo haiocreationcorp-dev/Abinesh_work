@@ -1,0 +1,56 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 220" width="100" height="220">
+  <!-- Sample BharathComic character with named body-part groups for skeletal posing -->
+
+  <!-- Shadow -->
+  <ellipse cx="50" cy="215" rx="22" ry="5" fill="rgba(0,0,0,0.12)"/>
+
+  <g id="right-foot">
+    <rect x="52" y="195" width="18" height="10" rx="4" fill="#5b3a1a"/>
+  </g>
+  <g id="left-foot">
+    <rect x="30" y="195" width="18" height="10" rx="4" fill="#5b3a1a"/>
+  </g>
+  <g id="right-leg">
+    <rect x="54" y="155" width="14" height="45" rx="6" fill="#d97706"/>
+  </g>
+  <g id="left-leg">
+    <rect x="32" y="155" width="14" height="45" rx="6" fill="#d97706"/>
+  </g>
+  <g id="right-hand">
+    <circle cx="90" cy="135" r="7" fill="#f5c59a"/>
+  </g>
+  <g id="left-hand">
+    <circle cx="10" cy="135" r="7" fill="#f5c59a"/>
+  </g>
+  <g id="right-arm">
+    <rect x="72" y="90" width="12" height="48" rx="6" fill="#3b82f6"/>
+  </g>
+  <g id="left-arm">
+    <rect x="16" y="90" width="12" height="48" rx="6" fill="#3b82f6"/>
+  </g>
+  <g id="torso">
+    <rect x="28" y="85" width="44" height="74" rx="10" fill="#3b82f6"/>
+    <!-- Shirt stripe -->
+    <rect x="28" y="105" width="44" height="6" fill="#2563eb"/>
+  </g>
+  <g id="neck">
+    <rect x="43" y="72" width="14" height="18" rx="4" fill="#f5c59a"/>
+  </g>
+  <g id="head">
+    <!-- Face -->
+    <circle cx="50" cy="52" r="28" fill="#f5c59a"/>
+    <!-- Hair -->
+    <ellipse cx="50" cy="26" rx="28" ry="12" fill="#1c1c1c"/>
+    <rect x="22" y="26" width="56" height="12" fill="#1c1c1c"/>
+    <!-- Eyes -->
+    <circle cx="40" cy="50" r="4" fill="#fff"/>
+    <circle cx="60" cy="50" r="4" fill="#fff"/>
+    <circle cx="41" cy="51" r="2.5" fill="#1c1c1c"/>
+    <circle cx="61" cy="51" r="2.5" fill="#1c1c1c"/>
+    <!-- Smile -->
+    <path d="M 40 63 Q 50 72 60 63" stroke="#c47a5a" stroke-width="2" fill="none" stroke-linecap="round"/>
+    <!-- Eyebrows -->
+    <line x1="36" y1="44" x2="45" y2="44" stroke="#1c1c1c" stroke-width="2" stroke-linecap="round"/>
+    <line x1="55" y1="44" x2="64" y2="44" stroke="#1c1c1c" stroke-width="2" stroke-linecap="round"/>
+  </g>
+</svg>

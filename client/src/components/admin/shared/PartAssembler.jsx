@@ -1,12 +1,19 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { getAssets, uploadAsset, saveAssembledExpression, getFacePartAlignment, saveFacePartAlignment } from '../../../api/assets.js';
 import { computeTrimRect, loadTrimRect, trimmedRect } from '../../../utils/trimRect.js';
+import { hexToRgb } from '../../../lighting/lightingEngine.js';
 
 const ORANGE = '#F97316';
 const CANVAS_W = 400;
 const CANVAS_H = 600;
 const MAX_HISTORY = 50;
 const GROUP_COLORS = ['#818CF8', '#34D399', '#F472B6', '#FBBF24', '#60A5FA'];
+
+// Color overlay blend modes for the skin-tone overlay (same idea as panel lighting presets).
+const OVERLAY_BLEND_MODES = [
+  'multiply', 'color', 'soft-light', 'overlay', 'hue', 'saturation',
+  'color-dodge', 'color-burn', 'hard-light', 'screen', 'luminosity', 'normal',
+];
 
 const genId = () => `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
 
@@ -98,12 +105,23 @@ async function buildAssembledSvg(parts, trimCache = {}) {
     defs.push(`<clipPath id="${cid}"><rect x="${p.x + p.w * cl / 100}" y="${p.y + p.h * ct / 100}" width="${p.w * (1 - (cl + cr) / 100)}" height="${p.h * (1 - (ct + cb) / 100)}"/></clipPath>`);
     // Bake the live canvas's trim-to-content rendering into the exported SVG.
     const rect = trimmedRect(trims[i], p.x, p.y, p.w, p.h);
+    // Skin tone overlay — a color wash blended over this part, like a panel lighting preset.
+    let overlayLine = '';
+    if (p.skinOverlay) {
+      const rgb = hexToRgb(p.skinOverlay.color);
+      if (rgb) {
+        const opacity = (p.skinOverlay.opacity ?? 50) / 100;
+        const maskId = `skinMask${i}`;
+        defs.push(`<mask id="${maskId}" style="mask-type:alpha"><image x="${rect.x}" y="${rect.y}" width="${rect.w}" height="${rect.h}" href="${href}" preserveAspectRatio="xMidYMid meet"/></mask>`);
+        overlayLine = `\n    <rect x="${rect.x}" y="${rect.y}" width="${rect.w}" height="${rect.h}" fill="${p.skinOverlay.color}" opacity="${opacity}" style="mix-blend-mode:${p.skinOverlay.blendMode || 'multiply'}" mask="url(#${maskId})"/>`;
+      }
+    }
     // Wrap in <g id="..."> so the Pose Editor can select each part by ID
     const partId = makePartId(p.customName || p.name, usedIds);
     const gTfm = tfm ? ` transform="${tfm}"` : '';
     return [
       `  <g id="${partId}" inkscape:label="${partId}"${gTfm} clip-path="url(#${cid})">`,
-      `    <image x="${rect.x}" y="${rect.y}" width="${rect.w}" height="${rect.h}" href="${href}" preserveAspectRatio="xMidYMid meet"/>`,
+      `    <image x="${rect.x}" y="${rect.y}" width="${rect.w}" height="${rect.h}" href="${href}" preserveAspectRatio="xMidYMid meet"/>${overlayLine}`,
       `  </g>`,
     ].join('\n');
   });
@@ -469,6 +487,46 @@ export default function PartAssembler({ title, libraryCategory, partTypes, onSav
     if (tid === selIdRef.current) setSelectedId(null);
   }, [commitParts]);
 
+  // ── Skin tone overlay (single overlay, assignable to one layer — optionally
+  // cascading to every layer below it in z-order — at a time) ──
+  const stripOverlay = (p) => {
+    const { skinOverlay, skinOverlayOwner, skinOverlayBelow, ...rest } = p;
+    return rest;
+  };
+
+  const applySkinOverlayConfig = useCallback((targetId, applyBelow, overlay) => {
+    commitParts((prev) => {
+      const target = prev.find((p) => p.id === targetId);
+      if (!target) return prev.map(stripOverlay);
+      return prev.map((p) => {
+        const rest = stripOverlay(p);
+        if (p.id === targetId) return { ...rest, skinOverlay: overlay, skinOverlayOwner: true, skinOverlayBelow: applyBelow };
+        if (applyBelow && p.zIndex <= target.zIndex) return { ...rest, skinOverlay: overlay };
+        return rest;
+      });
+    });
+  }, [commitParts]);
+
+  const setSkinOverlayTarget = useCallback((targetId) => {
+    const current = canvasParts.find((p) => p.skinOverlayOwner);
+    const overlay = current?.skinOverlay || { color: '#d99a6c', blendMode: 'multiply', opacity: 50 };
+    applySkinOverlayConfig(targetId, current?.skinOverlayBelow ?? false, overlay);
+  }, [canvasParts, applySkinOverlayConfig]);
+
+  const setSkinOverlayBelow = useCallback((applyBelow) => {
+    const current = canvasParts.find((p) => p.skinOverlayOwner);
+    if (!current) return;
+    applySkinOverlayConfig(current.id, applyBelow, current.skinOverlay);
+  }, [canvasParts, applySkinOverlayConfig]);
+
+  const updateSkinOverlay = useCallback((patch) => {
+    commitParts((prev) => prev.map((p) => p.skinOverlay ? { ...p, skinOverlay: { ...p.skinOverlay, ...patch } } : p));
+  }, [commitParts]);
+
+  const removeSkinOverlay = useCallback(() => {
+    commitParts((prev) => prev.map((p) => p.skinOverlay ? stripOverlay(p) : p));
+  }, [commitParts]);
+
   // ── Layer reorder ──
   const moveLayer = useCallback((id, dir) => {
     commitParts((prev) => {
@@ -583,6 +641,7 @@ export default function PartAssembler({ title, libraryCategory, partTypes, onSav
   }, []);
 
   const selectedPart = canvasParts.find((p) => p.id === selectedId);
+  const overlayOwner = canvasParts.find((p) => p.skinOverlayOwner);
   const sortedByZ    = [...canvasParts].sort((a, b) => b.zIndex - a.zIndex);
   const filteredAssets = allAssets.filter((a) => {
     if (searchQ.trim() && !a.name.toLowerCase().includes(searchQ.toLowerCase())) return false;
@@ -824,13 +883,14 @@ export default function PartAssembler({ title, libraryCategory, partTypes, onSav
 
                 // Compute tight-fit img style using cached trim rect
                 const trim = trimCacheRef.current[part.filePath];
+                const overlayRect = trim ? trimmedRect(trim, 0, 0, 100, 100) : { x: 0, y: 0, w: 100, h: 100 };
                 let imgStyle;
                 if (trim) {
-                  const r = trimmedRect(trim, 0, 0, 100, 100);
-                  imgStyle = { position: 'absolute', width: `${r.w}%`, height: `${r.h}%`, left: `${r.x}%`, top: `${r.y}%`, pointerEvents: 'none' };
+                  imgStyle = { position: 'absolute', width: `${overlayRect.w}%`, height: `${overlayRect.h}%`, left: `${overlayRect.x}%`, top: `${overlayRect.y}%`, pointerEvents: 'none' };
                 } else {
                   imgStyle = { width: '100%', height: '100%', objectFit: 'contain', display: 'block', pointerEvents: 'none' };
                 }
+                const overlayRgb = part.skinOverlay ? hexToRgb(part.skinOverlay.color) : null;
 
                 return (
                   <div key={part.id}
@@ -850,6 +910,18 @@ export default function PartAssembler({ title, libraryCategory, partTypes, onSav
                     }}>
                       <img src={part.filePath} alt={part.name} style={imgStyle} draggable={false}
                         onLoad={(e) => handlePartImgLoad(e, part.filePath)} />
+                      {overlayRgb && (
+                        <div style={{
+                          position: 'absolute', left: `${overlayRect.x}%`, top: `${overlayRect.y}%`,
+                          width: `${overlayRect.w}%`, height: `${overlayRect.h}%`,
+                          background: `rgba(${overlayRgb.r},${overlayRgb.g},${overlayRgb.b},${(part.skinOverlay.opacity ?? 50) / 100})`,
+                          mixBlendMode: part.skinOverlay.blendMode || 'multiply', pointerEvents: 'none',
+                          WebkitMaskImage: `url(${part.filePath})`, maskImage: `url(${part.filePath})`,
+                          WebkitMaskSize: '100% 100%', maskSize: '100% 100%',
+                          WebkitMaskRepeat: 'no-repeat', maskRepeat: 'no-repeat',
+                          WebkitMaskPosition: '0 0', maskPosition: '0 0',
+                        }} />
+                      )}
                     </div>
                     {isSel && (
                       <div style={{ position:'absolute', top:-18, left:'50%', transform:'translateX(-50%)',
@@ -982,6 +1054,46 @@ export default function PartAssembler({ title, libraryCategory, partTypes, onSav
                 style={{ padding: '6px', border: '1.5px solid #FECACA', borderRadius: 8,
                   background: '#FEF2F2', color: '#DC2626', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
                 Remove Part
+              </button>
+            </div>
+          )}
+        </div>
+
+        {/* Skin Tone Overlay — a color wash on one layer, like a panel lighting preset */}
+        <div className="card" style={{ padding: 14 }}>
+          <p style={s.sectionTitle}>Skin Tone Overlay</p>
+          <p style={{ ...s.hint, marginTop: 4, marginBottom: 8 }}>
+            Tint a layer (e.g. the face shape) with a color wash, blended like the panel lighting presets.
+          </p>
+          <select className="input" value={overlayOwner?.id || ''}
+            onChange={(e) => (e.target.value ? setSkinOverlayTarget(e.target.value) : removeSkinOverlay())}
+            style={{ fontSize: 12, marginBottom: 8 }}>
+            <option value="">No overlay</option>
+            {sortedByZ.map((p) => (
+              <option key={p.id} value={p.id}>{p.customName || p.name}</option>
+            ))}
+          </select>
+          {overlayOwner && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <input type="color" value={overlayOwner.skinOverlay.color}
+                  onChange={(e) => updateSkinOverlay({ color: e.target.value })}
+                  style={{ width: 40, height: 28, padding: 0, border: '1.5px solid #E5E7EB', borderRadius: 6, cursor: 'pointer' }} />
+                <select value={overlayOwner.skinOverlay.blendMode} onChange={(e) => updateSkinOverlay({ blendMode: e.target.value })}
+                  style={{ flex: 1, fontSize: 12 }}>
+                  {OVERLAY_BLEND_MODES.map((m) => <option key={m} value={m}>{m}</option>)}
+                </select>
+              </div>
+              <SliderRow label="Opacity" value={overlayOwner.skinOverlay.opacity ?? 50} min={0} max={100}
+                onChange={(v) => updateSkinOverlay({ opacity: v })} unit="%" />
+              <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: '#374151', cursor: 'pointer' }}>
+                <input type="checkbox" checked={!!overlayOwner.skinOverlayBelow}
+                  onChange={(e) => setSkinOverlayBelow(e.target.checked)} />
+                Also apply to layers below this one
+              </label>
+              <button onClick={removeSkinOverlay}
+                style={{ ...s.ctrlBtn, justifyContent: 'center', color: '#9CA3AF' }}>
+                Remove overlay
               </button>
             </div>
           )}

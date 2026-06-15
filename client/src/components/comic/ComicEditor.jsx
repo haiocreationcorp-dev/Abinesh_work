@@ -466,6 +466,7 @@ export default function ComicEditor() {
             assetId: part.assetId, filePath: part.filePath,
             x: part.x, y: part.y, w: part.w, h: part.h,
             rotation: part.rotation || 0, flipX: !!part.flipX, flipY: !!part.flipY,
+            ...(part.skinOverlay ? { skinOverlay: part.skinOverlay } : {}),
           };
           if (cls === 'faceShape') faceShape = entry;
           else parts[cls] = entry;

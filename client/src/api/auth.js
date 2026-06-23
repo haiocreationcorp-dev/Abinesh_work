@@ -6,3 +6,4 @@ export const gateCheck = (password) => api.post('/auth/gate-check', { password }
 export const register = (data) => api.post('/auth/register', withGate(data)).then((r) => r.data);
 export const login = (data) => api.post('/auth/login', withGate(data)).then((r) => r.data);
 export const me = () => api.get('/auth/me').then((r) => r.data);
+export const lookupInstitution = (code) => api.get(`/auth/institution-lookup/${encodeURIComponent(code)}`).then((r) => r.data);

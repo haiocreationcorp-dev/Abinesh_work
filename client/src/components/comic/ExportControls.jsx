@@ -1,6 +1,8 @@
 import { useState } from 'react';
+import { useComic } from '../../context/ComicContext.jsx';
 
 export default function ExportControls() {
+  const { dispatch } = useComic();
   const [exporting, setExporting] = useState(false);
   const [msg, setMsg] = useState('');
 
@@ -11,15 +13,23 @@ export default function ExportControls() {
     document.querySelectorAll('[data-export-hidden]').forEach((el) => { el.style.display = ''; });
   };
 
+  // Deselect all items so no contentEditable or selection handles appear in the export
+  const prepareForExport = async () => {
+    dispatch({ type: 'SET_ACTIVE_SELECTION', selection: null });
+    document.dispatchEvent(new CustomEvent('comic-deselect-all'));
+    await new Promise((r) => setTimeout(r, 80));
+  };
+
   const exportPNG = async () => {
     setExporting(true);
     setMsg('');
     try {
+      await prepareForExport();
       const { default: html2canvas } = await import('html2canvas');
       const canvas = document.getElementById('comic-canvas');
       if (!canvas) { setMsg('Canvas not found'); return; }
       hideExportHints();
-      const shot = await html2canvas(canvas, { useCORS: true, scale: 2 });
+      const shot = await html2canvas(canvas, { useCORS: true, scale: 2, allowTaint: true, logging: false });
       showExportHints();
       const link = document.createElement('a');
       link.download = 'comic-strip.png';
@@ -38,12 +48,13 @@ export default function ExportControls() {
     setExporting(true);
     setMsg('');
     try {
+      await prepareForExport();
       const { default: html2canvas } = await import('html2canvas');
       const { jsPDF } = await import('jspdf');
       const canvas = document.getElementById('comic-canvas');
       if (!canvas) { setMsg('Canvas not found'); return; }
       hideExportHints();
-      const shot = await html2canvas(canvas, { useCORS: true, scale: 2 });
+      const shot = await html2canvas(canvas, { useCORS: true, scale: 2, allowTaint: true, logging: false });
       showExportHints();
       const imgData = shot.toDataURL('image/png');
       const pdf = new jsPDF({ orientation: 'landscape', unit: 'px', format: [shot.width / 2, shot.height / 2] });

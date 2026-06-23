@@ -2,13 +2,16 @@ import { useEffect, useState, useCallback, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { getComic, updateComic } from '../api/comics.js';
 import { useComic } from '../context/ComicContext.jsx';
+import { useAuth } from '../context/AuthContext.jsx';
 import ComicEditor from '../components/comic/ComicEditor.jsx';
+import { renderPage, pageStartIndex, RENDER_SCALE as EX_SCALE, LAYOUT_COUNT as EX_COUNT } from '../utils/comicRenderer.js';
 
 const GRADIENT = 'linear-gradient(90deg, #FF8C00 0%, #FF5722 28%, #C2185B 62%, #7C3AED 100%)';
 
 export default function ComicEditorPage() {
   const { comicId } = useParams();
   const { loadComic, state, dispatch } = useComic();
+  const { isViewOnly } = useAuth();
   const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -16,140 +19,14 @@ export default function ComicEditorPage() {
   const [showExportMenu, setShowExportMenu] = useState(false);
   const [exporting, setExporting] = useState(false);
 
-  // ── Pure canvas-based export (no html2canvas — avoids SVG/transform issues) ──
-  const EX_SCALE = 2;
-  const EX_GAP   = 6;
-  const EX_LAYOUTS = { single:{cols:1,pw:800,ph:450}, '2h':{cols:2,pw:394,ph:450}, '2v':{cols:1,pw:800,ph:220}, '4':{cols:2,pw:394,ph:220} };
-  const EX_COUNT   = { single:1, '2h':2, '2v':2, '4':4 };
-  const EX_BASE_W  = 120, EX_BASE_H = 200;
-
-  const exLoadImg = (src) => new Promise((resolve) => {
-    const img = new Image(); img.crossOrigin = 'anonymous';
-    img.onload = () => resolve(img); img.onerror = () => resolve(null);
-    img.src = src;
-  });
-
-  const exDrawBubble = (ctx, bx, by, bubble) => {
-    const { type, text, width: bw, height: bh, style: bs = {} } = bubble;
-    const fill = bs.fillColor || '#fff', stroke = bs.strokeColor || '#000';
-    const fontSize = bs.fontSize || 14;
-    ctx.save();
-    if (type === 'thought') {
-      ctx.fillStyle = fill; ctx.strokeStyle = stroke; ctx.lineWidth = 2;
-      ctx.beginPath(); ctx.ellipse(bx+bw/2, by+bh*0.42, bw/2-4, bh*0.4, 0, 0, Math.PI*2); ctx.fill(); ctx.stroke();
-      ctx.beginPath(); ctx.arc(bx+bw*0.35, by+bh*0.88, 7, 0, Math.PI*2); ctx.fill(); ctx.stroke();
-      ctx.beginPath(); ctx.arc(bx+bw*0.28, by+bh*0.97, 4, 0, Math.PI*2); ctx.fill(); ctx.stroke();
-    } else if (type === 'shout') {
-      const cx2=bx+bw/2, cy2=by+bh*0.42;
-      ctx.fillStyle=fill; ctx.strokeStyle=stroke; ctx.lineWidth=2;
-      ctx.beginPath();
-      for(let i=0;i<20;i++){const a=(i/20)*Math.PI*2,r=i%2===0?bw/2-4:bw/2-14;const px=cx2+r*Math.cos(a),py=cy2+r*Math.sin(a)*0.6;i===0?ctx.moveTo(px,py):ctx.lineTo(px,py);}
-      ctx.closePath(); ctx.fill(); ctx.stroke();
-      ctx.beginPath(); ctx.moveTo(bx+bw*0.4,by+bh*0.82); ctx.lineTo(bx+bw*0.5,by+bh); ctx.lineTo(bx+bw*0.55,by+bh*0.82); ctx.closePath(); ctx.fill(); ctx.stroke();
-    } else {
-      const isDash = type === 'whisper';
-      ctx.fillStyle=fill; ctx.strokeStyle=stroke; ctx.lineWidth=isDash?1:2;
-      if(isDash) ctx.setLineDash([5,3]);
-      const rx=12,rx2=bx+4,ry2=by+4,rw2=bw-8,rh2=bh*0.78;
-      ctx.beginPath();
-      ctx.moveTo(rx2+rx,ry2); ctx.lineTo(rx2+rw2-rx,ry2); ctx.arcTo(rx2+rw2,ry2,rx2+rw2,ry2+rx,rx);
-      ctx.lineTo(rx2+rw2,ry2+rh2-rx); ctx.arcTo(rx2+rw2,ry2+rh2,rx2+rw2-rx,ry2+rh2,rx);
-      ctx.lineTo(rx2+rx,ry2+rh2); ctx.arcTo(rx2,ry2+rh2,rx2,ry2+rh2-rx,rx);
-      ctx.lineTo(rx2,ry2+rx); ctx.arcTo(rx2,ry2,rx2+rx,ry2,rx);
-      ctx.closePath(); ctx.fill(); ctx.stroke(); ctx.setLineDash([]);
-      ctx.beginPath(); ctx.moveTo(bx+bw*0.3,by+bh*0.82); ctx.lineTo(bx+bw*0.4,by+bh); ctx.lineTo(bx+bw*0.5,by+bh*0.82); ctx.closePath(); ctx.fill(); ctx.stroke();
-    }
-    ctx.setLineDash([]);
-    ctx.fillStyle = bs.textColor || '#000';
-    ctx.font = `${fontSize}px ${bs.fontFamily || 'Arial, sans-serif'}`;
-    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    const lines = (text || '').split('\n'), lineH = fontSize * 1.3;
-    lines.forEach((line, i) => ctx.fillText(line, bx+bw/2, by+bh*0.35+(i-(lines.length-1)/2)*lineH));
-    ctx.restore();
-  };
-
-  const exDrawPanel = async (ctx, data, x, y, w, h) => {
-    // Background (clipped to panel)
-    ctx.save(); ctx.beginPath(); ctx.rect(x,y,w,h); ctx.clip();
-    if (data.background?.filePath) {
-      const bg = await exLoadImg(data.background.filePath);
-      if (bg) ctx.drawImage(bg, x, y, w, h);
-      else { ctx.fillStyle='#fff'; ctx.fillRect(x,y,w,h); }
-    } else { ctx.fillStyle='#fff'; ctx.fillRect(x,y,w,h); }
-    ctx.restore();
-    // Items: props, effects, costumes, characters (characters rendered on top)
-    const items = [...(data.props||[]),...(data.effects||[]),...(data.costumes||[]),...(data.characters||[])];
-    for (const item of items) {
-      if (!item.filePath) continue;
-      const img = await exLoadImg(item.filePath);
-      if (!img) continue;
-      const scale = item.scale || 1;
-      const rot   = (item.rotation || 0) * Math.PI / 180;
-      const flipX = item.flipX ? -1 : 1;
-      const { left:cl=0, right:cr=0, top:ct=0, bottom:cb=0 } = item.crop || {};
-      ctx.save();
-      ctx.beginPath(); ctx.rect(x,y,w,h); ctx.clip(); // keep inside panel
-      ctx.translate(x + item.position.x + EX_BASE_W/2, y + item.position.y + EX_BASE_H/2);
-      ctx.rotate(rot); ctx.scale(flipX*scale, scale);
-      ctx.translate(-EX_BASE_W/2, -EX_BASE_H/2);
-      if (cl||cr||ct||cb) { ctx.beginPath(); ctx.rect(cl,ct,EX_BASE_W-cl-cr,EX_BASE_H-ct-cb); ctx.clip(); }
-      ctx.drawImage(img, 0, 0, EX_BASE_W, EX_BASE_H);
-      ctx.restore();
-    }
-    // Speech bubbles
-    for (const b of (data.speechBubbles||[])) exDrawBubble(ctx, x+b.position.x, y+b.position.y, b);
-    // Narration boxes
-    for (const nb of (data.narrationBoxes||[])) {
-      const fs = nb.style?.fontSize || 13;
-      const lh = fs * 1.3;
-      const lines = (nb.text || '').split('\n');
-      const isV = nb.position === 'left' || nb.position === 'right';
-      let bx, by, bw, bh;
-      if (nb.position === 'top')    { bx=x;           by=y;         bw=w;                   bh=nb.style?.height||40; }
-      else if (nb.position==='bottom') { bx=x;         by=y+h-(nb.style?.height||40); bw=w; bh=nb.style?.height||40; }
-      else if (nb.position==='left')   { bx=x;         by=y;         bw=nb.style?.width||60; bh=h; }
-      else if (nb.position==='right')  { bx=x+w-(nb.style?.width||60); by=y; bw=nb.style?.width||60; bh=h; }
-      else { bx=x; by=y; bw=w; bh=nb.style?.height||40; }
-      ctx.fillStyle = nb.style?.fillColor || '#000';
-      ctx.fillRect(bx, by, bw, bh);
-      ctx.fillStyle = nb.style?.textColor || '#fff';
-      ctx.font = `${fs}px Comic Neue, Arial, sans-serif`;
-      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-      const cx2 = bx + bw / 2, cy2 = by + bh / 2;
-      lines.forEach((line, i) => ctx.fillText(line, cx2, cy2 + (i - (lines.length-1)/2) * lh));
-    }
-  };
-
-  const exRenderPage = async (pagePanels, layout) => {
-    const g = EX_LAYOUTS[layout] || EX_LAYOUTS.single;
-    const count = EX_COUNT[layout] || 1;
-    const rows  = Math.ceil(count / g.cols);
-    const totalW = g.cols*g.pw + (g.cols-1)*EX_GAP;
-    const totalH = rows*g.ph  + (rows-1)*EX_GAP;
-    const canvas = document.createElement('canvas');
-    canvas.width = totalW * EX_SCALE; canvas.height = totalH * EX_SCALE;
-    const ctx = canvas.getContext('2d');
-    ctx.scale(EX_SCALE, EX_SCALE);
-    ctx.fillStyle = '#ffffff'; ctx.fillRect(0,0,totalW,totalH);
-    for (let i = 0; i < pagePanels.length; i++) {
-      const col = i % g.cols, row = Math.floor(i / g.cols);
-      await exDrawPanel(ctx, pagePanels[i].data||{}, col*(g.pw+EX_GAP), row*(g.ph+EX_GAP), g.pw, g.ph);
-    }
-    return canvas;
-  };
-
-  const exPageStart = (pages, idx) => {
-    let s = 0; for (let i=0;i<idx;i++) s += (EX_COUNT[pages[i]?.layout]||1); return s;
-  };
-
   // Export current page as PNG
   const exportPNG = async () => {
     setExporting(true); setShowExportMenu(false);
     try {
       const layout = state.pages[state.activePageIndex]?.layout || 'single';
-      const start  = exPageStart(state.pages, state.activePageIndex);
+      const start  = pageStartIndex(state.pages, state.activePageIndex);
       const panels = state.panels.slice(start, start + (EX_COUNT[layout]||1));
-      const canvas = await exRenderPage(panels, layout);
+      const canvas = await renderPage(panels, layout);
       const link = document.createElement('a');
       link.download = `comic-page-${state.activePageIndex + 1}.png`;
       link.href = canvas.toDataURL('image/png'); link.click();
@@ -164,9 +41,9 @@ export default function ComicEditorPage() {
       const pageImgs = [];
       for (let i = 0; i < state.pages.length; i++) {
         const layout = state.pages[i]?.layout || 'single';
-        const start  = exPageStart(state.pages, i);
+        const start  = pageStartIndex(state.pages, i);
         const panels = state.panels.slice(start, start + (EX_COUNT[layout]||1));
-        const canvas = await exRenderPage(panels, layout);
+        const canvas = await renderPage(panels, layout);
         pageImgs.push(canvas.toDataURL('image/png'));
       }
       const divs = pageImgs.map((url) => `<div class="page"><img src="${url}" /></div>`).join('');
@@ -198,9 +75,9 @@ export default function ComicEditorPage() {
       const canvases = [];
       for (let i = 0; i < state.pages.length; i++) {
         const layout = state.pages[i]?.layout || 'single';
-        const start  = exPageStart(state.pages, i);
+        const start  = pageStartIndex(state.pages, i);
         const panels = state.panels.slice(start, start + (EX_COUNT[layout]||1));
-        canvases.push(await exRenderPage(panels, layout));
+        canvases.push(await renderPage(panels, layout));
       }
 
       // Pair consecutive pages onto a single PDF page (stacked top/bottom)
@@ -264,8 +141,9 @@ export default function ComicEditorPage() {
   }, [comicId, state.title, state.author, state.panels, state.pages]);
 
   const handleSave = useCallback(() => {
+    if (isViewOnly) return;
     doSave();
-  }, [doSave]);
+  }, [doSave, isViewOnly]);
 
   // Keep refs so the stable listener always calls the latest version
   const handleSaveRef = useRef(handleSave);
@@ -325,16 +203,20 @@ export default function ComicEditorPage() {
 
         {/* Right: Status + Save + Chevron */}
         <div style={styles.topRight}>
-          {saveMsg ? (
+          {isViewOnly ? (
+            <span style={styles.statusText}>🔒 View only</span>
+          ) : saveMsg ? (
             <span style={styles.statusText}><CheckBadge /> {saveMsg}</span>
           ) : state.isDirty ? (
             <span style={styles.statusText}>Unsaved changes</span>
           ) : (
             <span style={styles.statusText}><CheckBadge /> All changes saved</span>
           )}
-          <button style={styles.saveBtn} onClick={handleSave} disabled={saving}>
-            {saving ? 'Saving…' : 'Save'}
-          </button>
+          {!isViewOnly && (
+            <button style={styles.saveBtn} onClick={handleSave} disabled={saving}>
+              {saving ? 'Saving…' : 'Save'}
+            </button>
+          )}
 
           {/* Export button + dropdown */}
           <div style={{ position: 'relative' }} onBlur={(e) => { if (!e.currentTarget.contains(e.relatedTarget)) setShowExportMenu(false); }}>
@@ -371,7 +253,7 @@ export default function ComicEditorPage() {
         </div>
       </header>
 
-      <ComicEditor onSave={handleSave} />
+      <ComicEditor onSave={handleSave} readOnly={isViewOnly} />
 
       {/* Haio logo — fixed bottom-right */}
       <div style={styles.haioWrap}>

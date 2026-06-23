@@ -37,7 +37,7 @@ const LIGHT = {
   '--t-icon-bar':      '#ffffff',
   '--t-canvas-bg':     '#f0f0f8',
   '--t-strip-bg':      '#ffffff',
-  '--t-panel-border':  '#F97316',
+  '--t-panel-border':  '#d1d5db',
   '--t-panel-empty':   '#ffffff',
   '--t-topbar':        TOPBAR,
 };

@@ -10,6 +10,31 @@ datasource db {
 enum Role {
   USER
   ADMIN
+  TEACHER
+  STUDENT
+  INSTITUTION_CHIEF
+}
+
+enum BillingPlan {
+  QUARTERLY
+  YEARLY
+}
+
+enum PaymentStatus {
+  CREATED
+  PAID
+  FAILED
+}
+
+enum InstitutionType {
+  SCHOOL
+  COLLEGE
+}
+
+enum EnrollmentStatus {
+  PENDING
+  APPROVED
+  REJECTED
 }
 
 enum AssetCategory {
@@ -29,14 +54,129 @@ enum AssetCategory {
 }
 
 model User {
-  id        String   @id @default(cuid())
-  email     String   @unique
-  name      String?
-  password  String
-  role      Role     @default(USER)
-  comics    Comic[]
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id            String       @id @default(cuid())
+  email         String       @unique
+  name          String?
+  password      String
+  role          Role         @default(USER)
+  institutionId String?
+  institution   Institution? @relation(fields: [institutionId], references: [id], onDelete: SetNull)
+  // School-only registration fields
+  gradeLevel    String?      // e.g. "10th" — a school grade level, unrelated to the Class model below
+  section       String?      // e.g. "A"
+  // College-only registration fields
+  department    String?
+  year          String?      // e.g. "2nd Year"
+  // Shared (school or college)
+  rollNo        String?
+  comics        Comic[]
+  tasksCreated  Task[]
+  submissions   Submission[]
+  classesCreated Class[]
+  enrollments   ClassEnrollment[]
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+}
+
+model Institution {
+  id                    String          @id @default(cuid())
+  name                  String
+  code                  String          @unique
+  type                  InstitutionType @default(SCHOOL)
+  subscriptionStartedAt DateTime?
+  subscriptionExpiresAt DateTime?
+  suspended             Boolean         @default(false)
+  systemCount           Int             @default(0)
+  createdAt             DateTime        @default(now())
+  updatedAt             DateTime        @updatedAt
+  users                 User[]
+  tasks                 Task[]
+  classes               Class[]
+  payments              Payment[]
+}
+
+// A billing cycle order/charge for an institution's Razorpay subscription payment.
+// systemCount/periodStart/periodEnd are snapshotted at order-creation time so payment
+// history and the auto-extend-on-verify logic don't depend on re-reading mutable
+// Institution state later.
+model Payment {
+  id                String        @id @default(cuid())
+  institutionId     String
+  institution       Institution   @relation(fields: [institutionId], references: [id], onDelete: Cascade)
+  planType          BillingPlan
+  systemCount       Int
+  amount            Int           // paise (Razorpay's native unit)
+  currency          String        @default("INR")
+  razorpayOrderId   String        @unique
+  razorpayPaymentId String?
+  razorpaySignature String?
+  status            PaymentStatus @default(CREATED)
+  periodStart       DateTime?
+  periodEnd         DateTime?
+  createdAt         DateTime      @default(now())
+  paidAt            DateTime?
+
+  @@index([institutionId])
+}
+
+// A teacher's classroom/roster group. Students request to join; the teacher approves/rejects.
+model Class {
+  id            String            @id @default(cuid())
+  name          String
+  teacherId     String
+  teacher       User              @relation(fields: [teacherId], references: [id], onDelete: Cascade)
+  institutionId String
+  institution   Institution       @relation(fields: [institutionId], references: [id], onDelete: Cascade)
+  enrollments   ClassEnrollment[]
+  tasks         Task[]
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
+}
+
+model ClassEnrollment {
+  id        String           @id @default(cuid())
+  classId   String
+  class     Class            @relation(fields: [classId], references: [id], onDelete: Cascade)
+  studentId String
+  student   User             @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  status    EnrollmentStatus @default(PENDING)
+  createdAt DateTime         @default(now())
+  updatedAt DateTime         @updatedAt
+
+  @@unique([classId, studentId])
+}
+
+model Task {
+  id            String       @id @default(cuid())
+  title         String
+  description   String?
+  dueDate       DateTime?
+  teacherId     String
+  teacher       User         @relation(fields: [teacherId], references: [id], onDelete: Cascade)
+  institutionId String
+  institution   Institution  @relation(fields: [institutionId], references: [id], onDelete: Cascade)
+  classId       String?      // null = legacy/institution-wide task (preserves pre-Class behavior)
+  class         Class?       @relation(fields: [classId], references: [id], onDelete: Cascade)
+  submissions   Submission[]
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+}
+
+model Submission {
+  id          String    @id @default(cuid())
+  taskId      String
+  task        Task      @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  studentId   String
+  student     User      @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  comicId     String
+  comic       Comic     @relation(fields: [comicId], references: [id], onDelete: Cascade)
+  pdfPath     String
+  score       Int?
+  feedback    String?
+  submittedAt DateTime  @default(now())
+  gradedAt    DateTime?
+
+  @@unique([taskId, studentId])
 }
 
 model Asset {
@@ -53,14 +193,15 @@ model Asset {
 }
 
 model Comic {
-  id        String   @id @default(cuid())
-  title     String
-  userId    String
-  pages     Json     @default("[]")
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  panels    Panel[]
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id          String       @id @default(cuid())
+  title       String
+  userId      String
+  pages       Json         @default("[]")
+  user        User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  panels      Panel[]
+  submissions Submission[]
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
 }
 
 // Panel data JSON shape:

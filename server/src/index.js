@@ -8,14 +8,18 @@ const authRoutes = require('./routes/auth');
 const assetRoutes = require('./routes/assets');
 const comicRoutes = require('./routes/comics');
 const adminRoutes = require('./routes/admin');
+const teacherRoutes = require('./routes/teacher');
+const studentRoutes = require('./routes/student');
+const billingRoutes = require('./routes/billing');
 const lightingPresetRoutes = require('./routes/lightingPresets');
+const aiRoutes = require('./routes/ai');
 const { errorHandler } = require('./middleware/errorHandler');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
 // Ensure all upload subdirectories exist on startup
-const UPLOAD_DIRS = ['characters', 'backgrounds', 'expressions', 'props', 'effects', 'costumes', 'bubbles', 'thumbnails', 'body-parts'];
+const UPLOAD_DIRS = ['characters', 'backgrounds', 'expressions', 'props', 'effects', 'costumes', 'bubbles', 'thumbnails', 'body-parts', 'submissions'];
 UPLOAD_DIRS.forEach((dir) => {
   const dirPath = path.join(__dirname, '../uploads', dir);
   if (!fs.existsSync(dirPath)) fs.mkdirSync(dirPath, { recursive: true });
@@ -42,7 +46,11 @@ app.use('/api/auth', authRoutes);
 app.use('/api/assets', assetRoutes);
 app.use('/api/comics', comicRoutes);
 app.use('/api/admin', adminRoutes);
+app.use('/api/teacher', teacherRoutes);
+app.use('/api/student', studentRoutes);
+app.use('/api/billing', billingRoutes);
 app.use('/api/lighting-presets', lightingPresetRoutes);
+app.use('/api/ai', aiRoutes);
 
 app.get('/api/health', (_req, res) => res.json({ status: 'ok', time: new Date().toISOString() }));
 

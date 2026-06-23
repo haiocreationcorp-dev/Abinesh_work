@@ -5,8 +5,10 @@ const path = require('path');
 const fs = require('fs');
 const { v4: uuidv4 } = require('uuid');
 const sharp = require('sharp');
+const bcrypt = require('bcryptjs');
 const adminAuth = require('../middleware/adminAuth');
 const prisma = require('../config/prisma');
+const { addMonths } = require('../utils/dates');
 
 const UPLOADS_ROOT = path.join(__dirname, '../../uploads');
 
@@ -415,7 +417,7 @@ router.post('/face-part-alignment', adminAuth, async (req, res) => {
 // GET /api/admin/users
 router.get('/users', adminAuth, async (_req, res) => {
   const users = await prisma.user.findMany({
-    select: { id: true, email: true, name: true, role: true, createdAt: true },
+    select: { id: true, email: true, name: true, role: true, createdAt: true, institutionId: true, institution: { select: { name: true } } },
     orderBy: { createdAt: 'desc' },
   });
   res.json(users);
@@ -433,6 +435,120 @@ router.patch('/users/:id/role', adminAuth, async (req, res) => {
     select: { id: true, email: true, name: true, role: true },
   });
   res.json(user);
+});
+
+// Generates a human-friendly join code like "AB3X-7KQM", avoiding ambiguous chars (0/O, 1/I).
+const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+function generateInstitutionCode() {
+  let code = '';
+  for (let i = 0; i < 8; i++) {
+    if (i === 4) code += '-';
+    code += CODE_ALPHABET[Math.floor(Math.random() * CODE_ALPHABET.length)];
+  }
+  return code;
+}
+
+// GET /api/admin/institutions
+router.get('/institutions', adminAuth, async (_req, res) => {
+  const institutions = await prisma.institution.findMany({
+    include: { _count: { select: { users: true } } },
+    orderBy: { createdAt: 'desc' },
+  });
+  res.json(institutions);
+});
+
+// POST /api/admin/institutions
+router.post('/institutions', adminAuth, async (req, res) => {
+  const { name, type } = req.body;
+  if (!name || !name.trim()) return res.status(400).json({ error: 'Institution name is required' });
+  if (!['SCHOOL', 'COLLEGE'].includes(type)) return res.status(400).json({ error: 'Type must be SCHOOL or COLLEGE' });
+
+  const now = new Date();
+  let institution;
+  for (let attempt = 0; attempt < 5 && !institution; attempt++) {
+    try {
+      institution = await prisma.institution.create({
+        data: { name: name.trim(), type, code: generateInstitutionCode(), subscriptionStartedAt: now, subscriptionExpiresAt: addMonths(now, 3) },
+      });
+    } catch (err) {
+      if (err.code !== 'P2002') throw err; // unique constraint clash on code — retry
+    }
+  }
+  if (!institution) return res.status(500).json({ error: 'Could not generate a unique code, try again' });
+  res.status(201).json(institution);
+});
+
+// PATCH /api/admin/institutions/:id — full edit: name, type, exact subscription dates
+router.patch('/institutions/:id', adminAuth, async (req, res) => {
+  const { name, type, subscriptionStartedAt, subscriptionExpiresAt } = req.body;
+  const data = {};
+  if (name !== undefined) data.name = name.trim();
+  if (type !== undefined) {
+    if (!['SCHOOL', 'COLLEGE'].includes(type)) return res.status(400).json({ error: 'Type must be SCHOOL or COLLEGE' });
+    data.type = type;
+  }
+  if (subscriptionStartedAt !== undefined) data.subscriptionStartedAt = subscriptionStartedAt ? new Date(subscriptionStartedAt) : null;
+  if (subscriptionExpiresAt !== undefined) data.subscriptionExpiresAt = subscriptionExpiresAt ? new Date(subscriptionExpiresAt) : null;
+
+  const institution = await prisma.institution.update({ where: { id: req.params.id }, data }).catch(() => null);
+  if (!institution) return res.status(404).json({ error: 'Institution not found' });
+  res.json(institution);
+});
+
+// PATCH /api/admin/institutions/:id/suspend — reversible force-stop, independent of expiry date
+router.patch('/institutions/:id/suspend', adminAuth, async (req, res) => {
+  const { suspended } = req.body;
+  if (typeof suspended !== 'boolean') return res.status(400).json({ error: 'suspended must be true or false' });
+
+  const institution = await prisma.institution.update({ where: { id: req.params.id }, data: { suspended } }).catch(() => null);
+  if (!institution) return res.status(404).json({ error: 'Institution not found' });
+  res.json(institution);
+});
+
+// PATCH /api/admin/institutions/:id/renew — extends from whichever is later: now, or the current expiry
+router.patch('/institutions/:id/renew', adminAuth, async (req, res) => {
+  const existing = await prisma.institution.findUnique({ where: { id: req.params.id } });
+  if (!existing) return res.status(404).json({ error: 'Institution not found' });
+
+  const now = new Date();
+  const base = existing.subscriptionExpiresAt && existing.subscriptionExpiresAt > now ? existing.subscriptionExpiresAt : now;
+  const institution = await prisma.institution.update({
+    where: { id: req.params.id },
+    data: { subscriptionExpiresAt: addMonths(base, 3) },
+  });
+  res.json(institution);
+});
+
+// POST /api/admin/institutions/:id/chief — create the institution chief login (one per institution)
+router.post('/institutions/:id/chief', adminAuth, async (req, res) => {
+  const { name, email, password } = req.body;
+  if (!name || !email || !password) return res.status(400).json({ error: 'name, email, and password are required' });
+
+  const institution = await prisma.institution.findUnique({ where: { id: req.params.id } });
+  if (!institution) return res.status(404).json({ error: 'Institution not found' });
+
+  const existingChief = await prisma.user.findFirst({ where: { institutionId: institution.id, role: 'INSTITUTION_CHIEF' } });
+  if (existingChief) return res.status(409).json({ error: 'This institution already has a chief login' });
+
+  const emailTaken = await prisma.user.findUnique({ where: { email } });
+  if (emailTaken) return res.status(409).json({ error: 'Email already registered' });
+
+  const chief = await prisma.user.create({
+    data: { name, email, password: await bcrypt.hash(password, 10), role: 'INSTITUTION_CHIEF', institutionId: institution.id },
+    select: { id: true, email: true, name: true, role: true, institutionId: true },
+  });
+  res.status(201).json(chief);
+});
+
+// PATCH /api/admin/institutions/:id/system-count
+router.patch('/institutions/:id/system-count', adminAuth, async (req, res) => {
+  const { systemCount } = req.body;
+  if (!Number.isInteger(systemCount) || systemCount < 0) {
+    return res.status(400).json({ error: 'systemCount must be a non-negative integer' });
+  }
+  const institution = await prisma.institution.update({ where: { id: req.params.id }, data: { systemCount } }).catch(() => null);
+  if (!institution) return res.status(404).json({ error: 'Institution not found' });
+  res.json(institution);
 });
 
 module.exports = router;

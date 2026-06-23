@@ -31,7 +31,14 @@ export function AuthProvider({ children }) {
   }, []);
 
   return (
-    <AuthContext.Provider value={{ user, loading, saveSession, logout, isAdmin: user?.role === 'ADMIN' }}>
+    <AuthContext.Provider value={{
+      user, loading, saveSession, logout,
+      isAdmin: user?.role === 'ADMIN',
+      isTeacher: user?.role === 'TEACHER',
+      isStudent: user?.role === 'STUDENT',
+      isChief: user?.role === 'INSTITUTION_CHIEF',
+      isViewOnly: !!user?.institutionId && user?.subscriptionActive === false,
+    }}>
       {children}
     </AuthContext.Provider>
   );

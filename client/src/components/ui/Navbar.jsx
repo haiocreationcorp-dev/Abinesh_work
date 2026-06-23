@@ -2,7 +2,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext.jsx';
 
 export default function Navbar() {
-  const { user, logout, isAdmin } = useAuth();
+  const { user, logout, isAdmin, isTeacher, isStudent, isChief } = useAuth();
   const navigate = useNavigate();
 
   const handleLogout = () => {
@@ -22,6 +22,36 @@ export default function Navbar() {
             {isAdmin && (
               <Link to="/admin">
                 <button className="btn btn-outline btn-sm">Admin</button>
+              </Link>
+            )}
+            {isChief && (
+              <Link to="/chief/billing">
+                <button className="btn btn-outline btn-sm">Billing</button>
+              </Link>
+            )}
+            {isTeacher && (
+              <Link to="/teacher/students">
+                <button className="btn btn-outline btn-sm">My Students</button>
+              </Link>
+            )}
+            {isTeacher && (
+              <Link to="/teacher/classes">
+                <button className="btn btn-outline btn-sm">My Classes</button>
+              </Link>
+            )}
+            {isTeacher && (
+              <Link to="/teacher/tasks">
+                <button className="btn btn-outline btn-sm">Assign Task</button>
+              </Link>
+            )}
+            {isStudent && (
+              <Link to="/student/instructors">
+                <button className="btn btn-outline btn-sm">Instructors</button>
+              </Link>
+            )}
+            {isStudent && (
+              <Link to="/student/tasks">
+                <button className="btn btn-outline btn-sm">My Assignments</button>
               </Link>
             )}
             <button className="btn btn-ghost btn-sm" onClick={handleLogout}>

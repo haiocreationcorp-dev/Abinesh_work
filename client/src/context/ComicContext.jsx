@@ -1,6 +1,5 @@
 import { createContext, useContext, useReducer, useCallback } from 'react';
-
-const genId = () => crypto.randomUUID();
+import genId from '../utils/genId.js';
 
 // How many panels each layout requires
 export const LAYOUT_COUNT = { single: 1, '2h': 2, '2v': 2, '4': 4 };
@@ -15,6 +14,7 @@ function pageStartIndex(pages, pageIdx) {
 const EMPTY_PANEL_DATA = () => ({
   background: null,
   lightingOverlay: null,
+  backgroundMode: null,
   characters: [],
   faces: [],
   props: [],
@@ -384,6 +384,13 @@ function baseReducer(state, action) {
     case 'SET_LIGHTING_OVERLAY': {
       const panels = state.panels.map((p, i) =>
         i === action.panelIndex ? { ...p, data: { ...p.data, lightingOverlay: action.overlay } } : p
+      );
+      return { ...state, panels, isDirty: true };
+    }
+
+    case 'SET_BACKGROUND_MODE': {
+      const panels = state.panels.map((p, i) =>
+        i === action.panelIndex ? { ...p, data: { ...p.data, backgroundMode: action.mode } } : p
       );
       return { ...state, panels, isDirty: true };
     }

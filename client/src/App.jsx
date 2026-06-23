@@ -9,9 +9,19 @@ import Navbar from './components/ui/Navbar.jsx';
 import HomePage from './pages/HomePage.jsx';
 import LoginPage from './pages/LoginPage.jsx';
 import RegisterPage from './pages/RegisterPage.jsx';
+import AdminLoginPage from './pages/AdminLoginPage.jsx';
+import ChiefLoginPage from './pages/ChiefLoginPage.jsx';
+import ChiefDashboardPage from './pages/ChiefDashboardPage.jsx';
 import DashboardPage from './pages/DashboardPage.jsx';
 import ComicEditorPage from './pages/ComicEditorPage.jsx';
 import AdminPage from './pages/AdminPage.jsx';
+import TeacherStudentsPage from './pages/TeacherStudentsPage.jsx';
+import TeacherComicViewPage from './pages/TeacherComicViewPage.jsx';
+import TeacherTasksPage from './pages/TeacherTasksPage.jsx';
+import TeacherSubmissionsPage from './pages/TeacherSubmissionsPage.jsx';
+import StudentTasksPage from './pages/StudentTasksPage.jsx';
+import TeacherClassesPage from './pages/TeacherClassesPage.jsx';
+import StudentInstructorsPage from './pages/StudentInstructorsPage.jsx';
 
 export default function App() {
   return (
@@ -22,6 +32,8 @@ export default function App() {
             <Route path="/" element={<HomePage />} />
             <Route path="/login" element={<LoginPage />} />
             <Route path="/register" element={<RegisterPage />} />
+            <Route path="/admin/login" element={<AdminLoginPage />} />
+            <Route path="/chief/login" element={<ChiefLoginPage />} />
 
             <Route
               path="/dashboard"
@@ -56,6 +68,86 @@ export default function App() {
                     <Navbar />
                     <AdminPage />
                   </DragProvider>
+                </ProtectedRoute>
+              }
+            />
+
+            <Route
+              path="/chief/billing"
+              element={
+                <ProtectedRoute chiefOnly>
+                  <Navbar />
+                  <ChiefDashboardPage />
+                </ProtectedRoute>
+              }
+            />
+
+            <Route
+              path="/teacher/students"
+              element={
+                <ProtectedRoute teacherOnly>
+                  <Navbar />
+                  <TeacherStudentsPage />
+                </ProtectedRoute>
+              }
+            />
+
+            <Route
+              path="/teacher/view/:studentId/:comicId"
+              element={
+                <ProtectedRoute teacherOnly>
+                  <Navbar />
+                  <TeacherComicViewPage />
+                </ProtectedRoute>
+              }
+            />
+
+            <Route
+              path="/teacher/tasks"
+              element={
+                <ProtectedRoute teacherOnly>
+                  <Navbar />
+                  <TeacherTasksPage />
+                </ProtectedRoute>
+              }
+            />
+
+            <Route
+              path="/teacher/tasks/:taskId/submissions"
+              element={
+                <ProtectedRoute teacherOnly>
+                  <Navbar />
+                  <TeacherSubmissionsPage />
+                </ProtectedRoute>
+              }
+            />
+
+            <Route
+              path="/student/tasks"
+              element={
+                <ProtectedRoute studentOnly>
+                  <Navbar />
+                  <StudentTasksPage />
+                </ProtectedRoute>
+              }
+            />
+
+            <Route
+              path="/teacher/classes"
+              element={
+                <ProtectedRoute teacherOnly>
+                  <Navbar />
+                  <TeacherClassesPage />
+                </ProtectedRoute>
+              }
+            />
+
+            <Route
+              path="/student/instructors"
+              element={
+                <ProtectedRoute studentOnly>
+                  <Navbar />
+                  <StudentInstructorsPage />
                 </ProtectedRoute>
               }
             />

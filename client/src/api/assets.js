@@ -1,3 +1,4 @@
+
 import api from './client.js';
 
 export const getAssets = (params = {}) => api.get('/assets', { params }).then((r) => r.data);
@@ -18,6 +19,14 @@ export const uploadFolder = (formData, onProgress) =>
 
 export const getAdminUsers = () => api.get('/admin/users').then((r) => r.data);
 export const updateUserRole = (id, role) => api.patch(`/admin/users/${id}/role`, { role }).then((r) => r.data);
+
+export const listInstitutions = () => api.get('/admin/institutions').then((r) => r.data);
+export const createInstitution = (name, type) => api.post('/admin/institutions', { name, type }).then((r) => r.data);
+export const renewInstitution = (id) => api.patch(`/admin/institutions/${id}/renew`).then((r) => r.data);
+export const updateInstitution = (id, data) => api.patch(`/admin/institutions/${id}`, data).then((r) => r.data);
+export const suspendInstitution = (id, suspended) => api.patch(`/admin/institutions/${id}/suspend`, { suspended }).then((r) => r.data);
+export const createInstitutionChief = (id, data) => api.post(`/admin/institutions/${id}/chief`, data).then((r) => r.data);
+export const updateInstitutionSystemCount = (id, systemCount) => api.patch(`/admin/institutions/${id}/system-count`, { systemCount }).then((r) => r.data);
 
 export const saveAssembledFace = (name, svgContent, layout) =>
   api.post('/admin/faces/assemble', { name, svgContent, layout }).then((r) => r.data);

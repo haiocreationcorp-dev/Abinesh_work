@@ -7,9 +7,11 @@ import PanelLayoutPicker from './PanelLayoutPicker.jsx';
 import AssetGrid from '../library/AssetGrid.jsx';
 import ExportControls from './ExportControls.jsx';
 import SpeechBubbleEditor from './SpeechBubble.jsx';
+import AIAssistantPanel from './AIAssistantPanel.jsx';
 import { AlignIcon, ColorSwatch, CustomSelect, FONTS, SIZES } from './BubbleUiKit.jsx';
 import { getAssets, getFacePartAlignmentsPublic } from '../../api/assets.js';
 import { FACE_SECTIONS, FACE_CANVAS_W, FACE_CANVAS_H, classifyFacePart, matchesFaceSection, defaultPartOverlay } from '../../utils/faceLayout.js';
+import genId from '../../utils/genId.js';
 
 // ── SVG icon components ───────────────────────────────────────────────────────
 function IconCharacters() {
@@ -102,6 +104,15 @@ function IconSound() {
     </svg>
   );
 }
+function IconAI() {
+  return (
+    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M12 3l1.6 3.8L17.5 8.4 13.6 10l-1.6 3.8L10.4 10 6.5 8.4l3.9-1.6z"/>
+      <path d="M5 16l0.9 2.1L8 19l-2.1 0.9L5 22l-0.9-2.1L2 19l2.1-0.9z"/>
+      <path d="M18 14l0.7 1.6L20.3 16.3l-1.6 0.7L18 18.6l-0.7-1.6L15.7 16.3l1.6-0.7z"/>
+    </svg>
+  );
+}
 function IconExport() {
   return (
     <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
@@ -123,6 +134,7 @@ const SIDEBAR_ITEMS = [
   { id: 'SOUND',      Icon: IconSound,       label: 'Sound' },
   { id: 'BUBBLE',     Icon: IconText,        label: 'Text' },
   { id: 'LAYOUT',     Icon: IconLayout,      label: 'Layout' },
+  { id: 'AI',         Icon: IconAI,          label: 'AI Tools' },
 ];
 
 const ASSET_IDS = new Set(['CHARACTER', 'BACKGROUND', 'EXPRESSION', 'PROP', 'EFFECT', 'COSTUME', 'SOUND']);
@@ -131,27 +143,42 @@ const EFFECT_SUBCATEGORIES = [
   {
     id: 'lighting', label: 'Lighting', icon: '💡',
     filters: [
-      { id: 'morning',     label: 'Soft Gold',     swatch: '#fde68a' },
-      { id: 'daytime',     label: 'Neutral',       swatch: '#cbd5e1' },
-      { id: 'evening',     label: 'Bold Amber',    swatch: '#c8702f' },
-      { id: 'night',       label: 'Deep Indigo',   swatch: '#1e3a8a' },
-      { id: 'moonlight',   label: 'Pale Blue',     swatch: '#93c5fd' },
-      { id: 'rainy',       label: 'Muted Slate',   swatch: '#64748b' },
-      { id: 'storm',       label: 'Dark Charcoal', swatch: '#1e293b' },
-      { id: 'horror',      label: 'Deep Crimson',  swatch: '#4c0519' },
-      { id: 'dream',       label: 'Hazy Lilac',    swatch: '#e9d5ff' },
-      { id: 'goldenHour',  label: 'Warm Amber',    swatch: '#fb923c' },
-      { id: 'underwater',  label: 'Deep Teal',     swatch: '#0e7490' },
-      { id: 'magicalGlow', label: 'Violet Glow',   swatch: '#a78bfa' },
-      { id: 'neon',        label: 'Vivid Magenta', swatch: '#e879f9' },
-      { id: 'crimsonNoir', label: 'Crimson Noir',  swatch: '#8b0000' },
+      { id: 'morning',     label: 'Soft Gold',       swatch: '#fde68a' },
+      { id: 'daytime',     label: 'Neutral',         swatch: '#cbd5e1' },
+      { id: 'evening',     label: 'Bold Amber',      swatch: '#c8702f' },
+      { id: 'night',       label: 'Deep Indigo',     swatch: '#1e3a8a' },
+      { id: 'moonlight',   label: 'Pale Blue',       swatch: '#93c5fd' },
+      { id: 'rainy',       label: 'Muted Slate',     swatch: '#64748b' },
+      { id: 'storm',       label: 'Dark Charcoal',   swatch: '#1e293b' },
+      { id: 'horror',      label: 'Deep Crimson',    swatch: '#4c0519' },
+      { id: 'dream',       label: 'Hazy Lilac',      swatch: '#e9d5ff' },
+      { id: 'goldenHour',  label: 'Warm Amber',      swatch: '#fb923c' },
+      { id: 'underwater',  label: 'Deep Teal',       swatch: '#0e7490' },
+      { id: 'magicalGlow', label: 'Violet Glow',     swatch: '#a78bfa' },
+      { id: 'neon',        label: 'Vivid Magenta',   swatch: '#e879f9' },
+      { id: 'crimsonNoir', label: 'Crimson Noir',    swatch: '#8b0000' },
       { id: 'periwinkle',  label: 'Periwinkle Blue', swatch: '#5b6c9e' },
       { id: 'forestGreen', label: 'Forest Green',    swatch: '#4a8f4f' },
       { id: 'brightCyan',  label: 'Bright Cyan',     swatch: '#1b97a1' },
     ],
   },
   { id: 'weather', label: 'Weather', icon: '🌦️' },
-  { id: 'mood',    label: 'Mood',    icon: '🎭' },
+  {
+    id: 'mood', label: 'Mood', icon: '🎨',
+    modes: [
+      { id: 'warm',      label: 'Warm',        swatch: 'linear-gradient(135deg,#fb923c,#fde68a)', css: 'sepia(0.25) saturate(1.5) brightness(1.05) hue-rotate(-10deg)' },
+      { id: 'cool',      label: 'Cool',        swatch: 'linear-gradient(135deg,#93c5fd,#a5f3fc)', css: 'hue-rotate(195deg) saturate(0.85) brightness(1.0)' },
+      { id: 'golden',    label: 'Golden',      swatch: 'linear-gradient(135deg,#f59e0b,#fcd34d)', css: 'sepia(0.45) saturate(1.6) brightness(1.1) hue-rotate(-15deg)' },
+      { id: 'vintage',   label: 'Vintage',     swatch: 'linear-gradient(135deg,#a78a60,#d4b896)', css: 'sepia(0.55) contrast(0.85) brightness(0.9) saturate(0.7)' },
+      { id: 'noir',      label: 'Noir',        swatch: 'linear-gradient(135deg,#111,#555)',        css: 'grayscale(1) contrast(1.2) brightness(0.9)' },
+      { id: 'vivid',     label: 'Vivid',       swatch: 'linear-gradient(135deg,#f43f5e,#8b5cf6)', css: 'saturate(2.0) contrast(1.1)' },
+      { id: 'faded',     label: 'Faded',       swatch: 'linear-gradient(135deg,#d1d5db,#e5e7eb)', css: 'saturate(0.45) brightness(1.15) contrast(0.75)' },
+      { id: 'dramatic',  label: 'Dramatic',    swatch: 'linear-gradient(135deg,#1e293b,#475569)', css: 'contrast(1.5) brightness(0.82) saturate(1.3)' },
+      { id: 'dreamy',    label: 'Dreamy',      swatch: 'linear-gradient(135deg,#e9d5ff,#fbcfe8)', css: 'brightness(1.1) saturate(1.35) blur(0.6px) hue-rotate(15deg)' },
+      { id: 'cyberpunk', label: 'Cyberpunk',   swatch: 'linear-gradient(135deg,#a21caf,#06b6d4)', css: 'hue-rotate(265deg) saturate(2.2) contrast(1.2) brightness(0.95)' },
+      { id: 'horror',    label: 'Horror',      swatch: 'linear-gradient(135deg,#450a0a,#7f1d1d)', css: 'hue-rotate(345deg) saturate(0.6) contrast(1.45) brightness(0.65)' },
+    ],
+  },
 ];
 
 const LAYOUT_CANVAS = {
@@ -240,7 +267,7 @@ function ChangeLayoutPicker({ current, onPick, onClose }) {
   );
 }
 
-export default function ComicEditor() {
+export default function ComicEditor({ readOnly = false } = {}) {
   const { state, dispatch, activePage, activePagePanels, pageStart } = useComic();
   const { mode, toggle } = useTheme();
   const [activeSidebar, setActiveSidebar] = useState('CHARACTER');
@@ -438,6 +465,15 @@ export default function ComicEditor() {
     });
   };
 
+  const activePanelBgMode = state.panels[activePanelIndex]?.data?.backgroundMode || null;
+  const toggleBgMode = (id) => {
+    dispatch({
+      type: 'SET_BACKGROUND_MODE',
+      panelIndex: activePanelIndex,
+      mode: activePanelBgMode === id ? null : id,
+    });
+  };
+
   const handleAssetSelect = (asset) => {
     if (activeSidebar === 'CHARACTER') {
       dispatch({ type: 'ADD_CHARACTER_TO_PANEL', panelIndex: activePanelIndex, asset });
@@ -480,7 +516,7 @@ export default function ComicEditor() {
         rotation: 0, flipX: false, flipY: false,
       };
     }
-    const instanceId = crypto.randomUUID();
+    const instanceId = genId();
     dispatch({ type: 'ADD_FACE_TO_PANEL', panelIndex: activePanelIndex, asset, faceShape, parts, instanceId });
     dispatch({ type: 'SELECT_ITEM_IN_PANEL', kind: 'FACE', instanceId, panelIndex: activePanelIndex });
   };
@@ -519,9 +555,13 @@ export default function ComicEditor() {
         {SIDEBAR_ITEMS.map((item) => (
           <button
             key={item.id}
-            style={{ ...styles.iconBtn, ...(activeSidebar === item.id ? styles.iconBtnActive : {}) }}
-            onClick={() => toggleSidebar(item.id)}
-            title={item.label}
+            style={{
+              ...styles.iconBtn,
+              ...(activeSidebar === item.id ? styles.iconBtnActive : {}),
+              ...(readOnly ? { opacity: 0.35, cursor: 'not-allowed' } : {}),
+            }}
+            onClick={readOnly ? undefined : () => toggleSidebar(item.id)}
+            title={readOnly ? 'Editing disabled — subscription expired' : item.label}
           >
             <item.Icon />
             <span style={styles.iconLabel}>{item.label}</span>
@@ -544,7 +584,7 @@ export default function ComicEditor() {
       </aside>
 
       {/* ── Expandable panel ── */}
-      {activeSidebar && (
+      {activeSidebar && !readOnly && (
         <aside style={styles.expandPanel}>
           {/* Header: title + filter icon */}
           <div style={styles.expandHeader}>
@@ -628,25 +668,58 @@ export default function ComicEditor() {
             {activeSidebar === 'EFFECT' && effectSub && effectSubMeta?.filters && (
               <>
                 <p style={styles.overlayHint}>Tap an effect to apply it directly over the panel. Tap again to remove it.</p>
-                <div style={styles.lightingList}>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, padding: '2px 0' }}>
                   {effectSubMeta.filters.map((f) => {
                     const active = activePanelLightingOverlay === f.id;
                     return (
                       <button
                         key={f.id}
-                        style={{ ...styles.lightingRow, ...(active ? styles.lightingRowActive : {}) }}
                         onClick={() => toggleLightingOverlay(f.id)}
+                        style={{
+                          display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6,
+                          padding: '10px 8px', borderRadius: 12, cursor: 'pointer', border: '2px solid',
+                          borderColor: active ? '#F97316' : '#e5e7eb',
+                          background: active ? 'rgba(249,115,22,0.06)' : '#fff',
+                          boxShadow: active ? '0 0 0 2px rgba(249,115,22,0.25)' : 'none',
+                        }}
                       >
-                        <span style={{ ...styles.lightingSwatch, background: f.swatch }} />
-                        <span style={styles.lightingRowLabel}>{f.label}</span>
-                        {active && <span style={styles.overlayActiveTag}>Applied</span>}
+                        <span style={{ width: 36, height: 36, borderRadius: 8, background: f.swatch, display: 'block', flexShrink: 0 }} />
+                        <span style={{ fontSize: 11, fontWeight: active ? 700 : 500, color: active ? '#F97316' : '#374151', textAlign: 'center', lineHeight: 1.2 }}>{f.label}</span>
+                        {active && <span style={styles.overlayActiveTag}>On</span>}
                       </button>
                     );
                   })}
                 </div>
               </>
             )}
-            {ASSET_IDS.has(activeSidebar) && (activeSidebar !== 'EFFECT' || (effectSub && !effectSubMeta?.filters)) && (activeSidebar !== 'BACKGROUND' || bgSub) && (
+            {activeSidebar === 'EFFECT' && effectSub === 'mood' && effectSubMeta?.modes && (
+              <>
+                <p style={styles.overlayHint}>Tap a mode to apply a CSS filter to the background image. Tap again to remove.</p>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, padding: '2px 0' }}>
+                  {effectSubMeta.modes.map((m) => {
+                    const active = activePanelBgMode === m.id;
+                    return (
+                      <button
+                        key={m.id}
+                        onClick={() => toggleBgMode(m.id)}
+                        style={{
+                          display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6,
+                          padding: '10px 8px', borderRadius: 12, cursor: 'pointer', border: '2px solid',
+                          borderColor: active ? '#F97316' : '#e5e7eb',
+                          background: active ? 'rgba(249,115,22,0.06)' : '#fff',
+                          boxShadow: active ? '0 0 0 2px rgba(249,115,22,0.25)' : 'none',
+                        }}
+                      >
+                        <span style={{ width: 36, height: 36, borderRadius: 8, background: m.swatch, display: 'block', flexShrink: 0 }} />
+                        <span style={{ fontSize: 11, fontWeight: active ? 700 : 500, color: active ? '#F97316' : '#374151', textAlign: 'center', lineHeight: 1.2 }}>{m.label}</span>
+                        {active && <span style={styles.overlayActiveTag}>On</span>}
+                      </button>
+                    );
+                  })}
+                </div>
+              </>
+            )}
+            {ASSET_IDS.has(activeSidebar) && (activeSidebar !== 'EFFECT' || (effectSub && !effectSubMeta?.filters && !effectSubMeta?.modes)) && (activeSidebar !== 'BACKGROUND' || bgSub) && (
               <>
                 {activeSidebar === 'BACKGROUND' && (
                   <button
@@ -810,6 +883,9 @@ export default function ComicEditor() {
                 </div>
               );
             })()}
+            {activeSidebar === 'AI' && (
+              <AIAssistantPanel panelIndex={activePanelIndex} />
+            )}
             {activeSidebar === 'LAYOUT' && (
               <>
                 <p style={styles.layoutHint}>Layout for <strong>Page {state.activePageIndex + 1}</strong></p>
@@ -1032,6 +1108,12 @@ export default function ComicEditor() {
           }}
         >
 
+          {readOnly && (
+            <div style={styles.readOnlyBanner}>
+              🔒 View only — this institution's subscription has expired. Ask your administrator to renew.
+            </div>
+          )}
+
           {/* Panel grid / empty state */}
           {state.pages.length === 0 ? (
             <div style={{ ...styles.emptyCanvas, margin: 'auto' }}>
@@ -1062,6 +1144,8 @@ export default function ComicEditor() {
                       canvasH={canvas.ph}
                       isActive={pIdx === activePanelIndex}
                       onActivate={() => dispatch({ type: 'SET_ACTIVE_PANEL', index: pIdx })}
+                      onOpenAI={() => setActiveSidebar('AI')}
+                      readOnly={readOnly}
                     />
                   );
                 })}
@@ -1252,6 +1336,7 @@ export default function ComicEditor() {
                       isActive={pIdx === activePanelIndex}
                       onActivate={() => dispatch({ type: 'SET_ACTIVE_PANEL', index: pIdx })}
                       previewMode
+                      readOnly={readOnly}
                     />
                   );
                 })}
@@ -1344,6 +1429,11 @@ const styles = {
   canvasArea: {
     flex: 1, display: 'flex',
     overflow: 'auto', padding: 28, background: 'var(--t-canvas-bg)', position: 'relative',
+  },
+  readOnlyBanner: {
+    position: 'absolute', top: 0, left: 0, right: 0, zIndex: 50,
+    background: '#F97316', color: '#fff', textAlign: 'center',
+    padding: '8px 16px', fontSize: 13, fontWeight: 700,
   },
 
   // Canvas toolbar (undo/redo/zoom) — top-right of canvas area

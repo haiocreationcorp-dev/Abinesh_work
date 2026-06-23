@@ -4,6 +4,22 @@ import { useDrag } from '../../context/DragContext.jsx';
 import CharacterRig from './CharacterRig.jsx';
 import FaceRig from './FaceRig.jsx';
 import { useLightingOverlays } from '../../lighting/lightingEngine.js';
+import { correctText } from '../../utils/spellCheck.js';
+import AIQuickMenu from './AIQuickMenu.jsx';
+
+const BG_MODE_CSS = {
+  warm:      'sepia(0.25) saturate(1.5) brightness(1.05) hue-rotate(-10deg)',
+  cool:      'hue-rotate(195deg) saturate(0.85) brightness(1.0)',
+  golden:    'sepia(0.45) saturate(1.6) brightness(1.1) hue-rotate(-15deg)',
+  vintage:   'sepia(0.55) contrast(0.85) brightness(0.9) saturate(0.7)',
+  noir:      'grayscale(1) contrast(1.2) brightness(0.9)',
+  vivid:     'saturate(2.0) contrast(1.1)',
+  faded:     'saturate(0.45) brightness(1.15) contrast(0.75)',
+  dramatic:  'contrast(1.5) brightness(0.82) saturate(1.3)',
+  dreamy:    'brightness(1.1) saturate(1.35) blur(0.6px) hue-rotate(15deg)',
+  cyberpunk: 'hue-rotate(265deg) saturate(2.2) contrast(1.2) brightness(0.95)',
+  horror:    'hue-rotate(345deg) saturate(0.6) contrast(1.45) brightness(0.65)',
+};
 
 const KIND_KEY = {
   CHARACTER: 'characters',
@@ -34,7 +50,54 @@ function isGray(hex) {
   return Math.max(r, g, b) - Math.min(r, g, b) < 35;
 }
 
-function processBubbleSvg(raw, fillColor, strokeColor, showShadow, flipX, strokeWidth) {
+// Same content-bounds tightening as the live bubble's viewBox effect below, but operating on a
+// detached SVG string (off-DOM) — used by the canvas exporter so rasterized bubbles match the editor.
+export function tightenSvgViewBoxString(svgString, flipX) {
+  const container = document.createElement('div');
+  container.style.position = 'fixed';
+  container.style.left = '-99999px';
+  container.style.top = '0';
+  container.style.visibility = 'hidden';
+  container.innerHTML = svgString;
+  document.body.appendChild(container);
+  try {
+    const svgEl = container.querySelector('svg');
+    if (!svgEl) return svgString;
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    svgEl.querySelectorAll('path, rect, circle, ellipse, polygon, polyline').forEach((el) => {
+      if (el.getAttribute('display') === 'none') return;
+      if (el.getAttribute('fill') === 'none') return;
+      if (el.style && el.style.fill === 'none') return;
+      try {
+        const bb = el.getBBox();
+        if (bb.width === 0 && bb.height === 0) return;
+        minX = Math.min(minX, bb.x); minY = Math.min(minY, bb.y);
+        maxX = Math.max(maxX, bb.x + bb.width); maxY = Math.max(maxY, bb.y + bb.height);
+      } catch (_) {}
+    });
+    if (minX !== Infinity) {
+      const pad = 3;
+      let vbX, vbW;
+      if (flipX) {
+        const origVbParts = svgEl.getAttribute('viewBox')?.trim().split(/[\s,]+/).map(Number) || [];
+        const origVbMinX = origVbParts[0] ?? 0;
+        const origVbW    = origVbParts[2] ?? 210;
+        const tx = 2 * origVbMinX + origVbW;
+        vbX = tx - maxX - pad;
+        vbW = (maxX - minX) + pad * 2;
+      } else {
+        vbX = minX - pad;
+        vbW = maxX - minX + pad * 2;
+      }
+      svgEl.setAttribute('viewBox', `${vbX} ${minY - pad} ${vbW} ${maxY - minY + pad * 2}`);
+    }
+    return svgEl.outerHTML;
+  } finally {
+    document.body.removeChild(container);
+  }
+}
+
+export function processBubbleSvg(raw, fillColor, strokeColor, showShadow, flipX, strokeWidth) {
   let s = raw;
 
   // Extract hex colors from BOTH fill="COLOR" attribute AND style="...fill:COLOR..." (Inkscape)
@@ -110,7 +173,7 @@ function processBubbleSvg(raw, fillColor, strokeColor, showShadow, flipX, stroke
   return s;
 }
 
-function BubblePlacedItem({ bubble, panelIndex, canvasRef, canvasW, isSelected, onSelect, dispatch }) {
+function BubblePlacedItem({ bubble, panelIndex, canvasRef, canvasW, isSelected, onSelect, dispatch, onOpenAI }) {
   const [rawSvg, setRawSvg] = useState(svgCache[bubble.filePath] || null);
   const svgContainerRef = useRef(null);
   const outerRef = useRef(null);
@@ -139,16 +202,21 @@ function BubblePlacedItem({ bubble, panelIndex, canvasRef, canvasW, isSelected, 
     }
   }, [isSelected]);
 
-  // Seed innerHTML on mount; sync only on external changes (undo/redo).
-  // Never use dangerouslySetInnerHTML on the contentEditable — it resets the
-  // cursor to position 0 on every keystroke, reversing typed characters.
+  // Seed innerHTML when this bubble becomes selected (contentEditable mounts) or text changes externally (undo/redo).
+  useEffect(() => {
+    if (!isSelected) return;
+    const el = textRef.current;
+    if (!el) return;
+    el.innerHTML = bubble.text || '';
+    lastSavedText.current = bubble.text || '';
+  }, [isSelected]); // eslint-disable-line
+
   useEffect(() => {
     const el = textRef.current;
     if (!el) return;
     if (lastSavedText.current === null || bubble.text !== lastSavedText.current) {
       el.innerHTML = bubble.text || '';
       lastSavedText.current = bubble.text || '';
-      // grow bubble if seeded text is already taller than the text zone
       const needed = Math.ceil(el.scrollHeight / 0.75) + 16;
       if (needed > (bubble.height || 150)) {
         dispatch({ type: 'UPDATE_PANEL_BUBBLE', panelIndex, instanceId: bubble.instanceId, updates: { height: needed } });
@@ -317,42 +385,67 @@ function BubblePlacedItem({ bubble, panelIndex, canvasRef, canvasW, isSelected, 
         <div style={{ position: 'absolute', inset: 0, background: '#F5C518', border: '3px solid #000', borderRadius: 12 }} />
       )}
 
-      {/* Text layer — sits in the bubble body above the tail.
-          Body occupies ~83% of height; tail is the bottom ~17%.
-          We use top:6% height:75% so text fills the body with small margins. */}
+      {/* Text layer — editable when selected, read-only div otherwise (html2canvas captures the div) */}
       <div style={{ position: 'absolute', top: '6%', left: '10%', width: '80%', height: '75%', zIndex: 2, display: 'flex', alignItems: 'center', justifyContent: 'center', pointerEvents: 'none', overflow: 'hidden' }}>
-        <div
-          ref={textRef}
-          contentEditable suppressContentEditableWarning
-          style={{
-            width: '100%',
-            textAlign: bubble.textStyle?.textAlign || 'center',
-            outline: 'none', cursor: 'text', wordBreak: 'break-word',
-            lineHeight: 1.3, pointerEvents: 'auto',
-            direction: 'ltr', writingMode: 'horizontal-tb', unicodeBidi: 'normal',
-            fontSize: bubble.textStyle?.fontSize || 16,
-            fontFamily: bubble.textStyle?.fontFamily || "'Comic Sans MS', cursive",
-            color: bubble.textStyle?.color || '#000000',
-            fontWeight: bubble.textStyle?.bold ? 'bold' : 'normal',
-            fontStyle: bubble.textStyle?.italic ? 'italic' : 'normal',
-            textDecoration: bubble.textStyle?.underline ? 'underline' : 'none',
-          }}
-          onMouseDown={(e) => e.stopPropagation()}
-          onInput={(e) => {
-            const el = e.currentTarget;
-            const html = el.innerHTML;
-            lastSavedText.current = html;
-            const updates = { text: html };
-            // text zone is 75% of height, 80% of width — grow bubble to fit content
-            const neededH = Math.ceil(el.scrollHeight / 0.75) + 16;
-            if (neededH > h) updates.height = neededH;
-            if (el.scrollWidth > el.offsetWidth) {
-              const neededW = Math.ceil(el.scrollWidth / 0.80) + 16;
-              if (neededW > w) updates.width = neededW;
-            }
-            dispatch({ type: 'UPDATE_PANEL_BUBBLE', panelIndex, instanceId: bubble.instanceId, updates });
-          }}
-        />
+        {isSelected ? (
+          <div
+            ref={textRef}
+            contentEditable suppressContentEditableWarning
+            style={{
+              width: '100%',
+              textAlign: bubble.textStyle?.textAlign || 'center',
+              outline: 'none', cursor: 'text', wordBreak: 'break-word',
+              lineHeight: 1.3, pointerEvents: 'auto',
+              direction: 'ltr', writingMode: 'horizontal-tb', unicodeBidi: 'normal',
+              fontSize: bubble.textStyle?.fontSize || 16,
+              fontFamily: bubble.textStyle?.fontFamily || "'Comic Sans MS', cursive",
+              color: bubble.textStyle?.color || '#000000',
+              fontWeight: bubble.textStyle?.bold ? 'bold' : 'normal',
+              fontStyle: bubble.textStyle?.italic ? 'italic' : 'normal',
+              textDecoration: bubble.textStyle?.underline ? 'underline' : 'none',
+            }}
+            onMouseDown={(e) => e.stopPropagation()}
+            onInput={(e) => {
+              const el = e.currentTarget;
+              const html = el.innerHTML;
+              lastSavedText.current = html;
+              const updates = { text: html };
+              const neededH = Math.ceil(el.scrollHeight / 0.75) + 16;
+              if (neededH > h) updates.height = neededH;
+              if (el.scrollWidth > el.offsetWidth) {
+                const neededW = Math.ceil(el.scrollWidth / 0.80) + 16;
+                if (neededW > w) updates.width = neededW;
+              }
+              dispatch({ type: 'UPDATE_PANEL_BUBBLE', panelIndex, instanceId: bubble.instanceId, updates });
+            }}
+            onBlur={(e) => {
+              const el = e.currentTarget;
+              const plain = el.innerText;
+              correctText(plain).then(({ changed, corrected }) => {
+                if (!changed) return;
+                el.innerHTML = corrected.replace(/\n/g, '<br>');
+                lastSavedText.current = el.innerHTML;
+                dispatch({ type: 'UPDATE_PANEL_BUBBLE', panelIndex, instanceId: bubble.instanceId, updates: { text: el.innerHTML } });
+              });
+            }}
+          />
+        ) : (
+          <div
+            style={{
+              width: '100%',
+              textAlign: bubble.textStyle?.textAlign || 'center',
+              wordBreak: 'break-word', lineHeight: 1.3, pointerEvents: 'none',
+              direction: 'ltr', writingMode: 'horizontal-tb', unicodeBidi: 'normal',
+              fontSize: bubble.textStyle?.fontSize || 16,
+              fontFamily: bubble.textStyle?.fontFamily || "'Comic Sans MS', cursive",
+              color: bubble.textStyle?.color || '#000000',
+              fontWeight: bubble.textStyle?.bold ? 'bold' : 'normal',
+              fontStyle: bubble.textStyle?.italic ? 'italic' : 'normal',
+              textDecoration: bubble.textStyle?.underline ? 'underline' : 'none',
+            }}
+            dangerouslySetInnerHTML={{ __html: bubble.text || '' }}
+          />
+        )}
       </div>
 
       {isSelected && (
@@ -386,13 +479,17 @@ function BubblePlacedItem({ bubble, panelIndex, canvasRef, canvasW, isSelected, 
             <div key={id} onMouseDown={(e) => startResize(e, id)}
               style={{ position: 'absolute', left: l, top: t, width: HW, height: HW, background: '#7C3AED', border: '2px solid #fff', borderRadius: '50%', cursor: c, zIndex: 15 }} />
           ))}
+          <AIQuickMenu
+            style={{ bottom: 4, right: 4 }}
+            onOpenAI={onOpenAI}
+          />
         </>
       )}
     </div>
   );
 }
 
-export default function Panel({ panel, panelIndex, canvasW = 800, canvasH = 450, isActive = true, onActivate, previewMode = false }) {
+export default function Panel({ panel, panelIndex, canvasW = 800, canvasH = 450, isActive = true, onActivate, previewMode = false, readOnly = false, onOpenAI }) {
   const { dispatch, state: comicState } = useComic();
   const { dragging, startDrag: startDragOverlay, moveOverlay, endDrag: endDragOverlay } = useDrag();
   const lightingOverlays = useLightingOverlays();
@@ -508,6 +605,13 @@ export default function Panel({ panel, panelIndex, canvasW = 800, canvasH = 450,
 
     window.addEventListener('keydown', handleKey);
     return () => window.removeEventListener('keydown', handleKey);
+  }, []);
+
+  // Deselect all items when the export captures the canvas
+  useEffect(() => {
+    const onDeselectAll = () => setSelectedRef.current(null);
+    document.addEventListener('comic-deselect-all', onDeselectAll);
+    return () => document.removeEventListener('comic-deselect-all', onDeselectAll);
   }, []);
 
   const deselect = (e) => {
@@ -639,6 +743,7 @@ export default function Panel({ panel, panelIndex, canvasW = 800, canvasH = 450,
       onSelect={() => selectItem({ kind: 'NARRATION', instanceId: nb.instanceId })}
       onChange={(updates) => dispatch({ type: 'UPDATE_NARRATION_BOX', panelIndex, instanceId: nb.instanceId, updates })}
       onRemove={() => dispatch({ type: 'REMOVE_NARRATION_BOX', panelIndex, instanceId: nb.instanceId })}
+      onOpenAI={onOpenAI}
     />
   );
 
@@ -648,12 +753,11 @@ export default function Panel({ panel, panelIndex, canvasW = 800, canvasH = 450,
     <div
       style={{
         ...styles.wrapper,
-        boxShadow: isActive ? '0 0 0 3px var(--t-accent)' : '0 0 0 3px transparent',
         borderRadius: 12,
-        border: '2px dashed var(--t-panel-border)',
+        border: previewMode ? 'none' : '2px dashed var(--t-panel-border)',
         overflow: 'hidden',
         userSelect: 'none',
-        outline: isDragOver ? '3px dashed var(--t-accent)' : undefined,
+        outline: !previewMode && isDragOver ? '3px dashed var(--t-accent)' : undefined,
         display: 'flex',
         flexDirection: 'column',
         width: CANVAS_W,
@@ -685,13 +789,16 @@ export default function Panel({ panel, panelIndex, canvasW = 800, canvasH = 450,
           onMouseEnter={() => dragging && setIsDragOver(true)}
           onMouseLeave={() => setIsDragOver(false)}
         >
-          {/* Background layer — separate div so opacity only affects the background image */}
+          {/* Background layer — separate div so opacity and filter only affect the background image */}
           {data.background && (
             <div style={{
               position: 'absolute', inset: 0, pointerEvents: 'none', zIndex: 0,
               backgroundImage: `url(${data.background.filePath})`,
               backgroundSize: 'cover', backgroundPosition: 'center',
               opacity: data.background.opacity ?? 1,
+              ...(data.backgroundMode && BG_MODE_CSS[data.backgroundMode]
+                ? { filter: BG_MODE_CSS[data.backgroundMode] }
+                : {}),
             }} />
           )}
 
@@ -962,6 +1069,7 @@ export default function Panel({ panel, panelIndex, canvasW = 800, canvasH = 450,
               onDragStart={(e) => startDrag(e, 'BUBBLE', bubble.instanceId, bubble.position)}
               onChange={(updates) => dispatch({ type: 'UPDATE_BUBBLE', panelIndex, instanceId: bubble.instanceId, updates })}
               onRemove={() => dispatch({ type: 'REMOVE_BUBBLE', panelIndex, instanceId: bubble.instanceId })}
+              onOpenAI={onOpenAI}
             />
           ))}
 
@@ -976,6 +1084,7 @@ export default function Panel({ panel, panelIndex, canvasW = 800, canvasH = 450,
               isSelected={selected?.instanceId === bubble.instanceId}
               onSelect={() => selectItem({ kind: 'PLACED_BUBBLE', instanceId: bubble.instanceId })}
               dispatch={dispatch}
+              onOpenAI={onOpenAI}
             />
           ))}
           </div>{/* closes canvas */}
@@ -987,6 +1096,14 @@ export default function Panel({ panel, panelIndex, canvasW = 800, canvasH = 450,
         {/* Right narration — spans full height, outside center column */}
         {narrationBoxes.filter((nb) => nb.position === 'right').map(renderNarrationBox)}
       </div>{/* closes outer row */}
+
+      {/* Read-only lock — a single inert overlay covering the whole panel (canvas + all
+          narration boxes) blocks every drag/click/edit interaction without touching each
+          item's individual handlers (used when an institution's subscription has expired;
+          comics stay fully viewable, not editable). */}
+      {readOnly && (
+        <div style={{ position: 'absolute', inset: 0, zIndex: 999, cursor: 'not-allowed' }} />
+      )}
     </div>
   );
 }
@@ -1522,7 +1639,7 @@ function PlacedItemHandles({ item, kind, panelIndex, dispatch, canvasRef, canvas
 }
 
 // ── Narration box overlay ─────────────────────────────────────────────────────
-function NarrationBoxOverlay({ box, isSelected, onSelect, onChange, onRemove }) {
+function NarrationBoxOverlay({ box, isSelected, onSelect, onChange, onRemove, onOpenAI }) {
   const { text, position, style: ns = {} } = box;
   const isVertical = position === 'left' || position === 'right';
   const fontSize = ns.fontSize || 13;
@@ -1558,6 +1675,17 @@ function NarrationBoxOverlay({ box, isSelected, onSelect, onChange, onRemove }) 
     const html = e.currentTarget.innerHTML;
     lastSaved.current = html;
     onChange({ text: html });
+  };
+
+  const handleBlur = (e) => {
+    const el = e.currentTarget;
+    const plain = el.innerText;
+    correctText(plain).then(({ changed, corrected }) => {
+      if (!changed) return;
+      el.innerHTML = corrected.replace(/\n/g, '<br>');
+      lastSaved.current = el.innerHTML;
+      onChange({ text: el.innerHTML });
+    });
   };
 
   // Drag left edge of right-positioned box to resize width
@@ -1628,6 +1756,7 @@ function NarrationBoxOverlay({ box, isSelected, onSelect, onChange, onRemove }) 
           contentEditable
           suppressContentEditableWarning
           onInput={handleInput}
+          onBlur={handleBlur}
           onClick={(e) => e.stopPropagation()}
           onMouseDown={(e) => e.stopPropagation()}
           style={{ ...baseTextStyle, outline: 'none', minHeight: '1em' }}
@@ -1661,13 +1790,28 @@ function NarrationBoxOverlay({ box, isSelected, onSelect, onChange, onRemove }) 
           onClick={(e) => { e.stopPropagation(); onRemove(); }}
         >×</button>
       )}
+
+      {isSelected && (
+        <AIQuickMenu
+          style={{ top: '100%', right: 4, marginTop: 4 }}
+          onOpenAI={onOpenAI}
+        />
+      )}
     </div>
   );
 }
 
 // ── Speech bubble overlay ─────────────────────────────────────────────────────
-function BubbleOverlay({ bubble, isSelected, onSelect, onDragStart, onChange, onRemove }) {
+function BubbleOverlay({ bubble, isSelected, onSelect, onDragStart, onChange, onRemove, onOpenAI }) {
   const { type, text, position, width, height, style: bs } = bubble;
+
+  const handleBlur = (e) => {
+    const value = e.currentTarget.value;
+    correctText(value).then(({ changed, corrected }) => {
+      if (changed) onChange({ text: corrected });
+    });
+  };
+
   return (
     <div
       style={{ ...styles.placed, left: position.x, top: position.y, width, cursor: 'grab', outline: isSelected ? '2px solid #22c55e' : 'none' }}
@@ -1679,6 +1823,7 @@ function BubbleOverlay({ bubble, isSelected, onSelect, onDragStart, onChange, on
           style={styles.bubbleTextEdit}
           value={text}
           onChange={(e) => onChange({ text: e.target.value })}
+          onBlur={handleBlur}
           onClick={(e) => e.stopPropagation()}
           onMouseDown={(e) => e.stopPropagation()}
         />
@@ -1686,6 +1831,12 @@ function BubbleOverlay({ bubble, isSelected, onSelect, onDragStart, onChange, on
         <div style={{ ...styles.bubbleText, fontFamily: bs.fontFamily, fontSize: bs.fontSize }}>{text}</div>
       )}
       {isSelected && <button style={{ ...styles.removeItem, background: '#22c55e' }} onClick={onRemove}>×</button>}
+      {isSelected && (
+        <AIQuickMenu
+          style={{ bottom: -10, right: -10 }}
+          onOpenAI={onOpenAI}
+        />
+      )}
     </div>
   );
 }

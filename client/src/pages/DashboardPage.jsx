@@ -4,7 +4,7 @@ import { listComics, createComic, deleteComic } from '../api/comics.js';
 import { useAuth } from '../context/AuthContext.jsx';
 
 export default function DashboardPage() {
-  const { user } = useAuth();
+  const { user, isViewOnly } = useAuth();
   const navigate = useNavigate();
   const [comics, setComics] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -31,9 +31,11 @@ export default function DashboardPage() {
         <div style={styles.header}>
           <div>
             <h2 style={styles.greeting}>Hello, {user?.name || user?.email} 👋</h2>
-            <p className="text-muted text-sm">Your comic strips</p>
+            <p className="text-muted text-sm">
+              {isViewOnly ? '🔒 View only — your institution\'s subscription has expired' : 'Your comic strips'}
+            </p>
           </div>
-          <button className="btn btn-primary" onClick={handleCreate}>+ New Comic</button>
+          {!isViewOnly && <button className="btn btn-primary" onClick={handleCreate}>+ New Comic</button>}
         </div>
 
         {loading && <div className="spinner" />}
@@ -62,13 +64,15 @@ export default function DashboardPage() {
                 <p className="text-sm text-muted">{comic.panels?.length ?? 0} panel(s)</p>
                 <p className="text-sm text-muted">{new Date(comic.updatedAt).toLocaleDateString()}</p>
               </div>
-              <button
-                className="btn btn-danger btn-sm"
-                style={{ margin: '0 12px 12px auto', display: 'block' }}
-                onClick={(e) => handleDelete(comic.id, e)}
-              >
-                Delete
-              </button>
+              {!isViewOnly && (
+                <button
+                  className="btn btn-danger btn-sm"
+                  style={{ margin: '0 12px 12px auto', display: 'block' }}
+                  onClick={(e) => handleDelete(comic.id, e)}
+                >
+                  Delete
+                </button>
+              )}
             </div>
           ))}
         </div>

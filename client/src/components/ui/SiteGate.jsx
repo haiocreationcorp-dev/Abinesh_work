@@ -42,13 +42,14 @@ export default function SiteGate({ children }) {
       <div className="card" style={styles.card}>
         <h1 style={styles.title}>BharathComic</h1>
         <p style={styles.note}>This app is in development. Enter the access password to continue.</p>
-        <form onSubmit={handleSubmit}>
+        <form onSubmit={handleSubmit} autoComplete="off">
           <div className="form-group">
             <label>Access Password</label>
             <input
               type="password"
               required
               autoFocus
+              autoComplete="new-password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
             />

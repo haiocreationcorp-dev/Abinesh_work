@@ -1,10 +1,11 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { getAssets, uploadAsset, saveAssembledExpression, getFacePartAlignment, saveFacePartAlignment } from '../../../api/assets.js';
+import { getAssets, uploadAsset, getFacePartAlignment, saveFacePartAlignment } from '../../../api/assets.js';
 import { computeTrimRect, loadTrimRect, trimmedRect } from '../../../utils/trimRect.js';
 import { hexToRgb } from '../../../lighting/lightingEngine.js';
+import { VIEWS } from '../../../constants/categories.js';
 
 const ORANGE = '#F97316';
-const CANVAS_W = 400;
+const CANVAS_W = 500;
 const CANVAS_H = 600;
 const MAX_HISTORY = 50;
 const GROUP_COLORS = ['#818CF8', '#34D399', '#F472B6', '#FBBF24', '#60A5FA'];
@@ -17,32 +18,39 @@ const OVERLAY_BLEND_MODES = [
 
 const genId = () => `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
 
-// Classify a canvas part as 'nose' | 'eye' | 'mouth' | null based on its layer name.
-function classifyPartType(part) {
-  const n = (part.customName || part.name || '').toLowerCase();
-  if (n.includes('nose')) return 'nose';
-  if (n.includes('eye')) return 'eye';
-  if (n.includes('mouth')) return 'mouth';
-  return null;
-}
-
 // Classifies a part/asset as a face-part type whose position can be calibrated
-// per-face ('hairstyle' | 'nose' | 'eye' | 'mouth'), or null if it's not one of those.
-function alignablePartType(item) {
+// per-face ('hairstyle' | 'nose' | 'eye' | 'mouth'), or — in dress-alignment mode —
+// as a dress-part type ('face' | 'neck' | 'hands') calibrated per-costume, or null
+// if it's not one of those.
+function alignablePartType(item, dressMode) {
   const n = (item.customName || item.name || '').toLowerCase();
-  if (n.includes('hair') || item.tags?.includes('hairstyle')) return 'hairstyle';
-  if (n.includes('nose') || item.tags?.includes('nose')) return 'nose';
-  if (n.includes('eye') || item.tags?.includes('eye')) return 'eye';
-  if (n.includes('mouth') || item.tags?.includes('mouth')) return 'mouth';
+  if (dressMode) {
+    if (item.partCategory === 'face') return 'face';
+    if (item.dressRole === 'neck' || item.partType === 'neck' || n.includes('neck') || item.tags?.includes('neck')) return 'neck';
+    if (item.dressRole === 'hands' || item.partType === 'hands' || n.includes('hand') || item.tags?.includes('hands')) return 'hands';
+    return null;
+  }
+  // item.partType (FACE_SHAPE/HAIR/EYES/MOUTH) is the structured field new FACE_PART
+  // uploads carry; the name/tag heuristics remain as a fallback for assets uploaded
+  // before that field existed. "Face Shape" includes the nose — no separate nose type.
+  if (item.partType === 'HAIR' || n.includes('hair') || item.tags?.includes('hairstyle') || item.partCategory === 'hair') return 'hairstyle';
+  if (item.partType === 'EYES' || n.includes('eye') || item.tags?.includes('eye')) return 'eye';
+  if (item.partType === 'MOUTH' || n.includes('mouth') || item.tags?.includes('mouth')) return 'mouth';
+  if (item.partType === 'FACE_SHAPE' || n.includes('face') || n.includes('nose') || item.tags?.includes('nose')) return 'face';
   return null;
 }
 
-const ALIGNABLE_PART_LABELS = { hairstyle: 'Hairstyle', nose: 'Nose', eye: 'Eye', mouth: 'Mouth' };
+const ALIGNABLE_PART_LABELS = { hairstyle: 'Hairstyle', eye: 'Eye', mouth: 'Mouth', face: 'Face', neck: 'Neck', hands: 'Hands' };
 
-// Nose/eye/mouth alignments are shared across all assets of that type for a given face
-// (the "slot" doesn't move when the variant changes); only hairstyle is calibrated per-asset.
+// Nose/eye/mouth/dress-part alignments are shared across all assets of that type for a
+// given face/costume (the "slot" doesn't move when the variant changes); only hairstyle
+// is calibrated per-asset.
 const SHARED_ALIGNMENT_KEY = '__ALL__';
 const alignmentAssetId = (partType, assetId) => (partType === 'hairstyle' ? assetId : SHARED_ALIGNMENT_KEY);
+
+// Appends a cache-busting query param so an updated-in-place asset's new image
+// content is fetched instead of the browser's cached copy of the old file.
+const thumbSrc = (asset) => asset.updatedAt ? `${asset.filePath}?v=${new Date(asset.updatedAt).getTime()}` : asset.filePath;
 
 const genGroupId = () => `g-${Date.now().toString(36)}`;
 const groupColor = (gid) => { if (!gid) return null; const h = [...gid].reduce((a, c) => a + c.charCodeAt(0), 0); return GROUP_COLORS[h % GROUP_COLORS.length]; };
@@ -105,7 +113,7 @@ async function buildAssembledSvg(parts, trimCache = {}) {
     defs.push(`<clipPath id="${cid}"><rect x="${p.x + p.w * cl / 100}" y="${p.y + p.h * ct / 100}" width="${p.w * (1 - (cl + cr) / 100)}" height="${p.h * (1 - (ct + cb) / 100)}"/></clipPath>`);
     // Bake the live canvas's trim-to-content rendering into the exported SVG.
     const rect = trimmedRect(trims[i], p.x, p.y, p.w, p.h);
-    // Skin tone overlay — a color wash blended over this part, like a panel lighting preset.
+    // Skin tone / hair color overlays — color washes blended over this part, like panel lighting presets.
     let overlayLine = '';
     if (p.skinOverlay) {
       const rgb = hexToRgb(p.skinOverlay.color);
@@ -113,7 +121,16 @@ async function buildAssembledSvg(parts, trimCache = {}) {
         const opacity = (p.skinOverlay.opacity ?? 50) / 100;
         const maskId = `skinMask${i}`;
         defs.push(`<mask id="${maskId}" style="mask-type:alpha"><image x="${rect.x}" y="${rect.y}" width="${rect.w}" height="${rect.h}" href="${href}" preserveAspectRatio="xMidYMid meet"/></mask>`);
-        overlayLine = `\n    <rect x="${rect.x}" y="${rect.y}" width="${rect.w}" height="${rect.h}" fill="${p.skinOverlay.color}" opacity="${opacity}" style="mix-blend-mode:${p.skinOverlay.blendMode || 'multiply'}" mask="url(#${maskId})"/>`;
+        overlayLine += `\n    <rect x="${rect.x}" y="${rect.y}" width="${rect.w}" height="${rect.h}" fill="${p.skinOverlay.color}" opacity="${opacity}" style="mix-blend-mode:${p.skinOverlay.blendMode || 'multiply'}" mask="url(#${maskId})"/>`;
+      }
+    }
+    if (p.hairOverlay) {
+      const rgb = hexToRgb(p.hairOverlay.color);
+      if (rgb) {
+        const opacity = (p.hairOverlay.opacity ?? 50) / 100;
+        const maskId = `hairMask${i}`;
+        defs.push(`<mask id="${maskId}" style="mask-type:alpha"><image x="${rect.x}" y="${rect.y}" width="${rect.w}" height="${rect.h}" href="${href}" preserveAspectRatio="xMidYMid meet"/></mask>`);
+        overlayLine += `\n    <rect x="${rect.x}" y="${rect.y}" width="${rect.w}" height="${rect.h}" fill="${p.hairOverlay.color}" opacity="${opacity}" style="mix-blend-mode:${p.hairOverlay.blendMode || 'multiply'}" mask="url(#${maskId})"/>`;
       }
     }
     // Wrap in <g id="..."> so the Pose Editor can select each part by ID
@@ -125,8 +142,19 @@ async function buildAssembledSvg(parts, trimCache = {}) {
       `  </g>`,
     ].join('\n');
   });
+  // Tight viewBox — crop to the actual content bounds so no empty canvas space
+  // is included in the exported SVG (avoids blank margins when placed in comic panels).
+  const contentRects = sorted.map((p, i) => {
+    const r = trimmedRect(trims[i], p.x, p.y, p.w, p.h);
+    return { x: r.x, y: r.y, x2: r.x + r.w, y2: r.y + r.h };
+  });
+  const vx = Math.min(...contentRects.map((r) => r.x));
+  const vy = Math.min(...contentRects.map((r) => r.y));
+  const vw = Math.max(...contentRects.map((r) => r.x2)) - vx;
+  const vh = Math.max(...contentRects.map((r) => r.y2)) - vy;
+
   return [
-    `<svg xmlns="http://www.w3.org/2000/svg" xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape" viewBox="0 0 ${CANVAS_W} ${CANVAS_H}" width="${CANVAS_W}" height="${CANVAS_H}">`,
+    `<svg xmlns="http://www.w3.org/2000/svg" xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape" viewBox="${vx} ${vy} ${vw} ${vh}" width="${vw}" height="${vh}">`,
     defs.length ? `  <defs>${defs.join('')}</defs>` : '',
     ...groups,
     '</svg>',
@@ -134,11 +162,17 @@ async function buildAssembledSvg(parts, trimCache = {}) {
 }
 
 // Generic configurable canvas-based part assembler, used by FaceBuilder and DressBuilder.
-export default function PartAssembler({ title, libraryCategory, partTypes, onSave, nameLabel, savedCategory, expressionsCategory, enableFacePartAlignment }) {
+export default function PartAssembler({ title, libraryCategory, partTypes, onSave, onUpdate, nameLabel, savedCategory, enableFacePartAlignment, enableDressPartAlignment, addableCategory, addableLabel }) {
+  const dressAlignMode = !!enableDressPartAlignment;
+  const alignmentEnabled = enableFacePartAlignment || enableDressPartAlignment;
   const [canvasParts, setCanvasParts]   = useState([]);
   const [selectedId, setSelectedId]     = useState(null);
   const [selectedIds, setSelectedIds]   = useState(new Set());
   const [itemName, setItemName]         = useState('');
+  // FACE_TEMPLATE-only save metadata (which named face identity + view this represents).
+  const isFaceTemplateMode = savedCategory === 'FACE_TEMPLATE';
+  const [faceFamily, setFaceFamily]     = useState('');
+  const [faceView, setFaceView]         = useState('');
   const [saving, setSaving]             = useState(false);
   const [savedMsg, setSavedMsg]         = useState('');
   const [uploadFiles, setUploadFiles]   = useState([]);
@@ -150,31 +184,33 @@ export default function PartAssembler({ title, libraryCategory, partTypes, onSav
   const [savedAssets, setSavedAssets]   = useState([]);
   const [loadingSaved, setLoadingSaved] = useState(false);
   const [loadingSavedId, setLoadingSavedId] = useState(null);
+  const [addableAssets, setAddableAssets] = useState([]);
+  const [loadingAddable, setLoadingAddable] = useState(false);
+  const [addingAssetId, setAddingAssetId] = useState(null);
   const [searchQ, setSearchQ]           = useState('');
   const [typeFilter, setTypeFilter]     = useState('all');
   const [zoom, setZoom]                 = useState(1);
   const [editingName, setEditingName]   = useState(null);
   const [editNameVal, setEditNameVal]   = useState('');
   const [showCrop, setShowCrop]         = useState(false);
-  const [expressions, setExpressions]   = useState([]);
-  const [loadingExpr, setLoadingExpr]   = useState(false);
-  const [exprName, setExprName]         = useState('');
-  const [savingExpr, setSavingExpr]     = useState(false);
-  const [applyingExprId, setApplyingExprId] = useState(null);
-  const [loadedFaceAssetId, setLoadedFaceAssetId] = useState(null);
+  const [loadedAlignAssetId, setLoadedAlignAssetId] = useState(null);
   const [savingAlignment, setSavingAlignment] = useState(false);
 
-  const dragRef      = useRef(null);
+  const dragRef           = useRef(null);
+  const resizeRef         = useRef(null);
+  const originalGroupRef  = useRef(null); // stable snapshot of group when first selected — prevents rounding drift on repeated scale
   const canvasRef    = useRef(null);
   const wrapperRef   = useRef(null);
   const historyRef   = useRef({ stack: [[]], idx: 0 });
   const zoomRef      = useRef(1);
   const userZoomedRef = useRef(false);
   const selIdRef     = useRef(null);
+  const selectedIdsRef = useRef(new Set());
   const trimCacheRef = useRef({});   // filePath → trim rect
   const [trimVersion, setTrimVersion] = useState(0); // bumped to trigger rerender after trim computed
   zoomRef.current   = zoom;
   selIdRef.current  = selectedId;
+  selectedIdsRef.current = selectedIds;
 
   // Auto-fit the canvas to the available wrapper space until the user manually zooms.
   const fitZoom = useCallback(() => {
@@ -205,17 +241,17 @@ export default function PartAssembler({ title, libraryCategory, partTypes, onSav
     getAssets({ category: savedCategory }).then(setSavedAssets).catch(() => setSavedAssets([])).finally(() => setLoadingSaved(false));
   }, [savedCategory]);
 
-  const refreshExpressions = useCallback(() => {
-    if (!expressionsCategory) return;
-    setLoadingExpr(true);
-    getAssets({ category: expressionsCategory }).then(setExpressions).catch(() => setExpressions([])).finally(() => setLoadingExpr(false));
-  }, [expressionsCategory]);
+  const refreshAddable = useCallback(() => {
+    if (!addableCategory) return;
+    setLoadingAddable(true);
+    getAssets({ category: addableCategory }).then(setAddableAssets).catch(() => setAddableAssets([])).finally(() => setLoadingAddable(false));
+  }, [addableCategory]);
 
   useEffect(() => {
     refreshAssets();
     refreshSaved();
-    refreshExpressions();
-  }, [refreshAssets, refreshSaved, refreshExpressions]);
+    refreshAddable();
+  }, [refreshAssets, refreshSaved, refreshAddable]);
 
   // ── History helpers ──
   const commitParts = useCallback((updater) => {
@@ -250,8 +286,14 @@ export default function PartAssembler({ title, libraryCategory, partTypes, onSav
     const handler = (e) => {
       if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.isContentEditable) return;
       if (e.key === 'Delete' || e.key === 'Backspace') {
-        const id = selIdRef.current;
-        if (id) { commitParts((prev) => prev.filter((p) => p.id !== id)); setSelectedId(null); }
+        const ids = selectedIdsRef.current;
+        if (ids.size > 1) {
+          commitParts((prev) => prev.filter((p) => !ids.has(p.id)));
+          setSelectedIds(new Set()); setSelectedId(null);
+        } else {
+          const id = selIdRef.current;
+          if (id) { commitParts((prev) => prev.filter((p) => p.id !== id)); setSelectedId(null); }
+        }
       }
       if (e.ctrlKey && !e.shiftKey && e.key.toLowerCase() === 'z') { e.preventDefault(); undo(); }
       if (e.ctrlKey && (e.key.toLowerCase() === 'y' || (e.shiftKey && e.key.toLowerCase() === 'z'))) { e.preventDefault(); redo(); }
@@ -259,6 +301,22 @@ export default function PartAssembler({ title, libraryCategory, partTypes, onSav
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
   }, [commitParts, undo, redo]);
+
+  // When a grouped part is selected, snapshot every member's exact x/y/w/h.
+  // updateProportional always scales from this snapshot instead of from the
+  // current (already-rounded) state, preventing rounding errors from compounding
+  // across repeated enlarge→shrink cycles.
+  useEffect(() => {
+    if (!selectedId) { originalGroupRef.current = null; return; }
+    const part = canvasParts.find((p) => p.id === selectedId);
+    if (!part?.groupId) { originalGroupRef.current = null; return; }
+    const members = canvasParts.filter((p) => p.groupId === part.groupId);
+    const minX = Math.min(...members.map((p) => p.x));
+    const minY = Math.min(...members.map((p) => p.y));
+    const origParts = {};
+    members.forEach((p) => { origParts[p.id] = { x: p.x, y: p.y, w: p.w, h: p.h }; });
+    originalGroupRef.current = { groupId: part.groupId, anchorX: minX, anchorY: minY, origParts };
+  }, [selectedId]); // intentionally NOT canvasParts — we only snapshot on selection change
 
   // ── Upload ──
   const handleUpload = async () => {
@@ -271,7 +329,10 @@ export default function PartAssembler({ title, libraryCategory, partTypes, onSav
         const fd = new FormData();
         fd.append('file', file); fd.append('name', name);
         fd.append('category', libraryCategory);
-        const tags = uploadType ? `${name},${uploadType}` : name;
+        // 'cloth' parts are the costume's outfit layer — also tag 'outfit' so they're
+        // findable under that grouping in the asset library, not just under 'cloth'.
+        const typeTags = uploadType === 'cloth' ? `${uploadType},outfit` : uploadType;
+        const tags = typeTags ? `${name},${typeTags}` : name;
         fd.append('tags', tags);
         await uploadAsset(fd); ok++;
       } catch { /* continue */ }
@@ -293,30 +354,53 @@ export default function PartAssembler({ title, libraryCategory, partTypes, onSav
     // For hairstyle/nose parts, check if this face+part pair has a saved alignment
     // and apply its position/size/rotation instead of the default placement.
     let alignment = null;
-    const partType = alignablePartType(asset);
-    if (enableFacePartAlignment && loadedFaceAssetId && partType) {
-      try { alignment = await getFacePartAlignment(loadedFaceAssetId, alignmentAssetId(partType, asset.id), partType); } catch { /* ignore */ }
+    const partType = alignablePartType(asset, dressAlignMode);
+    if (alignmentEnabled && loadedAlignAssetId && partType) {
+      try { alignment = await getFacePartAlignment(loadedAlignAssetId, alignmentAssetId(partType, asset.id), partType); } catch { /* ignore */ }
     }
 
+    // If the new asset belongs to a different category (hairstyle/nose/eye/mouth/...)
+    // than the currently selected part, don't hijack the selected slot — instead swap
+    // into the existing layer of the matching category (if any), or add a new layer.
+    const matchesCategory = (p) => {
+      const pType = alignablePartType(p, dressAlignMode);
+      return !partType || !pType || pType === partType;
+    };
+
     if (selectedIds.size > 1) {
-      commitParts((prev) => prev.map((p) => selectedIds.has(p.id)
-        ? { ...p, assetId: asset.id, filePath: asset.filePath, name: asset.name, customName: '',
-            ...(alignment ? { x: alignment.x, y: alignment.y, w: alignment.w, h: alignment.h, rotation: alignment.rotation, flipX: alignment.flipX, flipY: alignment.flipY } : {}) }
-        : p));
-      return;
+      const targets = canvasParts.filter((p) => selectedIds.has(p.id) && matchesCategory(p));
+      if (targets.length) {
+        const targetIds = new Set(targets.map((p) => p.id));
+        commitParts((prev) => prev.map((p) => targetIds.has(p.id)
+          ? { ...p, assetId: asset.id, filePath: asset.filePath, name: asset.name, customName: '',
+              ...(alignment ? { x: alignment.x, y: alignment.y, w: alignment.w, h: alignment.h, rotation: alignment.rotation, flipX: alignment.flipX, flipY: alignment.flipY } : {}) }
+          : p));
+        return;
+      }
+    } else if (selId) {
+      const selPart = canvasParts.find((p) => p.id === selId);
+      let targetId = selId;
+      if (selPart && !matchesCategory(selPart)) {
+        const matching = partType ? canvasParts.find((p) => alignablePartType(p, dressAlignMode) === partType) : null;
+        targetId = matching ? matching.id : null;
+      }
+      if (targetId) {
+        commitParts((prev) => prev.map((p) => p.id === targetId
+          ? { ...p, assetId: asset.id, filePath: asset.filePath, name: asset.name, customName: '',
+              ...(alignment ? { x: alignment.x, y: alignment.y, w: alignment.w, h: alignment.h, rotation: alignment.rotation, flipX: alignment.flipX, flipY: alignment.flipY } : {}) }
+          : p));
+        return;
+      }
     }
-    if (selId) {
-      commitParts((prev) => prev.map((p) => p.id === selId
-        ? { ...p, assetId: asset.id, filePath: asset.filePath, name: asset.name, customName: '',
-            ...(alignment ? { x: alignment.x, y: alignment.y, w: alignment.w, h: alignment.h, rotation: alignment.rotation, flipX: alignment.flipX, flipY: alignment.flipY } : {}) }
-        : p));
-      return;
-    }
+    const inferredDressRole = dressAlignMode
+      ? (['cloth', 'neck', 'hands'].find((t) => (asset.tags || []).includes(t)) || null)
+      : null;
     commitParts((prev) => {
       const maxZ = prev.length ? Math.max(...prev.map((p) => p.zIndex)) + 1 : 50;
       return [...prev, {
         id: genId(), assetId: asset.id, filePath: asset.filePath,
-        name: asset.name, customName: '',
+        name: asset.name, customName: '', tags: asset.tags || [], partType: asset.partType || null,
+        dressRole: inferredDressRole,
         x: alignment ? alignment.x : Math.round(CANVAS_W / 2 - 50),
         y: alignment ? alignment.y : Math.round(CANVAS_H / 2 - 50),
         w: alignment ? alignment.w : 100,
@@ -326,81 +410,6 @@ export default function PartAssembler({ title, libraryCategory, partTypes, onSav
         clip: { t: 0, r: 0, b: 0, l: 0 },
       }];
     });
-  };
-
-  // ── Expressions (nose-anchored eye+mouth combos) ──
-  // Save the 3 currently-selected parts (nose, eye, mouth — identified by layer name)
-  // as a reusable EXPRESSION asset. Eye/mouth are stored as offsets from the nose so
-  // their position can be reconstructed on any face.
-  const saveExpression = async () => {
-    if (selectedIds.size !== 3 || !exprName.trim()) return;
-    setSavingExpr(true); setSavedMsg('');
-    try {
-      const parts = canvasParts.filter((p) => selectedIds.has(p.id));
-      const nose  = parts.find((p) => classifyPartType(p) === 'nose');
-      const eye   = parts.find((p) => classifyPartType(p) === 'eye');
-      const mouth = parts.find((p) => classifyPartType(p) === 'mouth');
-      if (!nose || !eye || !mouth) {
-        setSavedMsg('Name the layers "nose", "eye" and "mouth" so they can be identified');
-        return;
-      }
-      const svg = await buildAssembledSvg([eye, mouth], trimCacheRef.current);
-      const layout = [
-        { ...eye,   type: 'eye',   dx: eye.x - nose.x,   dy: eye.y - nose.y },
-        { ...mouth, type: 'mouth', dx: mouth.x - nose.x, dy: mouth.y - nose.y },
-      ].map(({ id, ...rest }) => rest);
-      await saveAssembledExpression(exprName.trim(), svg, layout);
-      setExprName('');
-      setSavedMsg('Saved expression');
-      setTimeout(() => setSavedMsg(''), 3000);
-      refreshExpressions();
-    } catch (err) {
-      setSavedMsg(err?.response?.data?.error || 'Failed to save expression');
-    } finally {
-      setSavingExpr(false);
-    }
-  };
-
-  // Apply a saved expression onto the 3 currently-selected parts (nose, eye, mouth).
-  // Eye/mouth are repositioned and resized using the target face's nose as the anchor,
-  // and their images are swapped in from the saved expression.
-  const applyExpression = async (asset) => {
-    if (selectedIds.size !== 3 || !asset.layoutPath) return;
-    setApplyingExprId(asset.id);
-    try {
-      const layout = await fetch(asset.layoutPath).then((r) => r.json());
-      if (!Array.isArray(layout) || layout.length < 2) return;
-      const exprEye   = layout.find((p) => p.type === 'eye');
-      const exprMouth = layout.find((p) => p.type === 'mouth');
-      if (!exprEye || !exprMouth) return;
-
-      const parts = canvasParts.filter((p) => selectedIds.has(p.id));
-      const nose  = parts.find((p) => classifyPartType(p) === 'nose');
-      const eye   = parts.find((p) => classifyPartType(p) === 'eye');
-      const mouth = parts.find((p) => classifyPartType(p) === 'mouth');
-      if (!nose || !eye || !mouth) {
-        setSavedMsg('Name the layers "nose", "eye" and "mouth" so they can be identified');
-        return;
-      }
-
-      commitParts((prev) => prev.map((p) => {
-        if (p.id === eye.id) {
-          return { ...p, assetId: exprEye.assetId, filePath: exprEye.filePath, name: exprEye.name, customName: '',
-            x: nose.x + exprEye.dx, y: nose.y + exprEye.dy, w: exprEye.w, h: exprEye.h,
-            rotation: exprEye.rotation, flipX: exprEye.flipX, flipY: exprEye.flipY };
-        }
-        if (p.id === mouth.id) {
-          return { ...p, assetId: exprMouth.assetId, filePath: exprMouth.filePath, name: exprMouth.name, customName: '',
-            x: nose.x + exprMouth.dx, y: nose.y + exprMouth.dy, w: exprMouth.w, h: exprMouth.h,
-            rotation: exprMouth.rotation, flipX: exprMouth.flipX, flipY: exprMouth.flipY };
-        }
-        return p;
-      }));
-    } catch {
-      setSavedMsg('Failed to apply expression');
-    } finally {
-      setApplyingExprId(null);
-    }
   };
 
   // ── Drag ──
@@ -418,7 +427,42 @@ export default function PartAssembler({ title, libraryCategory, partTypes, onSav
     });
   }, []);
 
+  // Resize handle (bottom-right of the selected part, or its group's bounding box)
+  const handleResizeMouseDown = useCallback((e, partId) => {
+    if (e.button !== 0) return;
+    e.preventDefault(); e.stopPropagation();
+    setCanvasParts((prev) => {
+      const part = prev.find((p) => p.id === partId);
+      if (!part) return prev;
+      const box = part.groupId ? groupBBox(prev, part.groupId) : { x: part.x, y: part.y, w: part.w, h: part.h };
+      const origSizes = {};
+      prev.forEach((p) => { origSizes[p.id] = { x: p.x, y: p.y, w: p.w, h: p.h }; });
+      resizeRef.current = { partId, startX: e.clientX, startY: e.clientY, box, origSizes, groupId: part.groupId, moved: false };
+      return prev;
+    });
+  }, []);
+
   const handleMouseMove = useCallback((e) => {
+    if (resizeRef.current) {
+      const z = zoomRef.current;
+      const { box, origSizes, groupId, partId, startX } = resizeRef.current;
+      const dx = (e.clientX - startX) / z;
+      if (Math.abs(dx) > 1) resizeRef.current.moved = true;
+      const newW = Math.max(16, box.w + dx);
+      const scale = newW / box.w;
+      setCanvasParts((prev) => prev.map((p) => {
+        const orig = origSizes[p.id]; if (!orig) return p;
+        if (groupId ? p.groupId === groupId : p.id === partId) {
+          return { ...p,
+            x: Math.round(box.x + (orig.x - box.x) * scale),
+            y: Math.round(box.y + (orig.y - box.y) * scale),
+            w: Math.round(orig.w * scale),
+            h: Math.round(orig.h * scale) };
+        }
+        return p;
+      }));
+      return;
+    }
     if (!dragRef.current) return;
     const z = zoomRef.current;
     const dx = (e.clientX - dragRef.current.startX) / z;
@@ -446,7 +490,7 @@ export default function PartAssembler({ title, libraryCategory, partTypes, onSav
   }, []);
 
   const handleMouseUp = useCallback(() => {
-    if (dragRef.current?.moved) {
+    if (dragRef.current?.moved || resizeRef.current?.moved) {
       setCanvasParts((prev) => {
         const { stack, idx } = historyRef.current;
         const trimmed = stack.slice(0, idx + 1);
@@ -456,6 +500,7 @@ export default function PartAssembler({ title, libraryCategory, partTypes, onSav
       });
     }
     dragRef.current = null;
+    resizeRef.current = null;
   }, []);
 
   // ── Part mutations ──
@@ -463,17 +508,87 @@ export default function PartAssembler({ title, libraryCategory, partTypes, onSav
     commitParts((prev) => prev.map((p) => (p.id === id ? { ...p, ...patch } : p)));
   }, [commitParts]);
 
+  // Bounding box (x, y, w, h) covering every part that shares the given groupId.
+  const groupBBox = (parts, gid) => {
+    const members = parts.filter((p) => p.groupId === gid);
+    const minX = Math.min(...members.map((p) => p.x));
+    const minY = Math.min(...members.map((p) => p.y));
+    const maxX = Math.max(...members.map((p) => p.x + p.w));
+    const maxY = Math.max(...members.map((p) => p.y + p.h));
+    return { x: minX, y: minY, w: maxX - minX, h: maxY - minY };
+  };
+
+  // Shift the selected part by (dx, dy) — if it belongs to a group (e.g. a whole
+  // face added as one unit), shift every part in that group by the same amount so
+  // the group keeps its relative layout and moves as a single piece.
+  const shiftSelectedPart = useCallback((dx, dy) => {
+    const id = selIdRef.current; if (!id) return;
+    if (!dx && !dy) return;
+    commitParts((prev) => {
+      const part = prev.find((p) => p.id === id); if (!part) return prev;
+      const gid = part.groupId;
+      return prev.map((p) => (p.id === id || (gid && p.groupId === gid))
+        ? { ...p, x: Math.round(p.x + dx), y: Math.round(p.y + dy) }
+        : p);
+    });
+  }, [commitParts]);
+
+  // Move the selected part (and its group, if any) so its x or y reaches `value`.
+  const moveSelectedPart = useCallback((axis, value) => {
+    const part = canvasParts.find((p) => p.id === selIdRef.current); if (!part) return;
+    const delta = value - part[axis];
+    shiftSelectedPart(axis === 'x' ? delta : 0, axis === 'y' ? delta : 0);
+  }, [canvasParts, shiftSelectedPart]);
+
+  // Center the selected part on the canvas — if it belongs to a group, center
+  // the whole group's bounding box instead, preserving the group's layout.
+  const centerSelected = useCallback((axis) => {
+    const id = selIdRef.current; if (!id) return;
+    const part = canvasParts.find((p) => p.id === id); if (!part) return;
+    const box = part.groupId ? groupBBox(canvasParts, part.groupId) : { x: part.x, y: part.y, w: part.w, h: part.h };
+    const dx = (axis === 'x' || axis === 'both') ? Math.round((CANVAS_W - box.w) / 2) - box.x : 0;
+    const dy = (axis === 'y' || axis === 'both') ? Math.round((CANVAS_H - box.h) / 2) - box.y : 0;
+    shiftSelectedPart(dx, dy);
+  }, [canvasParts, shiftSelectedPart]);
+
   const updateClip = useCallback((key, val) => {
     const id = selIdRef.current; if (!id) return;
     commitParts((prev) => prev.map((p) => p.id === id ? { ...p, clip: { ...p.clip, [key]: val } } : p));
   }, [commitParts]);
 
+  // Resize the selected part to width `newW` (preserving aspect ratio). If the
+  // part belongs to a group, scale every part in the group by the same factor
+  // around the group's top-left corner, so the whole group resizes together
+  // while keeping each member's position and size proportional.
   const updateProportional = useCallback((newW) => {
     const id = selIdRef.current; if (!id) return;
     setCanvasParts((prev) => {
       const p = prev.find((pt) => pt.id === id); if (!p) return prev;
-      const ratio = p.h / p.w;
-      const next = prev.map((pt) => pt.id === id ? { ...pt, w: newW, h: Math.round(newW * ratio) } : pt);
+      let next;
+      if (p.groupId) {
+        // Always scale from the snapshotted original positions/sizes taken at
+        // selection time, not from the current (already-rounded) state.
+        // This prevents rounding errors accumulating across repeated scale ops.
+        const snap = originalGroupRef.current;
+        const origParts = snap?.groupId === p.groupId ? snap.origParts : null;
+        const anchorX = snap?.groupId === p.groupId ? snap.anchorX : groupBBox(prev, p.groupId).x;
+        const anchorY = snap?.groupId === p.groupId ? snap.anchorY : groupBBox(prev, p.groupId).y;
+        const origW = origParts?.[id]?.w ?? p.w;
+        const scale = newW / origW;
+        next = prev.map((pt) => {
+          const orig = origParts?.[pt.id];
+          if (pt.groupId !== p.groupId) return pt;
+          const ox = orig?.x ?? pt.x, oy = orig?.y ?? pt.y, ow = orig?.w ?? pt.w, oh = orig?.h ?? pt.h;
+          return { ...pt,
+            x: Math.round(anchorX + (ox - anchorX) * scale),
+            y: Math.round(anchorY + (oy - anchorY) * scale),
+            w: Math.round(ow * scale),
+            h: Math.round(oh * scale) };
+        });
+      } else {
+        const ratio = p.h / p.w;
+        next = prev.map((pt) => pt.id === id ? { ...pt, w: newW, h: Math.round(newW * ratio) } : pt);
+      }
       const { stack, idx } = historyRef.current;
       const trimmed = stack.slice(0, idx + 1);
       historyRef.current = { stack: [...trimmed, next].slice(-MAX_HISTORY), idx: Math.min(idx + 1, MAX_HISTORY - 1) };
@@ -487,21 +602,55 @@ export default function PartAssembler({ title, libraryCategory, partTypes, onSav
     if (tid === selIdRef.current) setSelectedId(null);
   }, [commitParts]);
 
-  // ── Skin tone overlay (single overlay, assignable to one layer — optionally
-  // cascading to every layer below it in z-order — at a time) ──
-  const stripOverlay = (p) => {
-    const { skinOverlay, skinOverlayOwner, skinOverlayBelow, ...rest } = p;
+  // Remove the currently selected part(s) — all multi-selected layers, or just
+  // the single selected layer (toolbar Delete button / Del key).
+  const removeSelected = useCallback(() => {
+    if (selectedIds.size > 1) {
+      commitParts((prev) => prev.filter((p) => !selectedIds.has(p.id)));
+      setSelectedIds(new Set());
+      setSelectedId(null);
+      return;
+    }
+    const id = selIdRef.current; if (!id) return;
+    commitParts((prev) => prev.filter((p) => p.id !== id));
+    setSelectedId(null);
+  }, [commitParts, selectedIds]);
+
+  // ── Part category (exposed skin vs clothing) — lets the skin-tone overlay
+  // target every part tagged "skin" regardless of layer order ──
+  const setPartCategory = useCallback((id, category) => {
+    commitParts((prev) => prev.map((p) => p.id === id ? { ...p, partCategory: category } : p));
+  }, [commitParts]);
+
+  // Sets the dress alignment role (neck/hands) AND auto-tags as Exposed Skin so
+  // skin-tone overlays cover all skin surfaces without a separate manual step.
+  const setDressRole = useCallback((id, role) => {
+    commitParts((prev) => prev.map((p) => {
+      if (p.id !== id) return p;
+      const clearing = p.dressRole === role;
+      return { ...p, dressRole: clearing ? null : role, partCategory: clearing ? p.partCategory : 'skin' };
+    }));
+  }, [commitParts]);
+
+  // ── Skin tone overlay (single overlay, assignable to one layer — with a
+  // scope of just that layer, that layer + everything below it in z-order,
+  // or every part tagged "Exposed Skin" — at a time) ──
+  const stripSkinOverlay = (p) => {
+    const { skinOverlay, skinOverlayOwner, skinOverlayScope, ...rest } = p;
     return rest;
   };
 
-  const applySkinOverlayConfig = useCallback((targetId, applyBelow, overlay) => {
+  const applySkinOverlayConfig = useCallback((targetId, scope, overlay) => {
     commitParts((prev) => {
       const target = prev.find((p) => p.id === targetId);
-      if (!target) return prev.map(stripOverlay);
+      if (!target) return prev.map(stripSkinOverlay);
       return prev.map((p) => {
-        const rest = stripOverlay(p);
-        if (p.id === targetId) return { ...rest, skinOverlay: overlay, skinOverlayOwner: true, skinOverlayBelow: applyBelow };
-        if (applyBelow && p.zIndex <= target.zIndex) return { ...rest, skinOverlay: overlay };
+        const rest = stripSkinOverlay(p);
+        if (p.id === targetId) return { ...rest, skinOverlay: overlay, skinOverlayOwner: true, skinOverlayScope: scope };
+        const inScope = scope === 'below' ? p.zIndex <= target.zIndex
+          : scope === 'skinTagged' ? p.partCategory === 'skin'
+          : false;
+        if (inScope) return { ...rest, skinOverlay: overlay };
         return rest;
       });
     });
@@ -510,13 +659,13 @@ export default function PartAssembler({ title, libraryCategory, partTypes, onSav
   const setSkinOverlayTarget = useCallback((targetId) => {
     const current = canvasParts.find((p) => p.skinOverlayOwner);
     const overlay = current?.skinOverlay || { color: '#d99a6c', blendMode: 'multiply', opacity: 50 };
-    applySkinOverlayConfig(targetId, current?.skinOverlayBelow ?? false, overlay);
+    applySkinOverlayConfig(targetId, current?.skinOverlayScope ?? 'single', overlay);
   }, [canvasParts, applySkinOverlayConfig]);
 
-  const setSkinOverlayBelow = useCallback((applyBelow) => {
+  const setSkinOverlayScope = useCallback((scope) => {
     const current = canvasParts.find((p) => p.skinOverlayOwner);
     if (!current) return;
-    applySkinOverlayConfig(current.id, applyBelow, current.skinOverlay);
+    applySkinOverlayConfig(current.id, scope, current.skinOverlay);
   }, [canvasParts, applySkinOverlayConfig]);
 
   const updateSkinOverlay = useCallback((patch) => {
@@ -524,7 +673,51 @@ export default function PartAssembler({ title, libraryCategory, partTypes, onSav
   }, [commitParts]);
 
   const removeSkinOverlay = useCallback(() => {
-    commitParts((prev) => prev.map((p) => p.skinOverlay ? stripOverlay(p) : p));
+    commitParts((prev) => prev.map((p) => p.skinOverlay ? stripSkinOverlay(p) : p));
+  }, [commitParts]);
+
+  // ── Hair color overlay (same idea as the skin tone overlay, but for hair —
+  // scope can target just one layer, that layer + below, or every part
+  // tagged "Hair") ──
+  const stripHairOverlay = (p) => {
+    const { hairOverlay, hairOverlayOwner, hairOverlayScope, ...rest } = p;
+    return rest;
+  };
+
+  const applyHairOverlayConfig = useCallback((targetId, scope, overlay) => {
+    commitParts((prev) => {
+      const target = prev.find((p) => p.id === targetId);
+      if (!target) return prev.map(stripHairOverlay);
+      return prev.map((p) => {
+        const rest = stripHairOverlay(p);
+        if (p.id === targetId) return { ...rest, hairOverlay: overlay, hairOverlayOwner: true, hairOverlayScope: scope };
+        const inScope = scope === 'below' ? p.zIndex <= target.zIndex
+          : scope === 'hairTagged' ? p.partCategory === 'hair'
+          : false;
+        if (inScope) return { ...rest, hairOverlay: overlay };
+        return rest;
+      });
+    });
+  }, [commitParts]);
+
+  const setHairOverlayTarget = useCallback((targetId) => {
+    const current = canvasParts.find((p) => p.hairOverlayOwner);
+    const overlay = current?.hairOverlay || { color: '#3b2412', blendMode: 'multiply', opacity: 50 };
+    applyHairOverlayConfig(targetId, current?.hairOverlayScope ?? 'single', overlay);
+  }, [canvasParts, applyHairOverlayConfig]);
+
+  const setHairOverlayScope = useCallback((scope) => {
+    const current = canvasParts.find((p) => p.hairOverlayOwner);
+    if (!current) return;
+    applyHairOverlayConfig(current.id, scope, current.hairOverlay);
+  }, [canvasParts, applyHairOverlayConfig]);
+
+  const updateHairOverlay = useCallback((patch) => {
+    commitParts((prev) => prev.map((p) => p.hairOverlay ? { ...p, hairOverlay: { ...p.hairOverlay, ...patch } } : p));
+  }, [commitParts]);
+
+  const removeHairOverlay = useCallback(() => {
+    commitParts((prev) => prev.map((p) => p.hairOverlay ? stripHairOverlay(p) : p));
   }, [commitParts]);
 
   // ── Layer reorder ──
@@ -555,6 +748,49 @@ export default function PartAssembler({ title, libraryCategory, partTypes, onSav
     commitParts((prev) => prev.map((p) => p.id === id ? { ...p, groupId: null } : p));
   }, [commitParts]);
 
+  // Persist the current canvas position/size/rotation of every alignable part
+  // (hairstyle/nose/eye/mouth, or face/neck/hands in dress mode) as that part's
+  // remembered alignment for this face/dress, so reloading it later restores
+  // exactly where each piece was left — without requiring a separate manual
+  // "Save Position" click per part.
+  const syncAlignments = async (faceAssetId, parts) => {
+    if (!alignmentEnabled || !faceAssetId) return;
+    const saves = parts.map((part) => {
+      const partType = alignablePartType(part, dressAlignMode);
+      if (!partType || !part.assetId) return null;
+      return saveFacePartAlignment({
+        faceAssetId,
+        partAssetId: alignmentAssetId(partType, part.assetId),
+        partType,
+        x: part.x, y: part.y, w: part.w, h: part.h,
+        rotation: part.rotation || 0, flipX: !!part.flipX, flipY: !!part.flipY,
+        connectX: part.connectX ?? 0.5, connectY: part.connectY ?? 0.0,
+      }).catch(() => {});
+    });
+    // In dress mode, also save the face group's overall bbox as a 'head' anchor
+    if (dressAlignMode) {
+      const seenGroups = new Set();
+      parts.forEach((p) => {
+        if (!p.groupId || seenGroups.has(p.groupId)) return;
+        seenGroups.add(p.groupId);
+        const members = parts.filter((m) => m.groupId === p.groupId);
+        const minX = Math.min(...members.map((m) => m.x));
+        const minY = Math.min(...members.map((m) => m.y));
+        const maxX = Math.max(...members.map((m) => m.x + m.w));
+        const maxY = Math.max(...members.map((m) => m.y + m.h));
+        saves.push(saveFacePartAlignment({
+          faceAssetId,
+          partAssetId: '__ALL__',
+          partType: 'head',
+          x: minX, y: minY, w: maxX - minX, h: maxY - minY,
+          rotation: 0, flipX: false, flipY: false,
+          connectX: 0.5, connectY: 1.0,
+        }).catch(() => {}));
+      });
+    }
+    await Promise.all(saves);
+  };
+
   // ── Save ──
   const handleSave = async () => {
     if (!itemName.trim() || !canvasParts.length) return;
@@ -563,8 +799,32 @@ export default function PartAssembler({ title, libraryCategory, partTypes, onSav
       const svg = await buildAssembledSvg(canvasParts, trimCacheRef.current);
       // Layout: scaling, position, and layer-order data so the canvas can be recreated later.
       const layout = canvasParts.map(({ id, ...rest }) => rest);
-      const res = await onSave(itemName.trim(), svg, layout);
+      const meta = isFaceTemplateMode ? { faceFamily: faceFamily.trim() || undefined, view: faceView || undefined } : undefined;
+      const res = await onSave(itemName.trim(), svg, layout, meta);
       setSavedMsg(`Saved as "${res.name}"`);
+      if (alignmentEnabled && res.id) {
+        setLoadedAlignAssetId(res.id);
+        await syncAlignments(res.id, canvasParts);
+      }
+      setTimeout(() => setSavedMsg(''), 5000);
+      refreshSaved();
+    } catch (err) {
+      setSavedMsg(err?.response?.data?.error || 'Save failed');
+    } finally { setSaving(false); }
+  };
+
+  // Overwrite the currently loaded face/dress asset in place with the canvas's
+  // current parts, instead of creating a new asset.
+  const handleUpdate = async () => {
+    if (!onUpdate || !loadedAlignAssetId || !canvasParts.length) return;
+    setSaving(true); setSavedMsg('');
+    try {
+      const svg = await buildAssembledSvg(canvasParts, trimCacheRef.current);
+      const layout = canvasParts.map(({ id, ...rest }) => rest);
+      const meta = isFaceTemplateMode ? { faceFamily: faceFamily.trim() || undefined, view: faceView || undefined } : undefined;
+      const res = await onUpdate(loadedAlignAssetId, itemName.trim() || undefined, svg, layout, meta);
+      await syncAlignments(loadedAlignAssetId, canvasParts);
+      setSavedMsg(`Saved changes to "${res.name}"`);
       setTimeout(() => setSavedMsg(''), 5000);
       refreshSaved();
     } catch (err) {
@@ -580,10 +840,11 @@ export default function PartAssembler({ title, libraryCategory, partTypes, onSav
       const layout = await fetch(asset.layoutPath).then((r) => r.json());
       let parts = layout.map((part) => ({ ...part, id: genId() }));
 
-      // Override any alignable part's (hairstyle/nose/eye/mouth) position with its calibrated alignment for this face.
-      if (enableFacePartAlignment) {
+      // Override any alignable part's (hairstyle/nose/eye/mouth, or face/neck/hands in
+      // dress mode) position with its calibrated alignment for this face/costume.
+      if (alignmentEnabled) {
         parts = await Promise.all(parts.map(async (part) => {
-          const partType = alignablePartType(part);
+          const partType = alignablePartType(part, dressAlignMode);
           if (!partType || !part.assetId) return part;
           try {
             const alignment = await getFacePartAlignment(asset.id, alignmentAssetId(partType, part.assetId), partType);
@@ -600,7 +861,8 @@ export default function PartAssembler({ title, libraryCategory, partTypes, onSav
       setSelectedId(null);
       setSelectedIds(new Set());
       setItemName(asset.name);
-      if (enableFacePartAlignment) setLoadedFaceAssetId(asset.id);
+      if (isFaceTemplateMode) { setFaceFamily(asset.faceFamily || ''); setFaceView(asset.view || ''); }
+      if (alignmentEnabled) setLoadedAlignAssetId(asset.id);
     } catch {
       setSavedMsg('Failed to load saved layout');
     } finally {
@@ -608,20 +870,89 @@ export default function PartAssembler({ title, libraryCategory, partTypes, onSav
     }
   };
 
+  // Add a previously saved asset's parts (e.g. a saved Face) onto the current
+  // canvas as new layers, stacked above the existing parts — without clearing them.
+  // All of its parts share one new groupId so the whole face moves/positions as a
+  // single unit (drag any one part to move them all); individual parts can still
+  // be ungrouped afterwards for fine-tuning.
+  const addSavedAssetToCanvas = async (asset) => {
+    if (!asset.layoutPath) return;
+    setAddingAssetId(asset.id);
+    try {
+      const layout = await fetch(asset.layoutPath).then((r) => r.json());
+      const maxZ = canvasParts.reduce((m, p) => Math.max(m, p.zIndex || 0), 0);
+      const gid = genGroupId();
+      const parts = layout.map((part) => ({ ...part, id: genId(), zIndex: (part.zIndex || 0) + maxZ, groupId: gid }));
+      commitParts((prev) => [...prev, ...parts]);
+    } catch {
+      setSavedMsg('Failed to load saved layout');
+    } finally {
+      setAddingAssetId(null);
+    }
+  };
+
+  // Add a previously saved asset (e.g. a saved Face) onto the canvas as a single
+  // flattened image — tagged partCategory 'face' so it can be scaled/positioned as
+  // one unit and aligned with the costume's neck/hands (dress alignment mode).
+  const addSavedAssetAsImage = async (asset) => {
+    setAddingAssetId(asset.id);
+    try {
+      let alignment = null;
+      if (dressAlignMode && loadedAlignAssetId) {
+        try { alignment = await getFacePartAlignment(loadedAlignAssetId, alignmentAssetId('face', asset.id), 'face'); } catch { /* ignore */ }
+      }
+
+      // If this asset's own layout has a skin-tone overlay baked into one of its
+      // parts (e.g. a saved Face's face shape), carry that same color/blend mode/
+      // opacity over onto any "Exposed Skin"-tagged parts already on the canvas
+      // (e.g. neck, hands) so they match the face's tone.
+      let skinTone = null;
+      if (asset.layoutPath) {
+        try {
+          const layout = await fetch(asset.layoutPath).then((r) => r.json());
+          skinTone = layout.find((p) => p.skinOverlay)?.skinOverlay || null;
+        } catch { /* ignore */ }
+      }
+
+      const maxZ = canvasParts.reduce((m, p) => Math.max(m, p.zIndex || 0), 0);
+      const defaultW = 180, defaultH = 270;
+      const part = {
+        id: genId(), assetId: asset.id, filePath: asset.filePath, name: asset.name, customName: '',
+        x: alignment ? alignment.x : Math.round((CANVAS_W - defaultW) / 2),
+        y: alignment ? alignment.y : 10,
+        w: alignment ? alignment.w : defaultW,
+        h: alignment ? alignment.h : defaultH,
+        rotation: alignment ? alignment.rotation : 0,
+        zIndex: maxZ + 1,
+        flipX: alignment ? alignment.flipX : false,
+        flipY: alignment ? alignment.flipY : false,
+        groupId: null, clip: { t: 0, r: 0, b: 0, l: 0 },
+        partCategory: 'face',
+      };
+      commitParts((prev) => [
+        ...prev.map((p) => (skinTone && p.partCategory === 'skin') ? { ...p, skinOverlay: { ...skinTone } } : p),
+        part,
+      ]);
+    } finally {
+      setAddingAssetId(null);
+    }
+  };
+
   // Save the currently selected part's position/size/rotation as the
-  // remembered alignment for (loaded face, part asset, part type).
+  // remembered alignment for (loaded face/dress, part asset, part type).
   const saveFacePartAlignmentForSelected = async () => {
     const part = canvasParts.find((p) => p.id === selIdRef.current);
-    const partType = part ? alignablePartType(part) : null;
-    if (!part || !loadedFaceAssetId || !part.assetId || !partType) return;
+    const partType = part ? alignablePartType(part, dressAlignMode) : null;
+    if (!part || !loadedAlignAssetId || !part.assetId || !partType) return;
     setSavingAlignment(true);
     try {
       await saveFacePartAlignment({
-        faceAssetId: loadedFaceAssetId,
+        faceAssetId: loadedAlignAssetId,
         partAssetId: alignmentAssetId(partType, part.assetId),
         partType,
         x: part.x, y: part.y, w: part.w, h: part.h,
         rotation: part.rotation || 0, flipX: !!part.flipX, flipY: !!part.flipY,
+        connectX: part.connectX ?? 0.5, connectY: part.connectY ?? 0.0,
       });
       setSavedMsg(`Saved ${partType} position`);
       setTimeout(() => setSavedMsg(''), 3000);
@@ -630,6 +961,32 @@ export default function PartAssembler({ title, libraryCategory, partTypes, onSav
     } finally {
       setSavingAlignment(false);
     }
+  };
+
+  // Save the entire face group's bounding box as the 'head' anchor on this costume.
+  const saveHeadGroupPosition = async () => {
+    const part = canvasParts.find((p) => p.id === selIdRef.current);
+    if (!part?.groupId || !loadedAlignAssetId) return;
+    const members = canvasParts.filter((p) => p.groupId === part.groupId);
+    const minX = Math.min(...members.map((p) => p.x));
+    const minY = Math.min(...members.map((p) => p.y));
+    const maxX = Math.max(...members.map((p) => p.x + p.w));
+    const maxY = Math.max(...members.map((p) => p.y + p.h));
+    setSavingAlignment(true);
+    try {
+      await saveFacePartAlignment({
+        faceAssetId: loadedAlignAssetId,
+        partAssetId: '__ALL__',
+        partType: 'head',
+        x: minX, y: minY, w: maxX - minX, h: maxY - minY,
+        rotation: 0, flipX: false, flipY: false,
+        connectX: 0.5, connectY: 1.0,
+      });
+      setSavedMsg('Saved head position');
+      setTimeout(() => setSavedMsg(''), 3000);
+    } catch (err) {
+      setSavedMsg('Failed to save head position');
+    } finally { setSavingAlignment(false); }
   };
 
   // Called when a canvas part image loads — computes trim rect once per filePath.
@@ -642,6 +999,7 @@ export default function PartAssembler({ title, libraryCategory, partTypes, onSav
 
   const selectedPart = canvasParts.find((p) => p.id === selectedId);
   const overlayOwner = canvasParts.find((p) => p.skinOverlayOwner);
+  const hairOverlayOwner = canvasParts.find((p) => p.hairOverlayOwner);
   const sortedByZ    = [...canvasParts].sort((a, b) => b.zIndex - a.zIndex);
   const filteredAssets = allAssets.filter((a) => {
     if (searchQ.trim() && !a.name.toLowerCase().includes(searchQ.toLowerCase())) return false;
@@ -766,7 +1124,7 @@ export default function PartAssembler({ title, libraryCategory, partTypes, onSav
                 {savedAssets.map((asset) => (
                   <button key={asset.id} title={`Load "${asset.name}"`} onClick={() => loadSavedAsset(asset)}
                     disabled={!asset.layoutPath || loadingSavedId === asset.id} style={s.assetThumb}>
-                    <img src={asset.filePath} alt={asset.name}
+                    <img src={thumbSrc(asset)} alt={asset.name}
                       style={{ width: 60, height: 60, objectFit: 'contain', display: 'block', opacity: loadingSavedId === asset.id ? 0.5 : 1 }} />
                     <p style={s.thumbLabel}>{asset.name}</p>
                   </button>
@@ -776,41 +1134,26 @@ export default function PartAssembler({ title, libraryCategory, partTypes, onSav
           </div>
         )}
 
-        {/* Expressions (eye+mouth combos) */}
-        {!!expressionsCategory && (
+        {/* Addable (e.g. saved Faces) — adds parts on top of the current canvas, doesn't replace it */}
+        {!!addableCategory && (
           <div className="card" style={{ padding: 14 }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-              <p style={s.sectionTitle}>Expressions <span style={{ fontWeight: 400, color: '#9CA3AF' }}>({expressions.length})</span></p>
-              <button onClick={refreshExpressions}
+              <p style={s.sectionTitle}>{addableLabel || addableCategory} <span style={{ fontWeight: 400, color: '#9CA3AF' }}>({addableAssets.length})</span></p>
+              <button onClick={refreshAddable}
                 style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 14, color: '#9CA3AF' }} title="Refresh">↻</button>
             </div>
-            {selectedIds.size === 3 ? (
-              <div style={{ display: 'flex', gap: 6, marginBottom: 8 }}>
-                <input className="input" placeholder="Expression name…" value={exprName}
-                  onChange={(e) => setExprName(e.target.value)} style={{ fontSize: 12, flex: 1 }} />
-                <button className="btn btn-primary btn-sm" onClick={saveExpression}
-                  disabled={savingExpr || !exprName.trim()} style={{ fontSize: 12, flexShrink: 0 }}>
-                  {savingExpr ? 'Saving…' : 'Save'}
-                </button>
-              </div>
-            ) : (
-              <p style={{ ...s.hint, marginTop: -4, marginBottom: 8 }}>
-                Shift-select the nose, eye + mouth (3 parts, named accordingly) to save or apply an expression
-              </p>
-            )}
-            {loadingExpr ? (
+            {loadingAddable ? (
               <p style={s.hint}>Loading…</p>
-            ) : expressions.length === 0 ? (
-              <p style={s.hint}>No expressions saved yet.</p>
+            ) : addableAssets.length === 0 ? (
+              <p style={s.hint}>No saved items yet.</p>
             ) : (
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 6, maxHeight: 200, overflowY: 'auto' }}>
-                {expressions.map((asset) => (
-                  <button key={asset.id} title={selectedIds.size === 3 ? `Apply "${asset.name}"` : asset.name}
-                    onClick={() => applyExpression(asset)}
-                    disabled={selectedIds.size !== 3 || !asset.layoutPath || applyingExprId === asset.id}
-                    style={{ ...s.assetThumb, opacity: selectedIds.size === 3 ? 1 : 0.5 }}>
-                    <img src={asset.filePath} alt={asset.name}
-                      style={{ width: 60, height: 60, objectFit: 'contain', display: 'block', opacity: applyingExprId === asset.id ? 0.5 : 1 }} />
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 6, maxHeight: 220, overflowY: 'auto' }}>
+                {addableAssets.map((asset) => (
+                  <button key={asset.id} title={`Add "${asset.name}" as grouped parts`}
+                    onClick={() => addSavedAssetToCanvas(asset)}
+                    disabled={!asset.layoutPath || addingAssetId === asset.id} style={s.assetThumb}>
+                    <img src={thumbSrc(asset)} alt={asset.name}
+                      style={{ width: 60, height: 60, objectFit: 'contain', display: 'block', margin: '0 auto', opacity: addingAssetId === asset.id ? 0.5 : 1 }} />
                     <p style={s.thumbLabel}>{asset.name}</p>
                   </button>
                 ))}
@@ -818,6 +1161,7 @@ export default function PartAssembler({ title, libraryCategory, partTypes, onSav
             )}
           </div>
         )}
+
       </div>
 
       {/* ── CENTER: Canvas ── */}
@@ -825,9 +1169,11 @@ export default function PartAssembler({ title, libraryCategory, partTypes, onSav
 
         {/* Toolbar */}
         <div className="card" style={{ padding: '8px 12px', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-          {/* Undo / Redo */}
+          {/* Undo / Redo / Delete */}
           <button onClick={undo} disabled={!canUndo} title="Undo (Ctrl+Z)" style={{ ...s.iconBtn, opacity: canUndo ? 1 : 0.35 }}>↩</button>
           <button onClick={redo} disabled={!canRedo} title="Redo (Ctrl+Y)" style={{ ...s.iconBtn, opacity: canRedo ? 1 : 0.35 }}>↪</button>
+          <button onClick={removeSelected} disabled={!selectedId && selectedIds.size === 0}
+            title="Delete selected (Del)" style={{ ...s.iconBtn, opacity: (selectedId || selectedIds.size) ? 1 : 0.35, color: '#DC2626' }}>🗑</button>
           <div style={s.tbDivider} />
 
           {/* Zoom */}
@@ -840,11 +1186,27 @@ export default function PartAssembler({ title, libraryCategory, partTypes, onSav
 
           <span style={{ fontWeight: 700, fontSize: 14, color: '#111827' }}>{title}</span>
           <div style={{ flex: 1 }} />
+          {isFaceTemplateMode && (
+            <>
+              <input className="input" placeholder="Face family (e.g. Rahul)" value={faceFamily}
+                onChange={(e) => setFaceFamily(e.target.value)} style={{ width: 130, fontSize: 13 }} />
+              <select className="input" value={faceView} onChange={(e) => setFaceView(e.target.value)} style={{ width: 90, fontSize: 13 }}>
+                <option value="">View…</option>
+                {VIEWS.map((v) => <option key={v.id} value={v.id}>{v.label}</option>)}
+              </select>
+            </>
+          )}
           <input className="input" placeholder={nameLabel} value={itemName}
             onChange={(e) => setItemName(e.target.value)} style={{ width: 160, fontSize: 13 }} />
+          {onUpdate && loadedAlignAssetId && (
+            <button className="btn" onClick={handleUpdate}
+              disabled={saving || !canvasParts.length} style={{ flexShrink: 0, fontSize: 13 }}>
+              {saving ? 'Saving…' : 'Save'}
+            </button>
+          )}
           <button className="btn btn-primary" onClick={handleSave}
             disabled={saving || !itemName.trim() || !canvasParts.length} style={{ flexShrink: 0, fontSize: 13 }}>
-            {saving ? 'Saving…' : 'Save'}
+            {saving ? 'Saving…' : (onUpdate && loadedAlignAssetId) ? 'Save As' : 'Save'}
           </button>
         </div>
 
@@ -891,6 +1253,7 @@ export default function PartAssembler({ title, libraryCategory, partTypes, onSav
                   imgStyle = { width: '100%', height: '100%', objectFit: 'contain', display: 'block', pointerEvents: 'none' };
                 }
                 const overlayRgb = part.skinOverlay ? hexToRgb(part.skinOverlay.color) : null;
+                const hairOverlayRgb = part.hairOverlay ? hexToRgb(part.hairOverlay.color) : null;
 
                 return (
                   <div key={part.id}
@@ -902,7 +1265,8 @@ export default function PartAssembler({ title, libraryCategory, partTypes, onSav
                       outline: isSel ? `2px solid ${ORANGE}` : isMulti ? '2px solid #818CF8' : '2px solid transparent',
                       outlineOffset: 2,
                     }}
-                    onMouseDown={(e) => { e.stopPropagation(); handleMouseDown(e, part.id); }}>
+                    onMouseDown={(e) => { e.stopPropagation(); handleMouseDown(e, part.id); }}
+                    onClick={(e) => e.stopPropagation()}>
                     {/* Inner div clips the img to part bounds; crop uses clip-path here */}
                     <div style={{
                       position: 'relative', width: '100%', height: '100%', overflow: 'hidden',
@@ -922,6 +1286,18 @@ export default function PartAssembler({ title, libraryCategory, partTypes, onSav
                           WebkitMaskPosition: '0 0', maskPosition: '0 0',
                         }} />
                       )}
+                      {hairOverlayRgb && (
+                        <div style={{
+                          position: 'absolute', left: `${overlayRect.x}%`, top: `${overlayRect.y}%`,
+                          width: `${overlayRect.w}%`, height: `${overlayRect.h}%`,
+                          background: `rgba(${hairOverlayRgb.r},${hairOverlayRgb.g},${hairOverlayRgb.b},${(part.hairOverlay.opacity ?? 50) / 100})`,
+                          mixBlendMode: part.hairOverlay.blendMode || 'multiply', pointerEvents: 'none',
+                          WebkitMaskImage: `url(${part.filePath})`, maskImage: `url(${part.filePath})`,
+                          WebkitMaskSize: '100% 100%', maskSize: '100% 100%',
+                          WebkitMaskRepeat: 'no-repeat', maskRepeat: 'no-repeat',
+                          WebkitMaskPosition: '0 0', maskPosition: '0 0',
+                        }} />
+                      )}
                     </div>
                     {isSel && (
                       <div style={{ position:'absolute', top:-18, left:'50%', transform:'translateX(-50%)',
@@ -930,13 +1306,10 @@ export default function PartAssembler({ title, libraryCategory, partTypes, onSav
                         {part.customName || part.name}
                       </div>
                     )}
-                    {gc && (
-                      <div style={{ position:'absolute', bottom:-6, right:-6, width:10, height:10, borderRadius:'50%',
-                        background: gc, border:'1.5px solid #fff', pointerEvents:'none' }} />
-                    )}
                   </div>
                 );
               })}
+
 
               {canvasParts.length === 0 && (
                 <div style={{ position:'absolute', inset:0, display:'flex', flexDirection:'column',
@@ -959,145 +1332,6 @@ export default function PartAssembler({ title, libraryCategory, partTypes, onSav
 
       {/* ── RIGHT: Controls + Layers ── */}
       <div style={{ width: 220, flexShrink: 0, display: 'flex', flexDirection: 'column', gap: 10 }}>
-
-        {/* Part Controls */}
-        <div className="card" style={{ padding: 14 }}>
-          <p style={s.sectionTitle}>Part Controls</p>
-          {!selectedPart ? (
-            <p style={{ ...s.hint, marginTop: 8 }}>Click a part on the canvas</p>
-          ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 8 }}>
-
-              {/* Name */}
-              <input className="input" value={selectedPart.customName || selectedPart.name}
-                onChange={(e) => updatePart(selectedPart.id, { customName: e.target.value })}
-                style={{ fontSize: 12, fontWeight: 600 }} placeholder="Layer name" />
-
-              {/* Flip buttons */}
-              <div style={{ display: 'flex', gap: 6 }}>
-                <button onClick={() => updatePart(selectedPart.id, { flipX: !selectedPart.flipX })}
-                  style={{ ...s.ctrlBtn, flex: 1, background: selectedPart.flipX ? '#FFF7ED' : '#F9FAFB', borderColor: selectedPart.flipX ? ORANGE : '#E5E7EB', color: selectedPart.flipX ? ORANGE : '#374151' }}>
-                  ↔ Flip H
-                </button>
-                <button onClick={() => updatePart(selectedPart.id, { flipY: !selectedPart.flipY })}
-                  style={{ ...s.ctrlBtn, flex: 1, background: selectedPart.flipY ? '#FFF7ED' : '#F9FAFB', borderColor: selectedPart.flipY ? ORANGE : '#E5E7EB', color: selectedPart.flipY ? ORANGE : '#374151' }}>
-                  ↕ Flip V
-                </button>
-              </div>
-
-              {/* Center align buttons */}
-              <div style={{ display: 'flex', gap: 6 }}>
-                <button onClick={() => updatePart(selectedPart.id, { x: Math.round((CANVAS_W - selectedPart.w) / 2) })}
-                  style={{ ...s.ctrlBtn, flex: 1 }}>
-                  ↔ Center H
-                </button>
-                <button onClick={() => updatePart(selectedPart.id, { y: Math.round((CANVAS_H - selectedPart.h) / 2) })}
-                  style={{ ...s.ctrlBtn, flex: 1 }}>
-                  ↕ Center V
-                </button>
-              </div>
-              <button onClick={() => updatePart(selectedPart.id, {
-                x: Math.round((CANVAS_W - selectedPart.w) / 2),
-                y: Math.round((CANVAS_H - selectedPart.h) / 2),
-              })} style={s.ctrlBtn}>
-                ⊹ Center Both
-              </button>
-
-              <SliderRow label="X" value={Math.round(selectedPart.x)} min={-120} max={CANVAS_W + 40}
-                onChange={(v) => updatePart(selectedPart.id, { x: v })} />
-              <SliderRow label="Y" value={Math.round(selectedPart.y)} min={-120} max={CANVAS_H + 40}
-                onChange={(v) => updatePart(selectedPart.id, { y: v })} />
-              <SliderRow label="Width" value={selectedPart.w} min={16} max={CANVAS_W}
-                onChange={updateProportional} />
-              <SliderRow label="Rotate" value={selectedPart.rotation || 0} min={-180} max={180}
-                onChange={(v) => updatePart(selectedPart.id, { rotation: v })} unit="°" />
-              <SliderRow label="Layer Z" value={selectedPart.zIndex} min={1} max={100}
-                onChange={(v) => updatePart(selectedPart.id, { zIndex: v })} />
-
-              {/* Crop section */}
-              <button onClick={() => setShowCrop((v) => !v)}
-                style={{ ...s.ctrlBtn, justifyContent: 'space-between' }}>
-                <span>✂ Crop</span>
-                <span style={{ fontSize: 10, color: '#9CA3AF' }}>{showCrop ? '▲' : '▼'}</span>
-              </button>
-              {showCrop && (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 4, paddingLeft: 4, borderLeft: `2px solid ${ORANGE}` }}>
-                  {[['t','Top'],['b','Bottom'],['l','Left'],['r','Right']].map(([k, label]) => (
-                    <SliderRow key={k} label={label} value={selectedPart.clip?.[k] ?? 0} min={0} max={49}
-                      onChange={(v) => updateClip(k, v)} unit="%" />
-                  ))}
-                  <button onClick={() => updatePart(selectedPart.id, { clip: { t:0,r:0,b:0,l:0 } })}
-                    style={{ ...s.ctrlBtn, fontSize: 10, color: '#9CA3AF' }}>Reset crop</button>
-                </div>
-              )}
-
-              {/* Group badge */}
-              {selectedPart.groupId && (
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '4px 8px',
-                  background: '#F5F3FF', borderRadius: 8, border: '1px solid #DDD6FE' }}>
-                  <div style={{ width: 8, height: 8, borderRadius: '50%', background: groupColor(selectedPart.groupId), flexShrink: 0 }} />
-                  <span style={{ fontSize: 10, color: '#6D28D9', flex: 1 }}>In group</span>
-                  <button onClick={() => ungroupPart(selectedPart.id)}
-                    style={{ background: 'none', border: 'none', color: '#9CA3AF', cursor: 'pointer', fontSize: 11, padding: 0 }}>✕</button>
-                </div>
-              )}
-
-              {enableFacePartAlignment && loadedFaceAssetId && alignablePartType(selectedPart) && (
-                <button onClick={saveFacePartAlignmentForSelected} disabled={savingAlignment}
-                  style={{ padding: '6px', border: '1.5px solid #BFDBFE', borderRadius: 8,
-                    background: '#EFF6FF', color: '#1D4ED8', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
-                  {savingAlignment ? 'Saving…' : `📌 Save ${ALIGNABLE_PART_LABELS[alignablePartType(selectedPart)]} Position`}
-                </button>
-              )}
-
-              <button onClick={() => removePart(selectedPart.id)}
-                style={{ padding: '6px', border: '1.5px solid #FECACA', borderRadius: 8,
-                  background: '#FEF2F2', color: '#DC2626', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
-                Remove Part
-              </button>
-            </div>
-          )}
-        </div>
-
-        {/* Skin Tone Overlay — a color wash on one layer, like a panel lighting preset */}
-        <div className="card" style={{ padding: 14 }}>
-          <p style={s.sectionTitle}>Skin Tone Overlay</p>
-          <p style={{ ...s.hint, marginTop: 4, marginBottom: 8 }}>
-            Tint a layer (e.g. the face shape) with a color wash, blended like the panel lighting presets.
-          </p>
-          <select className="input" value={overlayOwner?.id || ''}
-            onChange={(e) => (e.target.value ? setSkinOverlayTarget(e.target.value) : removeSkinOverlay())}
-            style={{ fontSize: 12, marginBottom: 8 }}>
-            <option value="">No overlay</option>
-            {sortedByZ.map((p) => (
-              <option key={p.id} value={p.id}>{p.customName || p.name}</option>
-            ))}
-          </select>
-          {overlayOwner && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                <input type="color" value={overlayOwner.skinOverlay.color}
-                  onChange={(e) => updateSkinOverlay({ color: e.target.value })}
-                  style={{ width: 40, height: 28, padding: 0, border: '1.5px solid #E5E7EB', borderRadius: 6, cursor: 'pointer' }} />
-                <select value={overlayOwner.skinOverlay.blendMode} onChange={(e) => updateSkinOverlay({ blendMode: e.target.value })}
-                  style={{ flex: 1, fontSize: 12 }}>
-                  {OVERLAY_BLEND_MODES.map((m) => <option key={m} value={m}>{m}</option>)}
-                </select>
-              </div>
-              <SliderRow label="Opacity" value={overlayOwner.skinOverlay.opacity ?? 50} min={0} max={100}
-                onChange={(v) => updateSkinOverlay({ opacity: v })} unit="%" />
-              <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: '#374151', cursor: 'pointer' }}>
-                <input type="checkbox" checked={!!overlayOwner.skinOverlayBelow}
-                  onChange={(e) => setSkinOverlayBelow(e.target.checked)} />
-                Also apply to layers below this one
-              </label>
-              <button onClick={removeSkinOverlay}
-                style={{ ...s.ctrlBtn, justifyContent: 'center', color: '#9CA3AF' }}>
-                Remove overlay
-              </button>
-            </div>
-          )}
-        </div>
 
         {/* Layers */}
         <div className="card" style={{ padding: 14 }}>
@@ -1141,6 +1375,18 @@ export default function PartAssembler({ title, libraryCategory, partTypes, onSav
                     {gc && <div style={{ width: 4, height: '100%', minHeight: 26, borderRadius: 2, background: gc, flexShrink: 0 }} />}
                     <img src={part.filePath} alt=""
                       style={{ width: 24, height: 24, objectFit: 'contain', flexShrink: 0, borderRadius: 3, background: '#f3f4f6' }} />
+                    {part.dressRole && (
+                      <span style={{ fontSize: 8, fontWeight: 700, padding: '1px 4px', borderRadius: 4, flexShrink: 0, background: '#DCFCE7', color: '#15803D' }}>
+                        {part.dressRole.toUpperCase()}
+                      </span>
+                    )}
+                    {part.partCategory && (
+                      <span style={{ fontSize: 8, fontWeight: 700, padding: '1px 4px', borderRadius: 4, flexShrink: 0,
+                        background: part.partCategory === 'skin' ? '#FEF3C7' : part.partCategory === 'hair' ? '#F3E8FF' : '#DBEAFE',
+                        color:      part.partCategory === 'skin' ? '#B45309' : part.partCategory === 'hair' ? '#6D28D9' : '#1D4ED8' }}>
+                        {part.partCategory === 'skin' ? 'SKIN' : part.partCategory === 'hair' ? 'HAIR' : 'CLOTH'}
+                      </span>
+                    )}
                     <div style={{ flex: 1, minWidth: 0 }}>
                       {isEditing ? (
                         <input autoFocus value={editNameVal}
@@ -1169,6 +1415,252 @@ export default function PartAssembler({ title, libraryCategory, partTypes, onSav
                   </div>
                 );
               })}
+            </div>
+          )}
+        </div>
+
+        {/* Part Controls */}
+        <div className="card" style={{ padding: 14 }}>
+          <p style={s.sectionTitle}>Part Controls</p>
+          {!selectedPart ? (
+            <p style={{ ...s.hint, marginTop: 8 }}>Click a part on the canvas</p>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 8 }}>
+
+              {/* Name */}
+              <input className="input" value={selectedPart.customName || selectedPart.name}
+                onChange={(e) => updatePart(selectedPart.id, { customName: e.target.value })}
+                style={{ fontSize: 12, fontWeight: 600 }} placeholder="Layer name" />
+
+              {/* Flip buttons */}
+              <div style={{ display: 'flex', gap: 6 }}>
+                <button onClick={() => updatePart(selectedPart.id, { flipX: !selectedPart.flipX })}
+                  style={{ ...s.ctrlBtn, flex: 1, background: selectedPart.flipX ? '#FFF7ED' : '#F9FAFB', borderColor: selectedPart.flipX ? ORANGE : '#E5E7EB', color: selectedPart.flipX ? ORANGE : '#374151' }}>
+                  ↔ Flip H
+                </button>
+                <button onClick={() => updatePart(selectedPart.id, { flipY: !selectedPart.flipY })}
+                  style={{ ...s.ctrlBtn, flex: 1, background: selectedPart.flipY ? '#FFF7ED' : '#F9FAFB', borderColor: selectedPart.flipY ? ORANGE : '#E5E7EB', color: selectedPart.flipY ? ORANGE : '#374151' }}>
+                  ↕ Flip V
+                </button>
+              </div>
+
+              {/* Center align buttons */}
+              <div style={{ display: 'flex', gap: 6 }}>
+                <button onClick={() => centerSelected('x')}
+                  style={{ ...s.ctrlBtn, flex: 1 }}>
+                  ↔ Center H
+                </button>
+                <button onClick={() => centerSelected('y')}
+                  style={{ ...s.ctrlBtn, flex: 1 }}>
+                  ↕ Center V
+                </button>
+              </div>
+              <button onClick={() => centerSelected('both')} style={s.ctrlBtn}>
+                ⊹ Center Both
+              </button>
+
+              <SliderRow label="X" value={Math.round(selectedPart.x)} min={-120} max={CANVAS_W + 40}
+                onChange={(v) => moveSelectedPart('x', v)} />
+              <SliderRow label="Y" value={Math.round(selectedPart.y)} min={-120} max={CANVAS_H + 40}
+                onChange={(v) => moveSelectedPart('y', v)} />
+              <SliderRow label="Width" value={selectedPart.w} min={16} max={CANVAS_W}
+                onChange={updateProportional} />
+              <SliderRow label="Rotate" value={selectedPart.rotation || 0} min={-180} max={180}
+                onChange={(v) => updatePart(selectedPart.id, { rotation: v })} unit="°" />
+              <SliderRow label="Layer Z" value={selectedPart.zIndex} min={1} max={100}
+                onChange={(v) => updatePart(selectedPart.id, { zIndex: v })} />
+
+              {/* Crop section */}
+              <button onClick={() => setShowCrop((v) => !v)}
+                style={{ ...s.ctrlBtn, justifyContent: 'space-between' }}>
+                <span>✂ Crop</span>
+                <span style={{ fontSize: 10, color: '#9CA3AF' }}>{showCrop ? '▲' : '▼'}</span>
+              </button>
+              {showCrop && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 4, paddingLeft: 4, borderLeft: `2px solid ${ORANGE}` }}>
+                  {[['t','Top'],['b','Bottom'],['l','Left'],['r','Right']].map(([k, label]) => (
+                    <SliderRow key={k} label={label} value={selectedPart.clip?.[k] ?? 0} min={0} max={49}
+                      onChange={(v) => updateClip(k, v)} unit="%" />
+                  ))}
+                  <button onClick={() => updatePart(selectedPart.id, { clip: { t:0,r:0,b:0,l:0 } })}
+                    style={{ ...s.ctrlBtn, fontSize: 10, color: '#9CA3AF' }}>Reset crop</button>
+                </div>
+              )}
+
+              {/* Part category — tag exposed-skin parts (face/hands/legs), hair, or
+                  clothing, so the skin tone / hair color overlays can target all
+                  similarly-tagged parts at once */}
+              <div style={{ display: 'flex', gap: 6 }}>
+                <button onClick={() => setPartCategory(selectedPart.id, selectedPart.partCategory === 'skin' ? null : 'skin')}
+                  style={{ ...s.ctrlBtn, flex: 1, background: selectedPart.partCategory === 'skin' ? '#FEF3C7' : '#F9FAFB', borderColor: selectedPart.partCategory === 'skin' ? '#F59E0B' : '#E5E7EB', color: selectedPart.partCategory === 'skin' ? '#B45309' : '#374151' }}>
+                  Exposed Skin
+                </button>
+                <button onClick={() => setPartCategory(selectedPart.id, selectedPart.partCategory === 'clothing' ? null : 'clothing')}
+                  style={{ ...s.ctrlBtn, flex: 1, background: selectedPart.partCategory === 'clothing' ? '#DBEAFE' : '#F9FAFB', borderColor: selectedPart.partCategory === 'clothing' ? '#3B82F6' : '#E5E7EB', color: selectedPart.partCategory === 'clothing' ? '#1D4ED8' : '#374151' }}>
+                  Clothing
+                </button>
+              </div>
+              <button onClick={() => setPartCategory(selectedPart.id, selectedPart.partCategory === 'hair' ? null : 'hair')}
+                style={{ ...s.ctrlBtn, justifyContent: 'center', background: selectedPart.partCategory === 'hair' ? '#F3E8FF' : '#F9FAFB', borderColor: selectedPart.partCategory === 'hair' ? '#8B5CF6' : '#E5E7EB', color: selectedPart.partCategory === 'hair' ? '#6D28D9' : '#374151' }}>
+                Hair
+              </button>
+
+              {/* Dress-mode part roles — assigns alignment role AND auto-tags as Exposed Skin */}
+              {dressAlignMode && (
+                <div style={{ display: 'flex', gap: 6 }}>
+                  <button onClick={() => setDressRole(selectedPart.id, 'neck')}
+                    style={{ ...s.ctrlBtn, flex: 1, background: selectedPart.dressRole === 'neck' ? '#DCFCE7' : '#F9FAFB', borderColor: selectedPart.dressRole === 'neck' ? '#16A34A' : '#E5E7EB', color: selectedPart.dressRole === 'neck' ? '#15803D' : '#374151' }}>
+                    Neck
+                  </button>
+                  <button onClick={() => setDressRole(selectedPart.id, 'hands')}
+                    style={{ ...s.ctrlBtn, flex: 1, background: selectedPart.dressRole === 'hands' ? '#DCFCE7' : '#F9FAFB', borderColor: selectedPart.dressRole === 'hands' ? '#16A34A' : '#E5E7EB', color: selectedPart.dressRole === 'hands' ? '#15803D' : '#374151' }}>
+                    Hands
+                  </button>
+                </div>
+              )}
+
+              {/* Group badge */}
+              {selectedPart.groupId && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '4px 8px',
+                  background: '#F5F3FF', borderRadius: 8, border: '1px solid #DDD6FE' }}>
+                  <div style={{ width: 8, height: 8, borderRadius: '50%', background: groupColor(selectedPart.groupId), flexShrink: 0 }} />
+                  <span style={{ fontSize: 10, color: '#6D28D9', flex: 1 }}>In group</span>
+                  <button onClick={() => ungroupPart(selectedPart.id)}
+                    style={{ background: 'none', border: 'none', color: '#9CA3AF', cursor: 'pointer', fontSize: 11, padding: 0 }}>✕</button>
+                </div>
+              )}
+
+              {alignmentEnabled && alignablePartType(selectedPart, dressAlignMode) && (
+                <button onClick={saveFacePartAlignmentForSelected} disabled={savingAlignment || !loadedAlignAssetId}
+                  title={!loadedAlignAssetId ? 'Save the costume first (Save As), then lock positions' : ''}
+                  style={{ padding: '6px', border: '1.5px solid #BFDBFE', borderRadius: 8,
+                    background: loadedAlignAssetId ? '#EFF6FF' : '#F3F4F6', color: loadedAlignAssetId ? '#1D4ED8' : '#9CA3AF',
+                    fontSize: 12, fontWeight: 600, cursor: loadedAlignAssetId ? 'pointer' : 'not-allowed' }}>
+                  {savingAlignment ? 'Saving…' : `📌 Save ${ALIGNABLE_PART_LABELS[alignablePartType(selectedPart, dressAlignMode)]} Position`}
+                </button>
+              )}
+              {alignmentEnabled && !loadedAlignAssetId && alignablePartType(selectedPart, dressAlignMode) && (
+                <p style={{ fontSize: 10, color: '#F97316', margin: 0 }}>Save As the costume first to lock positions</p>
+              )}
+
+              {/* Head group anchor — save entire face group bbox on the costume */}
+              {dressAlignMode && selectedPart.groupId && (
+                <button onClick={saveHeadGroupPosition} disabled={savingAlignment || !loadedAlignAssetId}
+                  title={!loadedAlignAssetId ? 'Save the costume first (Save As), then lock head position' : ''}
+                  style={{ padding: '6px', border: '1.5px solid #BBF7D0', borderRadius: 8,
+                    background: loadedAlignAssetId ? '#F0FDF4' : '#F3F4F6', color: loadedAlignAssetId ? '#15803D' : '#9CA3AF',
+                    fontSize: 12, fontWeight: 600, cursor: loadedAlignAssetId ? 'pointer' : 'not-allowed' }}>
+                  {savingAlignment ? 'Saving…' : '📌 Save Head Position'}
+                </button>
+              )}
+
+              {/* Hands connection point — where wrists attach to the body arms */}
+              {dressAlignMode && alignablePartType(selectedPart, dressAlignMode) === 'hands' && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6, padding: '8px', background: '#FFF7ED', borderRadius: 8, border: '1.5px solid #FED7AA' }}>
+                  <p style={{ fontSize: 11, fontWeight: 700, color: '#C2410C', margin: 0 }}>Connection Point (wrist attach)</p>
+                  <SliderRow label="X %" value={Math.round((selectedPart.connectX ?? 0.5) * 100)} min={0} max={100}
+                    onChange={(v) => updatePart(selectedPart.id, { connectX: v / 100 })} unit="%" />
+                  <SliderRow label="Y %" value={Math.round((selectedPart.connectY ?? 0.0) * 100)} min={0} max={100}
+                    onChange={(v) => updatePart(selectedPart.id, { connectY: v / 100 })} unit="%" />
+                  <p style={{ fontSize: 10, color: '#9CA3AF', margin: 0 }}>0% = top, 50% = center, 100% = bottom</p>
+                </div>
+              )}
+
+              <button onClick={() => removePart(selectedPart.id)}
+                style={{ padding: '6px', border: '1.5px solid #FECACA', borderRadius: 8,
+                  background: '#FEF2F2', color: '#DC2626', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
+                Remove Part
+              </button>
+            </div>
+          )}
+        </div>
+
+        {/* Skin Tone Overlay — a color wash on one layer, like a panel lighting preset */}
+        <div className="card" style={{ padding: 14 }}>
+          <p style={s.sectionTitle}>Skin Tone Overlay</p>
+          <p style={{ ...s.hint, marginTop: 4, marginBottom: 8 }}>
+            Tint a layer (e.g. the face shape) with a color wash, blended like the panel lighting presets.
+          </p>
+          <select className="input" value={overlayOwner?.id || ''}
+            onChange={(e) => (e.target.value ? setSkinOverlayTarget(e.target.value) : removeSkinOverlay())}
+            style={{ fontSize: 12, marginBottom: 8 }}>
+            <option value="">No overlay</option>
+            {sortedByZ.map((p) => (
+              <option key={p.id} value={p.id}>{p.customName || p.name}</option>
+            ))}
+          </select>
+          {overlayOwner && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <input type="color" value={overlayOwner.skinOverlay.color}
+                  onChange={(e) => updateSkinOverlay({ color: e.target.value })}
+                  style={{ width: 40, height: 28, padding: 0, border: '1.5px solid #E5E7EB', borderRadius: 6, cursor: 'pointer' }} />
+                <select value={overlayOwner.skinOverlay.blendMode} onChange={(e) => updateSkinOverlay({ blendMode: e.target.value })}
+                  style={{ flex: 1, fontSize: 12 }}>
+                  {OVERLAY_BLEND_MODES.map((m) => <option key={m} value={m}>{m}</option>)}
+                </select>
+              </div>
+              <SliderRow label="Opacity" value={overlayOwner.skinOverlay.opacity ?? 50} min={0} max={100}
+                onChange={(v) => updateSkinOverlay({ opacity: v })} unit="%" />
+              <div>
+                <p style={{ ...s.hint, marginBottom: 4 }}>Apply to</p>
+                <select value={overlayOwner.skinOverlayScope || 'single'}
+                  onChange={(e) => setSkinOverlayScope(e.target.value)}
+                  style={{ fontSize: 12, width: '100%' }}>
+                  <option value="single">This layer only</option>
+                  <option value="below">This layer + layers below</option>
+                  <option value="skinTagged">All layers tagged "Exposed Skin"</option>
+                </select>
+              </div>
+              <button onClick={removeSkinOverlay}
+                style={{ ...s.ctrlBtn, justifyContent: 'center', color: '#9CA3AF' }}>
+                Remove overlay
+              </button>
+            </div>
+          )}
+        </div>
+
+        {/* Hair Color Overlay — same idea as the skin tone overlay, but for hair layers */}
+        <div className="card" style={{ padding: 14 }}>
+          <p style={s.sectionTitle}>Hair Color Overlay</p>
+          <p style={{ ...s.hint, marginTop: 4, marginBottom: 8 }}>
+            Tint a layer (e.g. the hairstyle) with a color wash, blended like the panel lighting presets.
+          </p>
+          <select className="input" value={hairOverlayOwner?.id || ''}
+            onChange={(e) => (e.target.value ? setHairOverlayTarget(e.target.value) : removeHairOverlay())}
+            style={{ fontSize: 12, marginBottom: 8 }}>
+            <option value="">No overlay</option>
+            {sortedByZ.map((p) => (
+              <option key={p.id} value={p.id}>{p.customName || p.name}</option>
+            ))}
+          </select>
+          {hairOverlayOwner && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <input type="color" value={hairOverlayOwner.hairOverlay.color}
+                  onChange={(e) => updateHairOverlay({ color: e.target.value })}
+                  style={{ width: 40, height: 28, padding: 0, border: '1.5px solid #E5E7EB', borderRadius: 6, cursor: 'pointer' }} />
+                <select value={hairOverlayOwner.hairOverlay.blendMode} onChange={(e) => updateHairOverlay({ blendMode: e.target.value })}
+                  style={{ flex: 1, fontSize: 12 }}>
+                  {OVERLAY_BLEND_MODES.map((m) => <option key={m} value={m}>{m}</option>)}
+                </select>
+              </div>
+              <SliderRow label="Opacity" value={hairOverlayOwner.hairOverlay.opacity ?? 50} min={0} max={100}
+                onChange={(v) => updateHairOverlay({ opacity: v })} unit="%" />
+              <div>
+                <p style={{ ...s.hint, marginBottom: 4 }}>Apply to</p>
+                <select value={hairOverlayOwner.hairOverlayScope || 'single'}
+                  onChange={(e) => setHairOverlayScope(e.target.value)}
+                  style={{ fontSize: 12, width: '100%' }}>
+                  <option value="single">This layer only</option>
+                  <option value="below">This layer + layers below</option>
+                  <option value="hairTagged">All layers tagged "Hair"</option>
+                </select>
+              </div>
+              <button onClick={removeHairOverlay}
+                style={{ ...s.ctrlBtn, justifyContent: 'center', color: '#9CA3AF' }}>
+                Remove overlay
+              </button>
             </div>
           )}
         </div>
@@ -1201,6 +1693,7 @@ const s = {
   sectionTitle: { fontSize: 13, fontWeight: 700, color: '#374151', margin: 0 },
   hint:         { fontSize: 12, color: '#9CA3AF' },
   assetThumb:   { border: '1.5px solid #E5E7EB', borderRadius: 8, overflow: 'hidden', background: '#F9FAFB', cursor: 'pointer', padding: 0, transition: 'border-color 0.15s', display: 'block', textAlign: 'left' },
+  miniBtn:      { flex: 1, fontSize: 9, fontWeight: 700, color: '#374151', background: '#fff', border: '1px solid #E5E7EB', borderRadius: 5, padding: '2px 0', cursor: 'pointer' },
   thumbLabel:   { fontSize: 9, textAlign: 'center', padding: '2px 3px', color: '#374151', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', margin: 0 },
   fileLabel:    { display: 'block', padding: '8px 10px', border: '1.5px dashed #E5E7EB', borderRadius: 8, fontSize: 11, color: '#6B7280', cursor: 'pointer', textAlign: 'center' },
   iconBtn:      { width: 30, height: 30, borderRadius: 7, border: '1.5px solid #E5E7EB', background: '#F9FAFB', cursor: 'pointer', fontSize: 15, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 },

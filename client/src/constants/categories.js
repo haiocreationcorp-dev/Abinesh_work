@@ -1,22 +1,48 @@
 // Single source of truth for all asset categories.
 // Add a new category here and it automatically appears in Upload, Folder Upload, Browse, and Admin Browse.
+// EXPRESSION and CHARACTER_PRESET are intentionally not here — they're dedicated models
+// (Expression, CharacterPreset) with their own small admin forms, not generic file uploads.
 export const ASSET_CATEGORIES = [
-  { id: 'CHARACTER',  label: 'Characters',  icon: '🧑' },
-  { id: 'BACKGROUND', label: 'Backgrounds', icon: '🌄' },
-  { id: 'EXPRESSION', label: 'Expressions', icon: '😄' },
-  { id: 'PROP',       label: 'Props',       icon: '🪑' },
-  { id: 'EFFECT',     label: 'Effects',     icon: '✨' },
-  { id: 'COSTUME',    label: 'Costumes',    icon: '👘' },
-  { id: 'SOUND',      label: 'Sound',       icon: '🔊' },
-  { id: 'BUBBLE',     label: 'Bubbles',     icon: '💬' },
-  { id: 'BODY_PART',  label: 'Body Parts',  icon: '🦴' },
-  { id: 'FACE_PART',  label: 'Face Parts',  icon: '👁️' },
-  { id: 'FACE',       label: 'Faces',       icon: '😀' },
-  { id: 'DRESS_PART', label: 'Dress Parts', icon: '🧵' },
-  { id: 'DRESS',      label: 'Dresses',     icon: '👕' },
+  { id: 'FACE_PART',    label: 'Face Parts',    icon: '👁️' },
+  { id: 'FACE_TEMPLATE', label: 'Face Templates', icon: '😀' },
+  { id: 'BODY_POSE',    label: 'Body Poses',    icon: '🚶' },
+  { id: 'BACKGROUND',   label: 'Backgrounds',   icon: '🌄' },
+  { id: 'PROP',         label: 'Props',         icon: '🪑' },
+  { id: 'EFFECT',       label: 'Effects',       icon: '✨' },
+  { id: 'BUBBLE',       label: 'Bubbles',       icon: '💬' },
+  { id: 'SOUND',        label: 'Sound',         icon: '🔊' },
 ];
 
 export const CATEGORY_IDS = ASSET_CATEGORIES.map((c) => c.id);
+
+export const VIEWS = [
+  { id: 'FRONT',          label: 'Front' },
+  { id: 'THREE_QUARTER',  label: '3/4' },
+];
+
+export const FACE_PART_TYPES = [
+  { id: 'FACE_SHAPE', label: 'Face Shape (+ Nose)' },
+  { id: 'HAIR',        label: 'Hair' },
+  { id: 'EYES',        label: 'Eyes + Eyebrows' },
+  { id: 'MOUTH',       label: 'Mouth' },
+];
+
+export const GENDERS = [
+  { id: 'MALE',    label: 'Male' },
+  { id: 'FEMALE',  label: 'Female' },
+  { id: 'UNISEX',  label: 'Unisex' },
+];
+
+export const POSE_TYPES = [
+  { id: 'STANDING',     label: 'Standing' },
+  { id: 'WALKING',      label: 'Walking' },
+  { id: 'RUNNING',      label: 'Running' },
+  { id: 'SITTING',      label: 'Sitting' },
+  { id: 'POINTING',     label: 'Pointing' },
+  { id: 'TALKING',      label: 'Talking' },
+  { id: 'READING',      label: 'Reading' },
+  { id: 'ARMS_CROSSED', label: 'Arms Crossed' },
+];
 
 export const BG_SUBCATEGORIES = [
   { id: 'home',       label: 'Home',       icon: '🏠' },

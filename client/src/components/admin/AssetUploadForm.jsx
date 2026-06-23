@@ -1,11 +1,24 @@
 import { useState, useRef } from 'react';
 import { uploadAsset } from '../../api/assets.js';
-import { CATEGORY_IDS as CATEGORIES, BG_SUBCATEGORIES } from '../../constants/categories.js';
+import { CATEGORY_IDS as CATEGORIES, BG_SUBCATEGORIES, VIEWS, FACE_PART_TYPES, GENDERS, POSE_TYPES } from '../../constants/categories.js';
+import SkinMaskTuner from './SkinMaskTuner.jsx';
+import { DEFAULT_SKIN_THRESHOLDS } from '../../utils/skinMaskPreview.js';
+
+const SKIN_NORMALIZABLE_CATEGORIES = ['FACE_PART', 'BODY_POSE'];
 
 export default function AssetUploadForm() {
-  const [form, setForm] = useState({ name: '', category: 'CHARACTER', tags: '' });
+  const [form, setForm] = useState({ name: '', category: 'FACE_PART', tags: '' });
   const [bgSubcategory, setBgSubcategory] = useState('');
+  // Per-category structured metadata.
+  const [partType, setPartType] = useState('');
+  const [view, setView] = useState('');
+  const [gender, setGender] = useState('');
+  const [faceFamily, setFaceFamily] = useState('');
+  const [costume, setCostume] = useState('');
+  const [poseType, setPoseType] = useState('');
   const [removeWhiteBg, setRemoveWhiteBg] = useState(false);
+  const [normalizeSkin, setNormalizeSkin] = useState(false);
+  const [skinThresholds, setSkinThresholds] = useState(DEFAULT_SKIN_THRESHOLDS);
   const [file, setFile] = useState(null);
   const [thumbnail, setThumbnail] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -13,6 +26,10 @@ export default function AssetUploadForm() {
   const [error, setError] = useState('');
   const fileRef = useRef(null);
   const thumbRef = useRef(null);
+
+  const resetMetadataFields = () => {
+    setPartType(''); setView(''); setGender(''); setFaceFamily(''); setCostume(''); setPoseType('');
+  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -26,16 +43,37 @@ export default function AssetUploadForm() {
     fd.append('category', form.category);
     const allTags = [bgSubcategory, ...form.tags.split(',').map(t => t.trim())].filter(Boolean).join(',');
     fd.append('tags', allTags);
+    if (form.category === 'FACE_PART') {
+      if (partType) fd.append('partType', partType);
+      if (view) fd.append('view', view);
+      if (gender) fd.append('gender', gender);
+    }
+    if (form.category === 'FACE_TEMPLATE') {
+      if (faceFamily) fd.append('faceFamily', faceFamily);
+      if (view) fd.append('view', view);
+    }
+    if (form.category === 'BODY_POSE') {
+      if (costume) fd.append('costume', costume);
+      if (poseType) fd.append('poseType', poseType);
+      if (view) fd.append('view', view);
+    }
     if (removeWhiteBg) fd.append('removeWhiteBg', 'true');
+    if (normalizeSkin) {
+      fd.append('normalizeSkin', 'true');
+      fd.append('skinThresholds', JSON.stringify(skinThresholds));
+    }
     fd.append('file', file);
     if (thumbnail) fd.append('thumbnail', thumbnail);
 
     try {
       await uploadAsset(fd);
       setMsg(`✓ "${form.name}" uploaded successfully`);
-      setForm({ name: '', category: 'CHARACTER', tags: '' });
+      setForm({ name: '', category: form.category, tags: '' });
       setBgSubcategory('');
+      resetMetadataFields();
       setRemoveWhiteBg(false);
+      setNormalizeSkin(false);
+      setSkinThresholds(DEFAULT_SKIN_THRESHOLDS);
       setFile(null);
       setThumbnail(null);
       if (fileRef.current) fileRef.current.value = '';
@@ -64,7 +102,7 @@ export default function AssetUploadForm() {
 
         <div className="form-group">
           <label>Category *</label>
-          <select value={form.category} onChange={(e) => { setForm({ ...form, category: e.target.value }); setBgSubcategory(''); }}>
+          <select value={form.category} onChange={(e) => { setForm({ ...form, category: e.target.value }); setBgSubcategory(''); resetMetadataFields(); }}>
             {CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
           </select>
         </div>
@@ -77,6 +115,79 @@ export default function AssetUploadForm() {
               {BG_SUBCATEGORIES.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
             </select>
           </div>
+        )}
+
+        {form.category === 'FACE_PART' && (
+          <>
+            <div className="form-group">
+              <label>Part Type</label>
+              <select value={partType} onChange={(e) => setPartType(e.target.value)}>
+                <option value="">— None —</option>
+                {FACE_PART_TYPES.map((t) => <option key={t.id} value={t.id}>{t.label}</option>)}
+              </select>
+            </div>
+            <div className="form-group">
+              <label>View</label>
+              <select value={view} onChange={(e) => setView(e.target.value)}>
+                <option value="">— None —</option>
+                {VIEWS.map((v) => <option key={v.id} value={v.id}>{v.label}</option>)}
+              </select>
+            </div>
+            <div className="form-group">
+              <label>Gender (optional)</label>
+              <select value={gender} onChange={(e) => setGender(e.target.value)}>
+                <option value="">— None —</option>
+                {GENDERS.map((g) => <option key={g.id} value={g.id}>{g.label}</option>)}
+              </select>
+            </div>
+          </>
+        )}
+
+        {form.category === 'FACE_TEMPLATE' && (
+          <>
+            <div className="form-group">
+              <label>Face Family</label>
+              <input
+                value={faceFamily}
+                onChange={(e) => setFaceFamily(e.target.value)}
+                placeholder="e.g. Rahul, Teacher"
+              />
+            </div>
+            <div className="form-group">
+              <label>View</label>
+              <select value={view} onChange={(e) => setView(e.target.value)}>
+                <option value="">— None —</option>
+                {VIEWS.map((v) => <option key={v.id} value={v.id}>{v.label}</option>)}
+              </select>
+            </div>
+          </>
+        )}
+
+        {form.category === 'BODY_POSE' && (
+          <>
+            <div className="form-group">
+              <label>Costume</label>
+              <input
+                value={costume}
+                onChange={(e) => setCostume(e.target.value)}
+                placeholder="e.g. Student, Police, Teacher"
+              />
+            </div>
+            <div className="form-group">
+              <label>Pose Type</label>
+              <select value={poseType} onChange={(e) => setPoseType(e.target.value)}>
+                <option value="">— None —</option>
+                {POSE_TYPES.map((p) => <option key={p.id} value={p.id}>{p.label}</option>)}
+              </select>
+            </div>
+            <div className="form-group">
+              <label>View</label>
+              <select value={view} onChange={(e) => setView(e.target.value)}>
+                <option value="">— None —</option>
+                {VIEWS.map((v) => <option key={v.id} value={v.id}>{v.label}</option>)}
+              </select>
+            </div>
+          </>
         )}
 
         <div className="form-group">
@@ -100,7 +211,7 @@ export default function AssetUploadForm() {
           {file && <span style={styles.fileInfo}>{file.name} ({(file.size / 1024).toFixed(1)} KB)</span>}
         </div>
 
-        {form.category === 'CHARACTER' && (
+        {SKIN_NORMALIZABLE_CATEGORIES.includes(form.category) && (
           <div className="form-group">
             <label style={styles.checkboxLabel}>
               <input
@@ -113,8 +224,32 @@ export default function AssetUploadForm() {
             </label>
             {removeWhiteBg && (
               <p style={styles.checkboxHint}>
-                White/near-white pixels connected to the image edges will be made transparent. White areas inside the character (eyes, clothing) are preserved. Output saved as PNG.
+                White/near-white pixels connected to the image edges will be made transparent. White areas inside (eyes, clothing) are preserved. Output saved as PNG.
               </p>
+            )}
+          </div>
+        )}
+
+        {SKIN_NORMALIZABLE_CATEGORIES.includes(form.category) && (
+          <div className="form-group">
+            <label style={styles.checkboxLabel}>
+              <input
+                type="checkbox"
+                checked={normalizeSkin}
+                onChange={(e) => setNormalizeSkin(e.target.checked)}
+                style={{ marginRight: 8 }}
+              />
+              Normalize skin tones
+            </label>
+            {normalizeSkin && (
+              <>
+                <p style={styles.checkboxHint}>
+                  Detected skin-toned pixels (face, neck, hands) will be quantized down to 3 flat
+                  reference tones so the Comic UI's Skin Color tool can recolor them. Required for
+                  art with gradient/anti-aliased shading — flat cel-shaded art is unaffected.
+                </p>
+                <SkinMaskTuner file={file} thresholds={skinThresholds} onChange={setSkinThresholds} />
+              </>
             )}
           </div>
         )}
@@ -136,20 +271,12 @@ export default function AssetUploadForm() {
           {loading ? 'Uploading…' : 'Upload Asset'}
         </button>
       </form>
-
-      <div style={styles.hint}>
-        <strong>SVG Naming Convention</strong><br />
-        For skeletal character posing, name body-part groups with <code>id</code> attributes:<br />
-        <code>head</code>, <code>neck</code>, <code>torso</code>, <code>left-arm</code>, <code>right-arm</code>,
-        <code>left-hand</code>, <code>right-hand</code>, <code>left-leg</code>, <code>right-leg</code>,
-        <code>left-foot</code>, <code>right-foot</code>
-      </div>
     </div>
   );
 }
 
 const styles = {
-  root: { padding: 28, maxWidth: 540 },
+  root: { padding: 28, maxWidth: 680 },
   heading: { fontSize: 18, fontWeight: 700, marginBottom: 20 },
   fileInfo: { fontSize: 12, color: 'var(--mid)', marginTop: 2 },
   success: { color: 'var(--success)', fontSize: 13, marginBottom: 8 },

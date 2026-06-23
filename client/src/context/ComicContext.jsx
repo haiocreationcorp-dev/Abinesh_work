@@ -17,6 +17,7 @@ const EMPTY_PANEL_DATA = () => ({
   lightingOverlay: null,
   characters: [],
   faces: [],
+  characterPresets: [],
   props: [],
   effects: [],
   costumes: [],
@@ -258,6 +259,7 @@ function baseReducer(state, action) {
           assetId: action.asset.id,
           filePath: action.asset.filePath,
           name: action.asset.name,
+          tags: action.asset.tags || [],
           position: action.position || { x: 80, y: 40 },
           scale: 1,
           rotation: 0,
@@ -265,6 +267,42 @@ function baseReducer(state, action) {
           bodyParts: {},
         };
         return { ...p, data: { ...EMPTY_PANEL_DATA(), ...p.data, characters: [...(p.data.characters || []), character] } };
+      });
+      return { ...state, panels, isDirty: true };
+    }
+
+    case 'ADD_DRESS_TO_PANEL': {
+      const panels = state.panels.map((p, i) => {
+        if (i !== action.panelIndex) return p;
+        const character = {
+          instanceId: genId(),
+          assetId: action.asset.id,
+          filePath: action.asset.filePath,
+          layoutPath: action.asset.layoutPath || null,
+          name: action.asset.name,
+          tags: action.asset.tags || [],
+          dressMode: true,
+          position: action.position || { x: 80, y: 40 },
+          scale: 1,
+          rotation: 0,
+          flipX: false,
+          parts: {},
+          bodyParts: {},
+        };
+        return { ...p, data: { ...EMPTY_PANEL_DATA(), ...p.data, characters: [...(p.data.characters || []), character] } };
+      });
+      return { ...state, panels, isDirty: true };
+    }
+
+    case 'SET_DRESS_PART': {
+      const panels = state.panels.map((p, i) => {
+        if (i !== action.panelIndex) return p;
+        const characters = p.data.characters.map((c) =>
+          c.instanceId === action.instanceId
+            ? { ...c, parts: { ...c.parts, [action.partType]: action.part } }
+            : c
+        );
+        return { ...p, data: { ...p.data, characters } };
       });
       return { ...state, panels, isDirty: true };
     }
@@ -333,6 +371,46 @@ function baseReducer(state, action) {
       const panels = state.panels.map((p, i) => {
         if (i !== action.panelIndex) return p;
         return { ...p, data: { ...p.data, faces: (p.data.faces || []).filter((f) => f.instanceId !== action.instanceId) } };
+      });
+      return { ...state, panels, isDirty: true };
+    }
+
+    // A CharacterPreset + BODY_POSE pairing. Unlike faces, this stores only the two ids —
+    // CharacterPresetRig fetches and composites the preset/pose/face fresh on render
+    // (same philosophy as DressRig fetching its layout fresh, not storing it inline).
+    case 'ADD_CHARACTER_PRESET_TO_PANEL': {
+      const panels = state.panels.map((p, i) => {
+        if (i !== action.panelIndex) return p;
+        const characterPreset = {
+          instanceId: action.instanceId || genId(),
+          presetId: action.presetId,
+          bodyPoseId: action.bodyPoseId,
+          name: action.name,
+          position: action.position || { x: 80, y: 40 },
+          scale: 1,
+          rotation: 0,
+          flipX: false,
+        };
+        return { ...p, data: { ...EMPTY_PANEL_DATA(), ...p.data, characterPresets: [...(p.data.characterPresets || []), characterPreset] } };
+      });
+      return { ...state, panels, isDirty: true };
+    }
+
+    case 'UPDATE_CHARACTER_PRESET': {
+      const panels = state.panels.map((p, i) => {
+        if (i !== action.panelIndex) return p;
+        const characterPresets = (p.data.characterPresets || []).map((cp) =>
+          cp.instanceId === action.instanceId ? { ...cp, ...action.updates } : cp
+        );
+        return { ...p, data: { ...p.data, characterPresets } };
+      });
+      return { ...state, panels, isDirty: true };
+    }
+
+    case 'REMOVE_CHARACTER_PRESET': {
+      const panels = state.panels.map((p, i) => {
+        if (i !== action.panelIndex) return p;
+        return { ...p, data: { ...p.data, characterPresets: (p.data.characterPresets || []).filter((cp) => cp.instanceId !== action.instanceId) } };
       });
       return { ...state, panels, isDirty: true };
     }

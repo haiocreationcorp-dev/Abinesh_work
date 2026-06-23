@@ -27,6 +27,7 @@ function FacePart({ part }) {
 
   const rect = trimmedRect(trim, 0, 0, part.w, part.h);
   const overlayRgb = part.skinOverlay ? hexToRgb(part.skinOverlay.color) : null;
+  const hairOverlayRgb = part.hairOverlay ? hexToRgb(part.hairOverlay.color) : null;
 
   return (
     <div style={{
@@ -40,6 +41,17 @@ function FacePart({ part }) {
           position: 'absolute', left: rect.x, top: rect.y, width: rect.w, height: rect.h,
           background: `rgba(${overlayRgb.r},${overlayRgb.g},${overlayRgb.b},${(part.skinOverlay.opacity ?? 50) / 100})`,
           mixBlendMode: part.skinOverlay.blendMode || 'multiply', pointerEvents: 'none',
+          WebkitMaskImage: `url(${part.filePath})`, maskImage: `url(${part.filePath})`,
+          WebkitMaskSize: '100% 100%', maskSize: '100% 100%',
+          WebkitMaskRepeat: 'no-repeat', maskRepeat: 'no-repeat',
+          WebkitMaskPosition: '0 0', maskPosition: '0 0',
+        }} />
+      )}
+      {hairOverlayRgb && (
+        <div style={{
+          position: 'absolute', left: rect.x, top: rect.y, width: rect.w, height: rect.h,
+          background: `rgba(${hairOverlayRgb.r},${hairOverlayRgb.g},${hairOverlayRgb.b},${(part.hairOverlay.opacity ?? 50) / 100})`,
+          mixBlendMode: part.hairOverlay.blendMode || 'multiply', pointerEvents: 'none',
           WebkitMaskImage: `url(${part.filePath})`, maskImage: `url(${part.filePath})`,
           WebkitMaskSize: '100% 100%', maskSize: '100% 100%',
           WebkitMaskRepeat: 'no-repeat', maskRepeat: 'no-repeat',

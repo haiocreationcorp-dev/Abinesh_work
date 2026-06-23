@@ -3,7 +3,10 @@ import { useComic } from '../../context/ComicContext.jsx';
 import { useDrag } from '../../context/DragContext.jsx';
 import CharacterRig from './CharacterRig.jsx';
 import FaceRig from './FaceRig.jsx';
-import { useLightingOverlays } from '../../lighting/lightingEngine.js';
+import DressRig from './DressRig.jsx';
+import CharacterPresetRig from './CharacterPresetRig.jsx';
+import { useLightingOverlays, hexToRgb } from '../../lighting/lightingEngine.js';
+import { recolorSkin } from '../../utils/recolorImage.js';
 import { correctText } from '../../utils/spellCheck.js';
 import AIQuickMenu from './AIQuickMenu.jsx';
 
@@ -24,6 +27,7 @@ const BG_MODE_CSS = {
 const KIND_KEY = {
   CHARACTER: 'characters',
   FACE: 'faces',
+  CHARACTER_PRESET: 'characterPresets',
   PROP: 'props',
   EFFECT: 'effects',
   COSTUME: 'costumes',
@@ -33,6 +37,24 @@ const KIND_KEY = {
 
 const BASE_W = 120;
 const BASE_H = 200;
+
+// Renders a placed character, applying the exact-pixel skin color swap (if any) to a
+// flat CharacterRig image; DressRig handles its own per-part skin recoloring internally.
+function RenderedCharacter({ char, onDressSize }) {
+  const [recoloredFilePath, setRecoloredFilePath] = useState(null);
+
+  useEffect(() => {
+    if (char.dressMode || !char.skinPreset) { setRecoloredFilePath(null); return; }
+    let active = true;
+    recolorSkin(char.filePath, char.skinPreset).then((url) => { if (active) setRecoloredFilePath(url); });
+    return () => { active = false; };
+  }, [char.filePath, char.skinPreset, char.dressMode]);
+
+  if (char.dressMode && char.layoutPath) {
+    return <DressRig character={char} onSize={onDressSize} />;
+  }
+  return <CharacterRig character={recoloredFilePath ? { ...char, filePath: recoloredFilePath } : char} />;
+}
 
 // ── SVG bubble cache ─────────────────────────────────────────────────────────
 const svgCache = {};
@@ -497,6 +519,7 @@ export default function Panel({ panel, panelIndex, canvasW = 800, canvasH = 450,
   const [selected, setSelected] = useState(null);
   const [isDragOver, setIsDragOver] = useState(false);
   const [draggingOut, setDraggingOut] = useState(null); // instanceId hidden while cross-panel dragging
+  const [dressRigSizes, setDressRigSizes] = useState({});
   const data = panel.data || {};
 
   const CANVAS_W = canvasW;
@@ -582,6 +605,9 @@ export default function Panel({ panel, panelIndex, canvasW = 800, canvasH = 450,
           case 'FACE':
             d({ type: 'REMOVE_FACE', panelIndex: pi, instanceId: sel.instanceId });
             break;
+          case 'CHARACTER_PRESET':
+            d({ type: 'REMOVE_CHARACTER_PRESET', panelIndex: pi, instanceId: sel.instanceId });
+            break;
           case 'PROP':
           case 'EFFECT':
           case 'COSTUME':
@@ -633,6 +659,7 @@ export default function Panel({ panel, panelIndex, canvasW = 800, canvasH = 450,
     const dispatchPos = (pos, preview = true) => {
       if (kind === 'CHARACTER') dispatch({ type: 'UPDATE_CHARACTER', panelIndex, instanceId, updates: { position: pos }, preview });
       else if (kind === 'FACE') dispatch({ type: 'UPDATE_FACE', panelIndex, instanceId, updates: { position: pos }, preview });
+      else if (kind === 'CHARACTER_PRESET') dispatch({ type: 'UPDATE_CHARACTER_PRESET', panelIndex, instanceId, updates: { position: pos }, preview });
       else if (kind === 'BUBBLE') dispatch({ type: 'UPDATE_BUBBLE', panelIndex, instanceId, updates: { position: pos }, preview });
       else dispatch({ type: 'UPDATE_PLACED_ITEM', panelIndex, instanceId, kind: kind.toLowerCase() + 's', updates: { position: pos }, preview });
     };
@@ -845,6 +872,9 @@ export default function Panel({ panel, panelIndex, canvasW = 800, canvasH = 450,
             const cropStyle = char.crop && (char.crop.top || char.crop.right || char.crop.bottom || char.crop.left)
               ? `inset(${char.crop.top || 0}px ${char.crop.right || 0}px ${char.crop.bottom || 0}px ${char.crop.left || 0}px)`
               : undefined;
+            const dressSize = char.dressMode && char.layoutPath ? (dressRigSizes[char.instanceId] || null) : null;
+            const charW = dressSize?.w ?? BASE_W;
+            const charH = dressSize?.h ?? BASE_H;
             return (
               <Fragment key={char.instanceId}>
                 {/* Character visual only — no handles inside the scaled div */}
@@ -879,8 +909,31 @@ export default function Panel({ panel, panelIndex, canvasW = 800, canvasH = 450,
                     dispatch({ type: 'UPDATE_CHARACTER', preview: true, panelIndex, instanceId: char.instanceId, updates: { scale: Math.round(ns * 100) / 100 } });
                   }}
                 >
-                  <div style={{ width: BASE_W, height: BASE_H, clipPath: cropStyle }}>
-                    <CharacterRig character={char} />
+                  <div style={{
+                    width: BASE_W, height: BASE_H, clipPath: cropStyle, position: 'relative',
+                    ...(char.dressMode && char.layoutPath
+                      ? { display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }
+                      : {}),
+                  }}>
+                    <RenderedCharacter
+                      char={char}
+                      onDressSize={(w, h) => setDressRigSizes((prev) => ({ ...prev, [char.instanceId]: { w, h } }))}
+                    />
+                    {/* Flat-character overlays — skipped for DressRig (it applies per-part internally) */}
+                    {!char.dressMode && char.hairOverlay && (() => {
+                      const rgb = hexToRgb(char.hairOverlay.color);
+                      return rgb && (
+                        <div style={{
+                          position: 'absolute', left: 0, top: 0, width: BASE_W, height: BASE_H,
+                          background: `rgba(${rgb.r},${rgb.g},${rgb.b},${(char.hairOverlay.opacity ?? 50) / 100})`,
+                          mixBlendMode: char.hairOverlay.blendMode || 'multiply', pointerEvents: 'none',
+                          WebkitMaskImage: `url(${char.filePath})`, maskImage: `url(${char.filePath})`,
+                          WebkitMaskSize: '100% 100%', maskSize: '100% 100%',
+                          WebkitMaskRepeat: 'no-repeat', maskRepeat: 'no-repeat',
+                          WebkitMaskPosition: 'center', maskPosition: 'center',
+                        }} />
+                      );
+                    })()}
                   </div>
                 </div>
 
@@ -932,6 +985,8 @@ export default function Panel({ panel, panelIndex, canvasW = 800, canvasH = 450,
                         canvasRef={canvasRef}
                         canvasW={CANVAS_W}
                         onDeselect={() => selectItem(null)}
+                        charW={charW}
+                        charH={charH}
                       />
                     )}
                     {isCropping && (
@@ -1008,6 +1063,67 @@ export default function Panel({ panel, panelIndex, canvasW = 800, canvasH = 450,
                       dispatch={dispatch}
                       canvasRef={canvasRef}
                       canvasW={CANVAS_W}
+                    />
+                  </div>
+                )}
+              </Fragment>
+            );
+          })}
+
+          {/* Character Presets (a CharacterPreset + BODY_POSE pairing) */}
+          {(data.characterPresets || []).map((cp) => {
+            if (draggingOut === cp.instanceId) return null;
+            const isCpSelected = selected?.instanceId === cp.instanceId;
+            return (
+              <Fragment key={cp.instanceId}>
+                <div
+                  style={{
+                    ...styles.placed,
+                    left: cp.position.x,
+                    top: cp.position.y,
+                    width: BASE_W,
+                    height: BASE_H,
+                    transform: `rotate(${cp.rotation || 0}deg) scaleX(${cp.flipX ? -1 : 1}) scale(${cp.scale || 1})`,
+                    transformOrigin: 'center center',
+                    cursor: 'grab',
+                    zIndex: isCpSelected ? 10 : 1,
+                  }}
+                  onMouseDown={(e) => {
+                    selectItem({ kind: 'CHARACTER_PRESET', instanceId: cp.instanceId });
+                    startDrag(e, 'CHARACTER_PRESET', cp.instanceId, cp.position);
+                  }}
+                  onWheel={(e) => {
+                    if (!isCpSelected) return;
+                    e.preventDefault();
+                    e.stopPropagation();
+                    const current = cp.scale || 1;
+                    const factor = e.deltaY < 0 ? 1.1 : 0.9;
+                    const ns = Math.max(0.15, Math.min(10, current * factor));
+                    dispatch({ type: 'UPDATE_CHARACTER_PRESET', preview: true, panelIndex, instanceId: cp.instanceId, updates: { scale: Math.round(ns * 100) / 100 } });
+                  }}
+                >
+                  <CharacterPresetRig instance={cp} />
+                </div>
+
+                {isCpSelected && (
+                  <div style={{
+                    position: 'absolute',
+                    left: cp.position.x + BASE_W / 2,
+                    top: cp.position.y + BASE_H / 2,
+                    width: 0, height: 0,
+                    transform: `rotate(${cp.rotation || 0}deg) scaleX(${cp.flipX ? -1 : 1})`,
+                    transformOrigin: '0 0',
+                    overflow: 'visible',
+                    zIndex: 12,
+                    pointerEvents: 'none',
+                  }}>
+                    <FaceTransformHandles
+                      face={cp}
+                      panelIndex={panelIndex}
+                      dispatch={dispatch}
+                      canvasRef={canvasRef}
+                      canvasW={CANVAS_W}
+                      actionType="UPDATE_CHARACTER_PRESET"
                     />
                   </div>
                 )}
@@ -1186,16 +1302,16 @@ const SEL_COLOR = '#7C3AED';
 // Coordinate system: origin at character CENTER, rotated+flipped with character, NOT scaled.
 // Character local coord (lx, ly) → overlay coord: ((lx - BASE_W/2)*s, (ly - BASE_H/2)*s)
 // All sizes are natural CSS pixels — no sub-pixel scaling issues at any character scale.
-function TransformHandles({ char, panelIndex, dispatch, canvasRef, canvasW, onDeselect }) {
+function TransformHandles({ char, panelIndex, dispatch, canvasRef, canvasW, onDeselect, charW = BASE_W, charH = BASE_H }) {
   const s = char.scale || 1;
   const cl = char.crop?.left || 0, cr = char.crop?.right || 0;
   const ct = char.crop?.top || 0, cb = char.crop?.bottom || 0;
 
   // Visible (cropped) area bounds in overlay space
-  const visL = (-BASE_W / 2 + cl) * s;
-  const visR = ( BASE_W / 2 - cr) * s;
-  const visT = (-BASE_H / 2 + ct) * s;
-  const visB = ( BASE_H / 2 - cb) * s;
+  const visL = (-charW / 2 + cl) * s;
+  const visR = ( charW / 2 - cr) * s;
+  const visT = (-charH / 2 + ct) * s;
+  const visB = ( charH / 2 - cb) * s;
   const visMX = (visL + visR) / 2;
   const visMY = (visT + visB) / 2;
 
@@ -1312,7 +1428,7 @@ function TransformHandles({ char, panelIndex, dispatch, canvasRef, canvasW, onDe
 }
 
 // ── Transform handles for FACE items — same visual language as TransformHandles, no crop ──
-function FaceTransformHandles({ face, panelIndex, dispatch, canvasRef, canvasW }) {
+function FaceTransformHandles({ face, panelIndex, dispatch, canvasRef, canvasW, actionType = 'UPDATE_FACE' }) {
   const s = face.scale || 1;
 
   const visL = (-BASE_W / 2) * s;
@@ -1348,7 +1464,7 @@ function FaceTransformHandles({ face, panelIndex, dispatch, canvasRef, canvasW }
       if (delta < -180) delta += 360;
       currentRot += delta;
       lastAngle = newAngle;
-      dispatch({ type: 'UPDATE_FACE', preview: true, panelIndex, instanceId: face.instanceId, updates: { rotation: Math.round(currentRot) } });
+      dispatch({ type: actionType, preview: true, panelIndex, instanceId: face.instanceId, updates: { rotation: Math.round(currentRot) } });
     };
     const onUp = () => { window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp); };
     window.addEventListener('mousemove', onMove);
@@ -1366,7 +1482,7 @@ function FaceTransformHandles({ face, panelIndex, dispatch, canvasRef, canvasW }
       const dist = Math.hypot(ev.clientX - cx, ev.clientY - cy);
       if (!startDist) return;
       const ns = Math.max(0.15, Math.min(10, startScaleVal * (dist / startDist)));
-      dispatch({ type: 'UPDATE_FACE', preview: true, panelIndex, instanceId: face.instanceId, updates: { scale: Math.round(ns * 100) / 100 } });
+      dispatch({ type: actionType, preview: true, panelIndex, instanceId: face.instanceId, updates: { scale: Math.round(ns * 100) / 100 } });
     };
     const onUp = () => { window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp); };
     window.addEventListener('mousemove', onMove);

@@ -38,19 +38,37 @@ enum EnrollmentStatus {
 }
 
 enum AssetCategory {
-  CHARACTER
+  FACE_PART
+  FACE_TEMPLATE
+  BODY_POSE
   BACKGROUND
-  EXPRESSION
   PROP
   EFFECT
-  COSTUME
   BUBBLE
   SOUND
-  BODY_PART
-  FACE_PART
-  FACE
-  DRESS_PART
-  DRESS
+}
+
+enum AssetView {
+  FRONT
+  THREE_QUARTER
+}
+
+enum FacePartType {
+  FACE_SHAPE
+  HAIR
+  EYES
+  MOUTH
+}
+
+enum PoseType {
+  STANDING
+  WALKING
+  RUNNING
+  SITTING
+  POINTING
+  TALKING
+  READING
+  ARMS_CROSSED
 }
 
 model User {
@@ -180,16 +198,32 @@ model Submission {
 }
 
 model Asset {
-  id            String        @id @default(cuid())
-  name          String
-  category      AssetCategory
-  tags          String[]
-  filename      String
-  filePath      String
-  thumbnailPath String?
-  layoutPath    String?
-  createdAt     DateTime      @default(now())
-  updatedAt     DateTime      @updatedAt
+  id              String        @id @default(cuid())
+  name            String
+  category        AssetCategory
+  tags            String[]
+  filename        String
+  filePath        String
+  thumbnailPath   String?
+  layoutPath      String?
+  // HSV thresholds ({ hueMin, hueMax, satMin, valMin }) used when this asset's skin
+  // tones were normalized at upload time. Null if normalization was never applied.
+  // Recorded so the admin's mask-tuning choice for this asset is remembered.
+  skinThresholds  Json?
+  // Front/3-4 pairing — relevant for FACE_PART, FACE_TEMPLATE, BODY_POSE.
+  view            AssetView?
+  // FACE_PART only: which of the 4 reusable face pieces this is.
+  partType        FacePartType?
+  // FACE_PART only, optional.
+  gender          String?
+  // FACE_TEMPLATE only: groups a Front+3/4 pair under one named identity (e.g. "Rahul").
+  faceFamily      String?
+  // BODY_POSE only: free-text costume name (e.g. "Student", "Police").
+  costume         String?
+  // BODY_POSE only.
+  poseType        PoseType?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
 }
 
 model Comic {
@@ -247,9 +281,39 @@ model FacePartAlignment {
   rotation    Float    @default(0)
   flipX       Boolean  @default(false)
   flipY       Boolean  @default(false)
+  connectX    Float    @default(0.5)
+  connectY    Float    @default(0.0)
   updatedAt   DateTime @updatedAt
 
   @@unique([faceAssetId, partAssetId, partType])
+}
+
+// A reusable eye+mouth combo (e.g. "happy", "angry") that can be swapped onto any
+// FACE_TEMPLATE. Position on a given face is resolved via FacePartAlignment, same as any
+// other alignable part — this model only holds which two FACE_PART assets make up the look.
+model Expression {
+  id            String   @id @default(cuid())
+  name          String
+  eyeAssetId    String
+  mouthAssetId  String
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+// A named comic-character identity: which FACE_TEMPLATEs represent it (front and,
+// optionally, 3/4) plus its default appearance. Plain string id references (no @relation),
+// matching the FacePartAlignment convention — validated at the application layer.
+model CharacterPreset {
+  id                  String   @id @default(cuid())
+  name                String
+  frontFaceId         String
+  threeQuarterFaceId  String?
+  skinTone            String
+  hairColor           String
+  irisColor           String?
+  defaultExpressionId String?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
 }
 
 model LightingPreset {

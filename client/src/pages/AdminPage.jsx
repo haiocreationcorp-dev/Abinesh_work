@@ -3,7 +3,11 @@ import AssetUploadForm from '../components/admin/AssetUploadForm.jsx';
 import FolderUploadForm from '../components/admin/FolderUploadForm.jsx';
 import LightingAdjuster from '../components/admin/LightingAdjuster.jsx';
 import FaceBuilder from '../components/admin/FaceBuilder.jsx';
-import DressBuilder from '../components/admin/DressBuilder.jsx';
+import PoseBuilder from '../components/admin/PoseBuilder.jsx';
+import ExpressionBuilder from '../components/admin/ExpressionBuilder.jsx';
+import CharacterPresetBuilder from '../components/admin/CharacterPresetBuilder.jsx';
+import PaletteNormalizer from '../components/admin/PaletteNormalizer.jsx';
+import EyeNormalizer from '../components/admin/EyeNormalizer.jsx';
 import AssetGrid from '../components/library/AssetGrid.jsx';
 import {
   getAdminUsers, updateUserRole, listInstitutions, createInstitution, renewInstitution, updateInstitution, suspendInstitution,
@@ -11,12 +15,12 @@ import {
 } from '../api/assets.js';
 import { CATEGORY_IDS } from '../constants/categories.js';
 
-const TABS = ['Upload Asset', 'Folder Upload', 'F_B Edit', 'Lighting Adjuster', 'Browse Assets', 'Manage Users', 'Institutions'];
+const TABS = ['Upload Asset', 'Folder Upload', 'F_B Edit', 'Expressions', 'Character Presets', 'Palette Normalizer', 'Eye Normalizer', 'Lighting Adjuster', 'Browse Assets', 'Manage Users', 'Institutions'];
 
 export default function AdminPage() {
   const [tab, setTab] = useState(0);
   const [users, setUsers] = useState([]);
-  const [category, setCategory] = useState('CHARACTER');
+  const [category, setCategory] = useState('FACE_PART');
   const [fbMode, setFbMode] = useState('face');
   const [institutions, setInstitutions] = useState([]);
   const [newInstitutionName, setNewInstitutionName] = useState('');
@@ -31,8 +35,8 @@ export default function AdminPage() {
   const [justCreatedChief, setJustCreatedChief] = useState(null);
 
   useEffect(() => {
-    if (tab === 5) getAdminUsers().then(setUsers);
-    if (tab === 6) listInstitutions().then(setInstitutions);
+    if (tab === 9) getAdminUsers().then(setUsers);
+    if (tab === 10) listInstitutions().then(setInstitutions);
   }, [tab]);
 
   const handleRoleToggle = async (user) => {
@@ -129,17 +133,25 @@ export default function AdminPage() {
                 <button className={`btn ${fbMode === 'face' ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setFbMode('face')}>
                   Face
                 </button>
-                <button className={`btn ${fbMode === 'dress' ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setFbMode('dress')}>
-                  Dress
+                <button className={`btn ${fbMode === 'pose' ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setFbMode('pose')}>
+                  Pose
                 </button>
               </div>
-              {fbMode === 'face' ? <FaceBuilder /> : <DressBuilder />}
+              {fbMode === 'face' ? <FaceBuilder /> : <PoseBuilder />}
             </div>
           )}
 
-          {tab === 3 && <LightingAdjuster />}
+          {tab === 3 && <ExpressionBuilder />}
 
-          {tab === 4 && (
+          {tab === 4 && <CharacterPresetBuilder />}
+
+          {tab === 5 && <PaletteNormalizer />}
+
+          {tab === 6 && <EyeNormalizer />}
+
+          {tab === 7 && <LightingAdjuster />}
+
+          {tab === 8 && (
             <div>
               <div style={styles.categoryRow}>
                 {CATEGORY_IDS.map((c) => (
@@ -152,7 +164,7 @@ export default function AdminPage() {
             </div>
           )}
 
-          {tab === 5 && (
+          {tab === 9 && (
             <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
               <table style={styles.table}>
                 <thead>
@@ -185,7 +197,7 @@ export default function AdminPage() {
             </div>
           )}
 
-          {tab === 6 && (
+          {tab === 10 && (
             <div>
               <form onSubmit={handleCreateInstitution} style={styles.institutionForm}>
                 <input

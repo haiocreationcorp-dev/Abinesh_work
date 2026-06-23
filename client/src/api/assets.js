@@ -28,14 +28,23 @@ export const suspendInstitution = (id, suspended) => api.patch(`/admin/instituti
 export const createInstitutionChief = (id, data) => api.post(`/admin/institutions/${id}/chief`, data).then((r) => r.data);
 export const updateInstitutionSystemCount = (id, systemCount) => api.patch(`/admin/institutions/${id}/system-count`, { systemCount }).then((r) => r.data);
 
-export const saveAssembledFace = (name, svgContent, layout) =>
-  api.post('/admin/faces/assemble', { name, svgContent, layout }).then((r) => r.data);
+// Persists just the Palette Normalizer's mask recipe (detection thresholds, brightness
+// cutoffs, output palette) onto an existing asset — no image is re-uploaded.
+export const saveAssetSkinMask = (assetId, mask) =>
+  api.patch(`/admin/assets/${assetId}/skin-mask`, { mask }).then((r) => r.data);
 
-export const saveAssembledDress = (name, svgContent, layout) =>
-  api.post('/admin/dresses/assemble', { name, svgContent, layout }).then((r) => r.data);
+// Overwrites an existing asset's image file in place (same asset id, no duplicate) and
+// optionally updates its skinThresholds mask recipe in the same request.
+export const replaceAssetFile = (assetId, formData) =>
+  api.put(`/admin/assets/${assetId}/file`, formData, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  }).then((r) => r.data);
 
-export const saveAssembledExpression = (name, svgContent, layout) =>
-  api.post('/admin/expressions/assemble', { name, svgContent, layout }).then((r) => r.data);
+export const saveAssembledFace = (name, svgContent, layout, meta = {}) =>
+  api.post('/admin/faces/assemble', { name, svgContent, layout, ...meta }).then((r) => r.data);
+
+export const updateAssembledFace = (id, name, svgContent, layout, meta = {}) =>
+  api.put(`/admin/faces/assemble/${id}`, { name, svgContent, layout, ...meta }).then((r) => r.data);
 
 export const getFacePartAlignmentsPublic = (faceAssetId) =>
   api.get(`/assets/faces/${faceAssetId}/part-alignments`).then((r) => r.data);
@@ -45,3 +54,13 @@ export const getFacePartAlignment = (faceAssetId, partAssetId, partType) =>
 
 export const saveFacePartAlignment = (alignment) =>
   api.post('/admin/face-part-alignment', alignment).then((r) => r.data);
+
+// Reads are public (the Comic Editor needs to browse these to place a character);
+// create/delete stay admin-only.
+export const getExpressions = () => api.get('/assets/expressions').then((r) => r.data);
+export const createExpression = (data) => api.post('/admin/expressions', data).then((r) => r.data);
+export const deleteExpression = (id) => api.delete(`/admin/expressions/${id}`).then((r) => r.data);
+
+export const getCharacterPresets = () => api.get('/assets/character-presets').then((r) => r.data);
+export const createCharacterPreset = (data) => api.post('/admin/character-presets', data).then((r) => r.data);
+export const deleteCharacterPreset = (id) => api.delete(`/admin/character-presets/${id}`).then((r) => r.data);

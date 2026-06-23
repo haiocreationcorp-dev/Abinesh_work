@@ -9,8 +9,9 @@ import ExportControls from './ExportControls.jsx';
 import SpeechBubbleEditor from './SpeechBubble.jsx';
 import AIAssistantPanel from './AIAssistantPanel.jsx';
 import { AlignIcon, ColorSwatch, CustomSelect, FONTS, SIZES } from './BubbleUiKit.jsx';
-import { getAssets, getFacePartAlignmentsPublic } from '../../api/assets.js';
-import { FACE_SECTIONS, FACE_CANVAS_W, FACE_CANVAS_H, classifyFacePart, matchesFaceSection, defaultPartOverlay } from '../../utils/faceLayout.js';
+import { getAssets, getFacePartAlignmentsPublic, getCharacterPresets as fetchCharacterPresets } from '../../api/assets.js';
+import { FACE_SECTIONS, FACE_CANVAS_W, FACE_CANVAS_H, classifyFacePart, matchesFaceSection, defaultPartOverlay, buildFaceFromLayout } from '../../utils/faceLayout.js';
+import { SKIN_PRESETS } from '../../utils/skinPalette.js';
 import genId from '../../utils/genId.js';
 
 // ── SVG icon components ───────────────────────────────────────────────────────
@@ -76,6 +77,66 @@ function IconCostumes() {
     </svg>
   );
 }
+function IconFaceSwap() {
+  return (
+    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M12 2c-3.5 0-5 3-5 7s1 9 5 11c4-2 5-7 5-11s-1.5-7-5-7z"/>
+      <circle cx="9.5" cy="10" r="0.8" fill="currentColor" stroke="none"/>
+      <circle cx="14.5" cy="10" r="0.8" fill="currentColor" stroke="none"/>
+      <path d="M9.5 14c.6.9 1.5 1.5 2.5 1.5s1.9-.6 2.5-1.5"/>
+      <path d="M3 7l2 2M21 7l-2 2"/>
+    </svg>
+  );
+}
+function IconOutfit() {
+  return (
+    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M8 4L3 7v4h3v9h12v-9h3V7l-5-3"/>
+      <path d="M8 4a4 4 0 0 0 8 0"/>
+    </svg>
+  );
+}
+function IconPose() {
+  return (
+    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="15" cy="4" r="1.8"/>
+      <path d="M14 6.5l-1.5 4 3 2.5 1.5 5.5"/>
+      <path d="M12.5 10.5l-4 1.5"/>
+      <path d="M15.5 13l3.5 1.5"/>
+      <path d="M12.5 10.5l-1 6-3 4"/>
+      <path d="M17 18.5l-1.5-5.5"/>
+    </svg>
+  );
+}
+function IconHairstyle() {
+  return (
+    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M6 20v-6a6 6 0 0 1 12 0v6"/>
+      <path d="M4 14c1-4 3-9 8-10 5 1 7 6 8 10"/>
+      <path d="M9 9c-1 1.5-1.5 3-1.5 5"/>
+      <path d="M15 9c1 1.5 1.5 3 1.5 5"/>
+    </svg>
+  );
+}
+function IconBack() {
+  return (
+    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <line x1="19" y1="12" x2="5" y2="12"/>
+      <polyline points="12 19 5 12 12 5"/>
+    </svg>
+  );
+}
+function IconColorDrop() {
+  return (
+    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M12 3a9 9 0 1 0 0 18c1.4 0 2.2-.9 2.2-2 0-.6-.2-1-.5-1.4-.3-.4-.5-.8-.5-1.3 0-1 .8-1.8 1.8-1.8H17a4 4 0 0 0 4-4A9 9 0 0 0 12 3z"/>
+      <circle cx="7.5" cy="10.5" r="1" fill="currentColor" stroke="none"/>
+      <circle cx="10.5" cy="7" r="1" fill="currentColor" stroke="none"/>
+      <circle cx="15" cy="7.5" r="1" fill="currentColor" stroke="none"/>
+      <circle cx="17.5" cy="11" r="1" fill="currentColor" stroke="none"/>
+    </svg>
+  );
+}
 function IconText() {
   return (
     <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
@@ -125,7 +186,7 @@ function IconExport() {
 
 const SIDEBAR_ITEMS = [
   { id: 'CHARACTER',  Icon: IconCharacters,  label: 'Characters' },
-  { id: 'FACE',       Icon: IconFace,        label: 'Face' },
+  { id: 'HAIR',       Icon: IconHairstyle,   label: 'Hair' },
   { id: 'BACKGROUND', Icon: IconBackgrounds, label: 'Backgrounds' },
   { id: 'EXPRESSION', Icon: IconExpressions, label: 'Expressions' },
   { id: 'PROP',       Icon: IconProps,       label: 'Props' },
@@ -137,7 +198,25 @@ const SIDEBAR_ITEMS = [
   { id: 'AI',         Icon: IconAI,          label: 'AI Tools' },
 ];
 
-const ASSET_IDS = new Set(['CHARACTER', 'BACKGROUND', 'EXPRESSION', 'PROP', 'EFFECT', 'COSTUME', 'SOUND']);
+const ASSET_IDS = new Set(['BACKGROUND', 'EXPRESSION', 'PROP', 'EFFECT', 'COSTUME', 'SOUND']);
+
+// Customization menu shown when a placed CHARACTER is selected — see soft-mapping-honey plan
+const CHARACTER_DIMENSIONS = [
+  { id: 'face',       label: 'Face',       desc: 'Swap character face',       tagPrefix: 'face:',       Icon: IconFaceSwap },
+  { id: 'outfit',     label: 'Outfit',     desc: 'Change character outfit',   tagPrefix: 'outfit:',     Icon: IconOutfit },
+  { id: 'pose',       label: 'Pose',       desc: 'Change character pose',     tagPrefix: 'pose:',       Icon: IconPose },
+  { id: 'expression', label: 'Expression', desc: 'Change facial expression',  tagPrefix: 'expression:', Icon: IconExpressions },
+  { id: 'hairstyle',  label: 'Hairstyle',  desc: 'Change hairstyle',          tagPrefix: 'hairstyle:',  Icon: IconHairstyle },
+];
+// Skin Color is an exact pixel-color preset swap (not an overlay) — handled separately below.
+const CHARACTER_SKIN_TOOL = { id: 'skinColor', label: 'Skin Color', desc: 'Change skin color' };
+// Eye Color (iris) is a Character Preset-only exact-match swap, same idea as Skin Color —
+// not available for legacy CHARACTER placements.
+const CHARACTER_EYE_TOOL = { id: 'eyeColor', label: 'Eye Color', desc: 'Change eye lens color' };
+const CHARACTER_COLOR_TOOLS = [
+  { id: 'hairColor', label: 'Hair Color', desc: 'Change hair color', overlayKey: 'hairOverlay', defaultColor: '#3b2412' },
+];
+const BLEND_MODES = ['multiply', 'color', 'soft-light', 'overlay', 'hue', 'saturation', 'color-dodge', 'color-burn', 'hard-light', 'screen', 'luminosity', 'normal'];
 
 const EFFECT_SUBCATEGORIES = [
   {
@@ -276,7 +355,16 @@ export default function ComicEditor({ readOnly = false } = {}) {
   const [search, setSearch] = useState('');
   const [faceParts, setFaceParts] = useState([]);
   const [faceSection, setFaceSection] = useState('hairstyle');
+  const [dressParts, setDressParts] = useState([]);
+  const [dressPartTab, setDressPartTab] = useState('cloth');
+  // "Characters" landing picker: pick a CharacterPreset, then a BODY_POSE to place it on.
+  const [characterPresets, setCharacterPresets] = useState([]);
+  const [bodyPoses, setBodyPoses] = useState([]);
+  const [pendingPreset, setPendingPreset] = useState(null);
+  const [expressionTab, setExpressionTab] = useState('eye');
   const [faceAlignments, setFaceAlignments] = useState({});
+  const [characterMenu, setCharacterMenu] = useState(null);
+  const [characterVariants, setCharacterVariants] = useState([]);
   const [insertPickerAt, setInsertPickerAt] = useState(null);
   const [dragIdx, setDragIdx] = useState(null);
   const [dragOverIdx, setDragOverIdx] = useState(null);
@@ -397,17 +485,146 @@ export default function ComicEditor({ readOnly = false } = {}) {
   const activePanelIndex = state.activePanelIndex;
   const canvas = LAYOUT_CANVAS[activePage?.layout] || LAYOUT_CANVAS.single;
 
-  // Load the FACE_PART library once, when the Face tool is first opened
-  useEffect(() => {
-    if (activeSidebar === 'FACE' && faceParts.length === 0) {
-      getAssets({ category: 'FACE_PART' }).then(setFaceParts).catch(() => setFaceParts([]));
-    }
-  }, [activeSidebar, faceParts.length]);
-
   // Currently-selected FACE element in the panel (if any)
   const selectedFace = state.activeSelection?.kind === 'FACE'
     ? (state.panels[state.activeSelection.panelIndex]?.data?.faces || []).find((f) => f.instanceId === state.activeSelection.instanceId)
     : null;
+
+  // Currently-selected CHARACTER element in the panel (if any)
+  const selectedCharacter = state.activeSelection?.kind === 'CHARACTER'
+    ? (state.panels[state.activeSelection.panelIndex]?.data?.characters || []).find((c) => c.instanceId === state.activeSelection.instanceId)
+    : null;
+
+  // True when the selected character is a DressRig (has live-swappable parts)
+  const selectedDressCharacter = selectedCharacter?.dressMode ? selectedCharacter : null;
+
+  // Currently-selected CHARACTER_PRESET placement (if any) + the preset record it references
+  const selectedCharacterPreset = state.activeSelection?.kind === 'CHARACTER_PRESET'
+    ? (state.panels[state.activeSelection.panelIndex]?.data?.characterPresets || []).find((c) => c.instanceId === state.activeSelection.instanceId)
+    : null;
+  const selectedCharacterPresetBase = selectedCharacterPreset
+    ? characterPresets.find((p) => p.id === selectedCharacterPreset.presetId)
+    : null;
+
+  // Currently-active customization tool (Outfit/Pose/.../Skin Color/Hair Color)
+  const selectedCharacterTool = [...CHARACTER_DIMENSIONS, CHARACTER_SKIN_TOOL, CHARACTER_EYE_TOOL, ...CHARACTER_COLOR_TOOLS].find((t) => t.id === characterMenu) || null;
+
+  // Load the FACE_PART library once, when the Face/Hair tool or Hairstyle character menu is opened
+  useEffect(() => {
+    const needFaceParts = activeSidebar === 'FACE' || activeSidebar === 'HAIR' || (activeSidebar === 'CHARACTER' && (characterMenu === 'hairstyle' || characterMenu === 'expression' || characterMenu === 'face'));
+    if (needFaceParts && faceParts.length === 0) {
+      getAssets({ category: 'FACE_PART' }).then(setFaceParts).catch(() => setFaceParts([]));
+    }
+  }, [activeSidebar, characterMenu, faceParts.length]);
+
+  // Load DRESS_PART library when a DressRig character is selected
+  useEffect(() => {
+    if (selectedDressCharacter && dressParts.length === 0) {
+      getAssets({ category: 'DRESS_PART' }).then(setDressParts).catch(() => setDressParts([]));
+    }
+  }, [selectedDressCharacter?.instanceId, dressParts.length]);
+
+  // Load Character Presets + Body Poses for the "Characters" landing picker
+  useEffect(() => {
+    if (activeSidebar !== 'CHARACTER' || characterMenu) return;
+    if (characterPresets.length === 0) fetchCharacterPresets().then(setCharacterPresets).catch(() => setCharacterPresets([]));
+    if (bodyPoses.length === 0) getAssets({ category: 'BODY_POSE' }).then(setBodyPoses).catch(() => setBodyPoses([]));
+  }, [activeSidebar, characterMenu, characterPresets.length, bodyPoses.length]);
+
+  const handlePickBodyPose = (pose) => {
+    if (!pendingPreset) return;
+    const instanceId = crypto.randomUUID();
+    dispatch({ type: 'ADD_CHARACTER_PRESET_TO_PANEL', panelIndex: activePanelIndex, presetId: pendingPreset.id, bodyPoseId: pose.id, name: pendingPreset.name, instanceId });
+    dispatch({ type: 'SELECT_ITEM_IN_PANEL', kind: 'CHARACTER_PRESET', instanceId, panelIndex: activePanelIndex });
+    setPendingPreset(null);
+  };
+
+  const handleSetPresetSkinTone = (skinTone) => {
+    if (!selectedCharacterPreset) return;
+    dispatch({
+      type: 'UPDATE_CHARACTER_PRESET',
+      panelIndex: state.activeSelection.panelIndex,
+      instanceId: selectedCharacterPreset.instanceId,
+      updates: { skinTone },
+    });
+  };
+
+  const handleSetPresetHairColor = (hairColor) => {
+    if (!selectedCharacterPreset) return;
+    dispatch({
+      type: 'UPDATE_CHARACTER_PRESET',
+      panelIndex: state.activeSelection.panelIndex,
+      instanceId: selectedCharacterPreset.instanceId,
+      updates: { hairColor },
+    });
+  };
+
+  const handleSetPresetIrisColor = (irisColor) => {
+    if (!selectedCharacterPreset) return;
+    dispatch({
+      type: 'UPDATE_CHARACTER_PRESET',
+      panelIndex: state.activeSelection.panelIndex,
+      instanceId: selectedCharacterPreset.instanceId,
+      updates: { irisColor },
+    });
+  };
+
+
+  // Reset the character customization sub-menu when it's no longer relevant
+  useEffect(() => {
+    if (!selectedCharacter) setCharacterMenu(null);
+  }, [selectedCharacter?.instanceId]);
+
+  // Fetch variant assets for the active Outfit/Pose/Expression/Hairstyle picker
+  useEffect(() => {
+    const dim = CHARACTER_DIMENSIONS.find((d) => d.id === characterMenu);
+    if (!dim || !selectedCharacter) { setCharacterVariants([]); return; }
+    const familyTag = (selectedCharacter.tags || []).find((t) => t.startsWith('character:'));
+    getAssets({ category: 'CHARACTER', tags: familyTag || undefined })
+      .then((all) => setCharacterVariants(all.filter((a) => (a.tags || []).some((t) => t.startsWith(dim.tagPrefix)))))
+      .catch(() => setCharacterVariants([]));
+  }, [characterMenu, selectedCharacter?.instanceId, selectedCharacter?.tags]);
+
+  const handlePickCharacterVariant = (asset) => {
+    if (!selectedCharacter) return;
+    dispatch({
+      type: 'UPDATE_CHARACTER',
+      panelIndex: state.activeSelection.panelIndex,
+      instanceId: selectedCharacter.instanceId,
+      updates: { assetId: asset.id, filePath: asset.filePath, name: asset.name, tags: asset.tags || [] },
+    });
+  };
+
+  const handlePickSkinPreset = (presetId) => {
+    if (!selectedCharacter) return;
+    dispatch({
+      type: 'UPDATE_CHARACTER',
+      panelIndex: state.activeSelection.panelIndex,
+      instanceId: selectedCharacter.instanceId,
+      updates: { skinPreset: selectedCharacter.skinPreset === presetId ? null : presetId },
+    });
+  };
+
+  const updateCharacterOverlay = (overlayKey, defaultColor, patch) => {
+    if (!selectedCharacter) return;
+    const current = selectedCharacter[overlayKey] || { color: defaultColor, blendMode: 'multiply', opacity: 50 };
+    dispatch({
+      type: 'UPDATE_CHARACTER',
+      panelIndex: state.activeSelection.panelIndex,
+      instanceId: selectedCharacter.instanceId,
+      updates: { [overlayKey]: { ...current, ...patch } },
+    });
+  };
+
+  const removeCharacterOverlay = (overlayKey) => {
+    if (!selectedCharacter) return;
+    dispatch({
+      type: 'UPDATE_CHARACTER',
+      panelIndex: state.activeSelection.panelIndex,
+      instanceId: selectedCharacter.instanceId,
+      updates: { [overlayKey]: null },
+    });
+  };
 
   // Opacity helpers — read from selected item or background
   const getSelOpacity = () => {
@@ -476,7 +693,11 @@ export default function ComicEditor({ readOnly = false } = {}) {
 
   const handleAssetSelect = (asset) => {
     if (activeSidebar === 'CHARACTER') {
-      dispatch({ type: 'ADD_CHARACTER_TO_PANEL', panelIndex: activePanelIndex, asset });
+      if (asset.category === 'DRESS' && asset.layoutPath) {
+        dispatch({ type: 'ADD_DRESS_TO_PANEL', panelIndex: activePanelIndex, asset });
+      } else {
+        dispatch({ type: 'ADD_CHARACTER_TO_PANEL', panelIndex: activePanelIndex, asset });
+      }
     } else if (activeSidebar === 'FACE') {
       handleFaceAssetSelect(asset);
     } else if (activeSidebar === 'BACKGROUND') {
@@ -490,32 +711,11 @@ export default function ComicEditor({ readOnly = false } = {}) {
 
   // Add a Face preset: parse its assembled layout into a face-shape + 4 swappable parts
   const handleFaceAssetSelect = async (asset) => {
-    let faceShape = null;
-    const parts = {};
+    let layout = null;
     if (asset.layoutPath) {
-      try {
-        const layout = await fetch(asset.layoutPath).then((r) => r.json());
-        for (const part of layout) {
-          const cls = classifyFacePart(part.customName || part.name);
-          if (!cls) continue;
-          const entry = {
-            assetId: part.assetId, filePath: part.filePath,
-            x: part.x, y: part.y, w: part.w, h: part.h,
-            rotation: part.rotation || 0, flipX: !!part.flipX, flipY: !!part.flipY,
-            ...(part.skinOverlay ? { skinOverlay: part.skinOverlay } : {}),
-          };
-          if (cls === 'faceShape') faceShape = entry;
-          else parts[cls] = entry;
-        }
-      } catch { /* fall back below */ }
+      try { layout = await fetch(asset.layoutPath).then((r) => r.json()); } catch { /* fall back below */ }
     }
-    if (!faceShape) {
-      faceShape = {
-        assetId: asset.id, filePath: asset.filePath,
-        x: 0, y: 0, w: FACE_CANVAS_W, h: FACE_CANVAS_H,
-        rotation: 0, flipX: false, flipY: false,
-      };
-    }
+    const { faceShape, parts } = buildFaceFromLayout(layout, asset);
     const instanceId = genId();
     dispatch({ type: 'ADD_FACE_TO_PANEL', panelIndex: activePanelIndex, asset, faceShape, parts, instanceId });
     dispatch({ type: 'SELECT_ITEM_IN_PANEL', kind: 'FACE', instanceId, panelIndex: activePanelIndex });
@@ -544,6 +744,39 @@ export default function ComicEditor({ readOnly = false } = {}) {
     dispatch({ type: 'SET_FACE_PART', panelIndex: state.activeSelection.panelIndex, instanceId: selectedFace.instanceId, partType, part });
   };
 
+  // Swap a cloth/neck/hands/hairstyle part on the selected DressRig character.
+  const handleSwapDressPart = (partType, asset) => {
+    if (!selectedDressCharacter) return;
+    dispatch({
+      type: 'SET_DRESS_PART',
+      panelIndex: state.activeSelection.panelIndex,
+      instanceId: selectedDressCharacter.instanceId,
+      partType,
+      part: { assetId: asset.id, filePath: asset.filePath, name: asset.name },
+    });
+  };
+
+  // Swap hairstyle on the selected face using saved (face, hair) alignment metadata.
+  const handleSwapHairstyle = async (asset) => {
+    if (!selectedFace) return;
+    let aligns = faceAlignments[selectedFace.faceAssetId];
+    if (!aligns) {
+      try { aligns = await getFacePartAlignmentsPublic(selectedFace.faceAssetId); } catch { aligns = []; }
+      setFaceAlignments((prev) => ({ ...prev, [selectedFace.faceAssetId]: aligns }));
+    }
+    const match = aligns.find((a) => a.partType === 'hairstyle' && a.partAssetId === asset.id);
+    const current = selectedFace.parts?.hairstyle;
+    let part;
+    if (match) {
+      part = { assetId: asset.id, filePath: asset.filePath, x: match.x, y: match.y, w: match.w, h: match.h, rotation: match.rotation, flipX: match.flipX, flipY: match.flipY };
+    } else if (current) {
+      part = { ...current, assetId: asset.id, filePath: asset.filePath };
+    } else {
+      part = defaultPartOverlay(asset.id, asset.filePath);
+    }
+    dispatch({ type: 'SET_FACE_PART', panelIndex: state.activeSelection.panelIndex, instanceId: selectedFace.instanceId, partType: 'hairstyle', part });
+  };
+
   const activeItem = SIDEBAR_ITEMS.find((i) => i.id === activeSidebar);
   const effectSubMeta = EFFECT_SUBCATEGORIES.find((s) => s.id === effectSub);
 
@@ -552,21 +785,52 @@ export default function ComicEditor({ readOnly = false } = {}) {
 
       {/* ── Far-left icon bar ── */}
       <aside style={styles.iconBar}>
-        {SIDEBAR_ITEMS.map((item) => (
-          <button
-            key={item.id}
-            style={{
-              ...styles.iconBtn,
-              ...(activeSidebar === item.id ? styles.iconBtnActive : {}),
-              ...(readOnly ? { opacity: 0.35, cursor: 'not-allowed' } : {}),
-            }}
-            onClick={readOnly ? undefined : () => toggleSidebar(item.id)}
-            title={readOnly ? 'Editing disabled — subscription expired' : item.label}
-          >
-            <item.Icon />
-            <span style={styles.iconLabel}>{item.label}</span>
-          </button>
-        ))}
+        {activeSidebar === 'CHARACTER' ? (
+          <>
+            <button
+              style={{ ...styles.iconBtn, ...(readOnly ? { opacity: 0.35, cursor: 'not-allowed' } : {}) }}
+              onClick={readOnly ? undefined : () => { setActiveSidebar(null); setCharacterMenu(null); }}
+              title={readOnly ? 'Editing disabled — subscription expired' : 'Back'}
+            >
+              <IconBack />
+              <span style={styles.iconLabel}>Back</span>
+            </button>
+            {[...CHARACTER_DIMENSIONS, CHARACTER_SKIN_TOOL, CHARACTER_EYE_TOOL, ...CHARACTER_COLOR_TOOLS].map((item) => {
+              const Icon = item.Icon || IconColorDrop;
+              return (
+                <button
+                  key={item.id}
+                  style={{
+                    ...styles.iconBtn,
+                    ...(characterMenu === item.id ? styles.iconBtnActive : {}),
+                    ...(readOnly ? { opacity: 0.35, cursor: 'not-allowed' } : {}),
+                  }}
+                  onClick={readOnly ? undefined : () => setCharacterMenu((prev) => (prev === item.id ? null : item.id))}
+                  title={readOnly ? 'Editing disabled — subscription expired' : item.label}
+                >
+                  <Icon />
+                  <span style={styles.iconLabel}>{item.label}</span>
+                </button>
+              );
+            })}
+          </>
+        ) : (
+          SIDEBAR_ITEMS.map((item) => (
+            <button
+              key={item.id}
+              style={{
+                ...styles.iconBtn,
+                ...(activeSidebar === item.id ? styles.iconBtnActive : {}),
+                ...(readOnly ? { opacity: 0.35, cursor: 'not-allowed' } : {}),
+              }}
+              onClick={readOnly ? undefined : () => toggleSidebar(item.id)}
+              title={readOnly ? 'Editing disabled — subscription expired' : item.label}
+            >
+              <item.Icon />
+              <span style={styles.iconLabel}>{item.label}</span>
+            </button>
+          ))
+        )}
 
         <div style={{ flex: 1 }} />
         <div style={styles.themeToggleWrap}>
@@ -589,11 +853,13 @@ export default function ComicEditor({ readOnly = false } = {}) {
           {/* Header: title + filter icon */}
           <div style={styles.expandHeader}>
             <span style={styles.expandTitle}>
-              {activeSidebar === 'EFFECT' && effectSub
-                ? EFFECT_SUBCATEGORIES.find((s) => s.id === effectSub)?.label
-                : activeSidebar === 'BACKGROUND' && bgSub
-                  ? BG_SUBCATEGORIES.find((s) => s.id === bgSub)?.label
-                  : activeItem?.label}
+              {activeSidebar === 'CHARACTER' && selectedCharacterTool
+                ? selectedCharacterTool.label
+                : activeSidebar === 'EFFECT' && effectSub
+                  ? EFFECT_SUBCATEGORIES.find((s) => s.id === effectSub)?.label
+                  : activeSidebar === 'BACKGROUND' && bgSub
+                    ? BG_SUBCATEGORIES.find((s) => s.id === bgSub)?.label
+                    : activeItem?.label}
             </span>
             {activeSidebar === 'BUBBLE' ? (
               <button style={styles.headerFilterBtn} title="Back" onClick={handleSidebarBack}>
@@ -644,6 +910,325 @@ export default function ComicEditor({ readOnly = false } = {}) {
                   </div>
                 )}
               </>
+            )}
+            {activeSidebar === 'HAIR' && (
+              <>
+                {!selectedFace ? (
+                  <p style={styles.overlayHint}>Select a face in the panel first, then pick a hairstyle to swap.</p>
+                ) : (
+                  <>
+                    <p style={{ ...styles.overlayHint, marginBottom: 8 }}>Swapping hair on "{selectedFace.name}"</p>
+                    <div style={styles.faceLibGrid}>
+                      {faceParts.filter((a) => matchesFaceSection(a, 'hairstyle')).map((asset) => (
+                        <button key={asset.id} title={asset.name} onClick={() => handleSwapHairstyle(asset)} style={styles.faceLibThumb}>
+                          <img src={asset.filePath} alt={asset.name} draggable={false} style={{ width: '100%', height: '100%', objectFit: 'contain', display: 'block' }} />
+                        </button>
+                      ))}
+                      {faceParts.filter((a) => matchesFaceSection(a, 'hairstyle')).length === 0 && (
+                        <p style={styles.overlayHint}>No hairstyles uploaded yet. Upload FACE_PART assets with type "Hairstyle" in the admin panel.</p>
+                      )}
+                    </div>
+                  </>
+                )}
+              </>
+            )}
+            {activeSidebar === 'CHARACTER' && (
+              !characterMenu ? (
+                <>
+                  <div style={styles.searchRow}>
+                    <div style={styles.searchInputWrap}>
+                      <input
+                        style={styles.searchInput}
+                        placeholder="Search characters…"
+                        value={search}
+                        onChange={(e) => setSearch(e.target.value)}
+                      />
+                      <span style={styles.searchIcon}>
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                          strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                          <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+                        </svg>
+                      </span>
+                    </div>
+                  </div>
+                  {selectedDressCharacter ? (
+                    <>
+                      <p style={{ ...styles.overlayHint, marginBottom: 8 }}>Swap parts on "{selectedDressCharacter.name}"</p>
+                      <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginBottom: 8 }}>
+                        {['cloth', 'neck', 'hands', 'hairstyle'].map((tab) => (
+                          <button key={tab} onClick={() => setDressPartTab(tab)}
+                            className={`btn btn-sm ${dressPartTab === tab ? 'btn-primary' : 'btn-outline'}`}
+                            style={{ textTransform: 'capitalize' }}>
+                            {tab}
+                          </button>
+                        ))}
+                      </div>
+                      <div style={styles.faceLibGrid}>
+                        {(dressPartTab === 'hairstyle'
+                          ? faceParts.filter((a) => matchesFaceSection(a, 'hairstyle'))
+                          : dressParts.filter((a) => (a.tags || []).includes(dressPartTab))
+                        ).map((asset) => (
+                          <button key={asset.id} title={asset.name}
+                            onClick={() => dressPartTab === 'hairstyle' ? handleSwapDressPart('hairstyle', asset) : handleSwapDressPart(dressPartTab, asset)}
+                            style={styles.faceLibThumb}>
+                            <img src={asset.filePath} alt={asset.name} draggable={false}
+                              style={{ width: '100%', height: '100%', objectFit: 'contain', display: 'block' }} />
+                          </button>
+                        ))}
+                      </div>
+                      <div style={{ borderTop: '1px solid var(--t-border)', margin: '12px 0 8px' }} />
+                    </>
+                  ) : null}
+                  {!pendingPreset ? (
+                    <>
+                      <p style={{ ...styles.overlayHint, marginBottom: 4 }}>Characters</p>
+                      <div style={styles.faceLibGrid}>
+                        {characterPresets
+                          .filter((p) => !search || p.name.toLowerCase().includes(search.toLowerCase()))
+                          .map((preset) => (
+                            <button key={preset.id} title={preset.name} onClick={() => setPendingPreset(preset)} style={styles.faceLibThumb}>
+                              <span style={{ fontSize: 12, fontWeight: 600, textAlign: 'center', padding: 4 }}>{preset.name}</span>
+                            </button>
+                          ))}
+                      </div>
+                      {characterPresets.length === 0 && (
+                        <p style={styles.overlayHint}>No Character Presets yet — create one in Admin → Character Presets.</p>
+                      )}
+                    </>
+                  ) : (
+                    <>
+                      <button className="btn btn-sm btn-outline" onClick={() => setPendingPreset(null)} style={{ marginBottom: 8 }}>← Back</button>
+                      <p style={{ ...styles.overlayHint, marginTop: 0 }}>Pick a pose for "{pendingPreset.name}"</p>
+                      <div style={styles.faceLibGrid}>
+                        {bodyPoses.map((pose) => (
+                          <button key={pose.id} title={pose.name} onClick={() => handlePickBodyPose(pose)} style={styles.faceLibThumb}>
+                            <img src={pose.filePath} alt={pose.name} draggable={false}
+                              style={{ width: '100%', height: '100%', objectFit: 'contain', display: 'block' }} />
+                          </button>
+                        ))}
+                      </div>
+                      {bodyPoses.length === 0 && (
+                        <p style={styles.overlayHint}>No Body Poses uploaded yet — add one in Admin → Upload Asset.</p>
+                      )}
+                    </>
+                  )}
+                </>
+              ) : selectedCharacterPreset ? (
+                characterMenu === 'skinColor' ? (
+                  <>
+                    <p style={{ ...styles.overlayHint, marginTop: 0 }}>Tap a tone to apply it to "{selectedCharacterPreset.name}".</p>
+                    <div style={styles.lightingList}>
+                      {Object.values(SKIN_PRESETS).map((sp) => {
+                        const active = (selectedCharacterPreset.skinTone || selectedCharacterPresetBase?.skinTone) === sp.id;
+                        return (
+                          <button key={sp.id}
+                            style={{ ...styles.lightingRow, ...(active ? styles.lightingRowActive : {}) }}
+                            onClick={() => handleSetPresetSkinTone(sp.id)}
+                          >
+                            <span style={{ ...styles.lightingSwatch, background: sp.base }} />
+                            <span style={styles.lightingRowLabel}>{sp.label}</span>
+                            {active && <span style={styles.overlayActiveTag}>Applied</span>}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </>
+                ) : characterMenu === 'hairColor' ? (() => {
+                  const defaultColor = selectedCharacterPresetBase?.hairColor || '#3b2412';
+                  return (
+                    <>
+                      <p style={{ ...styles.overlayHint, marginTop: 0 }}>Change hair color on "{selectedCharacterPreset.name}".</p>
+                      <label style={styles.overlayFieldLabel}>
+                        Color
+                        <input type="color" value={selectedCharacterPreset.hairColor || defaultColor}
+                          onChange={(e) => handleSetPresetHairColor(e.target.value)}
+                          style={styles.colorInput} />
+                      </label>
+                    </>
+                  );
+                })() : characterMenu === 'eyeColor' ? (() => {
+                  const defaultColor = selectedCharacterPresetBase?.irisColor || '#3b2a1f';
+                  return (
+                    <>
+                      <p style={{ ...styles.overlayHint, marginTop: 0 }}>Change eye lens color on "{selectedCharacterPreset.name}".</p>
+                      <label style={styles.overlayFieldLabel}>
+                        Color
+                        <input type="color" value={selectedCharacterPreset.irisColor || defaultColor}
+                          onChange={(e) => handleSetPresetIrisColor(e.target.value)}
+                          style={styles.colorInput} />
+                      </label>
+                    </>
+                  );
+                })() : (
+                  <p style={styles.overlayHint}>Select "Skin Color", "Hair Color", or "Eye Color" to customize "{selectedCharacterPreset.name}". Other tools aren't available for Character Presets yet.</p>
+                )
+              ) : !selectedCharacter ? (
+                <p style={styles.overlayHint}>Select a character in the panel first to use "{selectedCharacterTool?.label}".</p>
+              ) : characterMenu === 'skinColor' ? (
+                <>
+                  <p style={{ ...styles.overlayHint, marginTop: 0 }}>Tap a tone to apply it. Tap again to reset.</p>
+                  <div style={styles.lightingList}>
+                    {Object.values(SKIN_PRESETS).map((preset) => {
+                      const active = selectedCharacter.skinPreset === preset.id;
+                      return (
+                        <button
+                          key={preset.id}
+                          style={{ ...styles.lightingRow, ...(active ? styles.lightingRowActive : {}) }}
+                          onClick={() => handlePickSkinPreset(preset.id)}
+                        >
+                          <span style={{ ...styles.lightingSwatch, background: preset.base }} />
+                          <span style={styles.lightingRowLabel}>{preset.label}</span>
+                          {active && <span style={styles.overlayActiveTag}>Applied</span>}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </>
+              ) : characterMenu === 'eyeColor' ? (
+                <p style={styles.overlayHint}>Eye Color isn't available for classic Characters yet — only Character Presets.</p>
+              ) : CHARACTER_COLOR_TOOLS.some((t) => t.id === characterMenu) ? (() => {
+                const tool = CHARACTER_COLOR_TOOLS.find((t) => t.id === characterMenu);
+                const overlay = selectedCharacter[tool.overlayKey];
+                return (
+                  <>
+                    <p style={{ ...styles.overlayHint, marginTop: 0 }}>{tool.desc}</p>
+                    <label style={styles.overlayFieldLabel}>
+                      Color
+                      <input type="color" value={overlay?.color || tool.defaultColor}
+                        onChange={(e) => updateCharacterOverlay(tool.overlayKey, tool.defaultColor, { color: e.target.value })}
+                        style={styles.colorInput} />
+                    </label>
+                    <label style={styles.overlayFieldLabel}>
+                      Blend Mode
+                      <select value={overlay?.blendMode || 'multiply'}
+                        onChange={(e) => updateCharacterOverlay(tool.overlayKey, tool.defaultColor, { blendMode: e.target.value })}
+                        style={styles.selectInput}>
+                        {BLEND_MODES.map((m) => <option key={m} value={m}>{m}</option>)}
+                      </select>
+                    </label>
+                    <label style={styles.overlayFieldLabel}>
+                      Opacity: {overlay?.opacity ?? 50}%
+                      <input type="range" min={0} max={100} value={overlay?.opacity ?? 50}
+                        onChange={(e) => updateCharacterOverlay(tool.overlayKey, tool.defaultColor, { opacity: Number(e.target.value) })}
+                        style={{ width: '100%' }} />
+                    </label>
+                    {overlay && (
+                      <button style={styles.removeOverlayBtn} onClick={() => removeCharacterOverlay(tool.overlayKey)}>
+                        Remove {tool.label}
+                      </button>
+                    )}
+                  </>
+                );
+              })() : (() => {
+                const dim = CHARACTER_DIMENSIONS.find((d) => d.id === characterMenu);
+                if (dim.id === 'hairstyle') {
+                  const hairstyles = faceParts.filter((a) => matchesFaceSection(a, 'hairstyle'));
+                  const canSwap = !!selectedDressCharacter || !!selectedFace;
+                  const swapLabel = selectedDressCharacter
+                    ? `Swapping hair on "${selectedDressCharacter.name}"`
+                    : selectedFace
+                    ? `Swapping hair on "${selectedFace.name}"`
+                    : 'Select a placed face or costume in the panel to swap hairstyle.';
+                  return (
+                    <>
+                      <p style={{ ...styles.overlayHint, marginTop: 0 }}>{swapLabel}</p>
+                      <div style={styles.faceLibGrid}>
+                        {hairstyles.map((asset) => (
+                          <button key={asset.id} title={asset.name}
+                            onClick={() => selectedDressCharacter ? handleSwapDressPart('hairstyle', asset) : handleSwapHairstyle(asset)}
+                            style={{ ...styles.faceLibThumb, opacity: canSwap ? 1 : 0.4, cursor: canSwap ? 'pointer' : 'not-allowed' }}>
+                            <img src={asset.filePath} alt={asset.name} draggable={false} style={{ width: '100%', height: '100%', objectFit: 'contain', display: 'block' }} />
+                          </button>
+                        ))}
+                        {hairstyles.length === 0 && (
+                          <p style={styles.overlayHint}>No hairstyles found. Upload FACE_PART assets with type "Hairstyle" in the admin panel.</p>
+                        )}
+                      </div>
+                    </>
+                  );
+                }
+                if (dim.id === 'face' && selectedDressCharacter) {
+                  const faceShapes = faceParts.filter((a) =>
+                    classifyFacePart(a.name) === 'faceShape'
+                    || (a.tags || []).some((t) => t === 'face' || t === 'faceShape')
+                    || (a.partType || '').toLowerCase().includes('face')
+                  );
+                  return (
+                    <>
+                      <p style={{ ...styles.overlayHint, marginTop: 0 }}>Swapping face shape on "{selectedDressCharacter.name}"</p>
+                      <div style={styles.faceLibGrid}>
+                        {faceShapes.map((asset) => (
+                          <button key={asset.id} title={asset.name}
+                            onClick={() => handleSwapDressPart('faceShape', asset)}
+                            style={styles.faceLibThumb}>
+                            <img src={asset.filePath} alt={asset.name} draggable={false}
+                              style={{ width: '100%', height: '100%', objectFit: 'contain', display: 'block' }} />
+                          </button>
+                        ))}
+                        {faceShapes.length === 0 && (
+                          <p style={styles.overlayHint}>
+                            No face shapes found. Upload FACE_PART assets with "face" in the name (e.g. "taper_face", "oval_face").
+                          </p>
+                        )}
+                      </div>
+                    </>
+                  );
+                }
+                if (dim.id === 'expression' && selectedDressCharacter) {
+                  const EXPR_TABS = [
+                    { id: 'eye', label: 'Eyes' },
+                    { id: 'nose', label: 'Nose' },
+                    { id: 'mouth', label: 'Mouth' },
+                  ];
+                  const exprParts = faceParts.filter((a) => matchesFaceSection(a, expressionTab));
+                  return (
+                    <>
+                      <p style={{ ...styles.overlayHint, marginTop: 0 }}>Swapping expression on "{selectedDressCharacter.name}"</p>
+                      <div style={{ display: 'flex', gap: 4, marginBottom: 8 }}>
+                        {EXPR_TABS.map((t) => (
+                          <button key={t.id} onClick={() => setExpressionTab(t.id)}
+                            className={`btn btn-sm ${expressionTab === t.id ? 'btn-primary' : 'btn-outline'}`}>
+                            {t.label}
+                          </button>
+                        ))}
+                      </div>
+                      <div style={styles.faceLibGrid}>
+                        {exprParts.map((asset) => (
+                          <button key={asset.id} title={asset.name}
+                            onClick={() => handleSwapDressPart(expressionTab, asset)}
+                            style={styles.faceLibThumb}>
+                            <img src={asset.filePath} alt={asset.name} draggable={false}
+                              style={{ width: '100%', height: '100%', objectFit: 'contain', display: 'block' }} />
+                          </button>
+                        ))}
+                        {exprParts.length === 0 && (
+                          <p style={styles.overlayHint}>
+                            No {EXPR_TABS.find((t) => t.id === expressionTab)?.label.toLowerCase()} parts uploaded yet.
+                            Upload FACE_PART assets with "{expressionTab}" in the name or tags.
+                          </p>
+                        )}
+                      </div>
+                    </>
+                  );
+                }
+                return (
+                  <>
+                    <p style={{ ...styles.overlayHint, marginTop: 0 }}>{dim.desc}</p>
+                    <div style={styles.faceLibGrid}>
+                      {characterVariants.map((asset) => (
+                        <button key={asset.id} title={asset.name} onClick={() => handlePickCharacterVariant(asset)} style={styles.faceLibThumb}>
+                          <img src={asset.filePath} alt={asset.name} draggable={false} style={{ width: '100%', height: '100%', objectFit: 'contain', display: 'block' }} />
+                        </button>
+                      ))}
+                      {characterVariants.length === 0 && (
+                        <p style={styles.overlayHint}>
+                          No {dim.label.toLowerCase()} options found. Tag CHARACTER assets with "{dim.tagPrefix}…" to add options here.
+                        </p>
+                      )}
+                    </div>
+                  </>
+                );
+              })()
             )}
             {activeSidebar === 'BACKGROUND' && !bgSub && (
               <div style={styles.addPickerGrid}>
@@ -913,6 +1498,7 @@ export default function ComicEditor({ readOnly = false } = {}) {
                 onClick={() => {
                   const { kind, instanceId, panelIndex: pi } = state.activeSelection;
                   if (kind === 'CHARACTER') dispatch({ type: 'REMOVE_CHARACTER', panelIndex: pi, instanceId });
+                  else if (kind === 'CHARACTER_PRESET') dispatch({ type: 'REMOVE_CHARACTER_PRESET', panelIndex: pi, instanceId });
                   else if (kind === 'BUBBLE') dispatch({ type: 'REMOVE_BUBBLE', panelIndex: pi, instanceId });
                   else if (kind === 'PLACED_BUBBLE') dispatch({ type: 'REMOVE_PANEL_BUBBLE', panelIndex: pi, instanceId });
                   else dispatch({ type: 'REMOVE_PLACED_ITEM', panelIndex: pi, instanceId, kind: kind.toLowerCase() + 's' });
@@ -1581,6 +2167,18 @@ const styles = {
   },
   lightingRowLabel: { fontSize: 12.5, color: 'var(--t-text)', fontWeight: 500, letterSpacing: 0.1, flex: 1 },
   overlayHint: { fontSize: 11, color: 'var(--t-text-muted)', lineHeight: 1.5, padding: '0 2px' },
+  overlayFieldLabel: {
+    display: 'flex', flexDirection: 'column', gap: 4, fontSize: 12, fontWeight: 600, color: 'var(--t-text)',
+  },
+  colorInput: { width: '100%', height: 32, border: '1px solid var(--t-border)', borderRadius: 8, padding: 2, cursor: 'pointer' },
+  selectInput: {
+    width: '100%', padding: '6px 8px', borderRadius: 8, border: '1px solid var(--t-border)',
+    background: 'var(--t-bg3)', color: 'var(--t-text)', fontSize: 12,
+  },
+  removeOverlayBtn: {
+    background: 'rgba(239,68,68,0.1)', color: '#ef4444', border: '1px solid rgba(239,68,68,0.3)',
+    borderRadius: 8, padding: '8px 12px', fontSize: 12, fontWeight: 600, cursor: 'pointer',
+  },
   faceLibGrid: { display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 6 },
   faceLibThumb: {
     background: 'var(--t-bg3)', border: '1px solid var(--t-border)', borderRadius: 8,

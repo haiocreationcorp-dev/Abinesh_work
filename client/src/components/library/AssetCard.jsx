@@ -68,7 +68,7 @@ function PreviewModal({ asset, fileSize, onClose }) {
 }
 
 export default function AssetCard({ asset, category, onSelect, onDelete, isSelected, onToggleSelect }) {
-  const thumb = asset.thumbnailPath || asset.filePath;
+  const thumb = (asset.thumbnailPath || asset.filePath) + (asset.updatedAt ? `?v=${new Date(asset.updatedAt).getTime()}` : '');
   const isSelectable = !!onSelect;
   const { startDrag, moveOverlay, endDrag } = useDrag();
   const [trim, setTrim] = useState(null);

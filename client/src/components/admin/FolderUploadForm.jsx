@@ -1,30 +1,33 @@
 import { useState, useRef } from 'react';
 import { uploadFolder } from '../../api/assets.js';
 import { CATEGORY_IDS as CATEGORIES, BG_SUBCATEGORIES } from '../../constants/categories.js';
+import SkinMaskTuner from './SkinMaskTuner.jsx';
+import { DEFAULT_SKIN_THRESHOLDS } from '../../utils/skinMaskPreview.js';
 
 const ALLOWED_EXTS = ['.svg', '.png', '.jpg', '.jpeg', '.gif', '.webp', '.mp3', '.wav', '.ogg', '.m4a'];
+const SKIN_NORMALIZABLE_CATEGORIES = ['FACE_PART', 'BODY_POSE'];
 
 const FOLDER_CATEGORY_MAP = {
-  // CHARACTER
-  character: 'CHARACTER', characters: 'CHARACTER', char: 'CHARACTER', chars: 'CHARACTER',
-  hero: 'CHARACTER', heroes: 'CHARACTER', villain: 'CHARACTER', villains: 'CHARACTER',
-  people: 'CHARACTER', person: 'CHARACTER', npc: 'CHARACTER', npcs: 'CHARACTER',
+  // FACE_PART
+  face_part: 'FACE_PART', face_parts: 'FACE_PART', faceparts: 'FACE_PART',
+  hair: 'FACE_PART', hairstyle: 'FACE_PART', hairstyles: 'FACE_PART',
+  eye: 'FACE_PART', eyes: 'FACE_PART', mouth: 'FACE_PART', mouths: 'FACE_PART',
+  faceshape: 'FACE_PART', 'face-shape': 'FACE_PART', nose: 'FACE_PART',
+  // FACE_TEMPLATE
+  face: 'FACE_TEMPLATE', faces: 'FACE_TEMPLATE', face_template: 'FACE_TEMPLATE', face_templates: 'FACE_TEMPLATE',
+  // BODY_POSE
+  pose: 'BODY_POSE', poses: 'BODY_POSE', body_pose: 'BODY_POSE', body_poses: 'BODY_POSE',
+  costume: 'BODY_POSE', costumes: 'BODY_POSE', outfit: 'BODY_POSE', outfits: 'BODY_POSE',
   // BACKGROUND
   background: 'BACKGROUND', backgrounds: 'BACKGROUND', bg: 'BACKGROUND', bgs: 'BACKGROUND',
   scene: 'BACKGROUND', scenes: 'BACKGROUND', location: 'BACKGROUND', locations: 'BACKGROUND',
   environment: 'BACKGROUND', environments: 'BACKGROUND', backdrop: 'BACKGROUND', backdrops: 'BACKGROUND',
-  // EXPRESSION
-  expression: 'EXPRESSION', expressions: 'EXPRESSION', face: 'EXPRESSION', faces: 'EXPRESSION',
-  emotion: 'EXPRESSION', emotions: 'EXPRESSION', emote: 'EXPRESSION', emotes: 'EXPRESSION',
   // PROP
   prop: 'PROP', props: 'PROP', object: 'PROP', objects: 'PROP',
   item: 'PROP', items: 'PROP', asset: 'PROP', assets: 'PROP',
   // EFFECT
   effect: 'EFFECT', effects: 'EFFECT', fx: 'EFFECT', vfx: 'EFFECT',
   particle: 'EFFECT', particles: 'EFFECT', special: 'EFFECT',
-  // COSTUME
-  costume: 'COSTUME', costumes: 'COSTUME', outfit: 'COSTUME', outfits: 'COSTUME',
-  clothing: 'COSTUME', clothes: 'COSTUME', wear: 'COSTUME', attire: 'COSTUME',
   // SOUND
   sound: 'SOUND', sounds: 'SOUND', sfx: 'SOUND', audio: 'SOUND',
   'sound effects': 'SOUND', music: 'SOUND', onomatopoeia: 'SOUND',
@@ -42,9 +45,11 @@ export default function FolderUploadForm() {
   const [skippedCount, setSkippedCount] = useState(0);
   const [skippedNames, setSkippedNames] = useState([]);
   const [folderName, setFolderName] = useState('');
-  const [category, setCategory] = useState('CHARACTER');
+  const [category, setCategory] = useState('FACE_PART');
   const [bgSubcategory, setBgSubcategory] = useState('');
   const [removeWhiteBg, setRemoveWhiteBg] = useState(false);
+  const [normalizeSkin, setNormalizeSkin] = useState(false);
+  const [skinThresholds, setSkinThresholds] = useState(DEFAULT_SKIN_THRESHOLDS);
   const [autoDetected, setAutoDetected] = useState(false);
   const [progress, setProgress] = useState(null);
   const [result, setResult] = useState(null);
@@ -94,6 +99,10 @@ export default function FolderUploadForm() {
     fd.append('folderName', folderName);
     if (category === 'BACKGROUND' && bgSubcategory) fd.append('tags', bgSubcategory);
     if (removeWhiteBg) fd.append('removeWhiteBg', 'true');
+    if (normalizeSkin) {
+      fd.append('normalizeSkin', 'true');
+      fd.append('skinThresholds', JSON.stringify(skinThresholds));
+    }
     files.forEach((f) => fd.append('files', f));
 
     try {
@@ -113,9 +122,11 @@ export default function FolderUploadForm() {
     setSkippedCount(0);
     setSkippedNames([]);
     setFolderName('');
-    setCategory('CHARACTER');
+    setCategory('FACE_PART');
     setBgSubcategory('');
     setRemoveWhiteBg(false);
+    setNormalizeSkin(false);
+    setSkinThresholds(DEFAULT_SKIN_THRESHOLDS);
     setAutoDetected(false);
     setProgress(null);
     setResult(null);
@@ -125,7 +136,7 @@ export default function FolderUploadForm() {
 
   const assetPreviewName = (fileName) => {
     const name = prettify(fileName);
-    return category === 'CHARACTER' && folderName ? `${prettify(folderName)} ${name}` : name;
+    return category === 'BODY_POSE' && folderName ? `${prettify(folderName)} ${name}` : name;
   };
 
   return (
@@ -133,7 +144,7 @@ export default function FolderUploadForm() {
       <h3 style={s.heading}>Folder Upload</h3>
       <p style={s.sub}>
         Select a folder to upload assets in bulk. The <strong>folder name</strong> sets the category automatically.
-        For characters, the <strong>folder name is prefixed to each asset name</strong> so poses are searchable.
+        For body poses, the <strong>folder name is prefixed to each asset name</strong> so they're searchable.
         Re-uploading updates existing assets and adds new ones — no duplicates.
       </p>
 
@@ -175,8 +186,8 @@ export default function FolderUploadForm() {
         </div>
       )}
 
-      {/* Remove white background — character uploads only */}
-      {category === 'CHARACTER' && (
+      {/* Remove white background — face-part / body-pose uploads only */}
+      {SKIN_NORMALIZABLE_CATEGORIES.includes(category) && (
         <div className="form-group">
           <label style={s.checkboxLabel}>
             <input
@@ -189,8 +200,35 @@ export default function FolderUploadForm() {
           </label>
           {removeWhiteBg && (
             <p style={s.checkboxHint}>
-              White/near-white pixels connected to each image's edges will be made transparent. White areas inside characters are preserved. Output as WebP.
+              White/near-white pixels connected to each image's edges will be made transparent. White areas inside are preserved. Output as WebP.
             </p>
+          )}
+        </div>
+      )}
+
+      {/* Normalize skin tones — face-part / body-pose uploads */}
+      {SKIN_NORMALIZABLE_CATEGORIES.includes(category) && (
+        <div className="form-group">
+          <label style={s.checkboxLabel}>
+            <input
+              type="checkbox"
+              checked={normalizeSkin}
+              onChange={(e) => setNormalizeSkin(e.target.checked)}
+              style={{ marginRight: 8 }}
+            />
+            Normalize skin tones for all files
+          </label>
+          {normalizeSkin && (
+            <>
+              <p style={s.checkboxHint}>
+                Detected skin-toned pixels are quantized down to 3 flat reference tones so the
+                Comic UI's Skin Color tool can recolor them. Required for gradient/anti-aliased art.
+                The same thresholds, tuned below against the first file, apply to the whole batch.
+              </p>
+              {files.length > 0 && (
+                <SkinMaskTuner file={files[0]} thresholds={skinThresholds} onChange={setSkinThresholds} />
+              )}
+            </>
           )}
         </div>
       )}
@@ -308,7 +346,7 @@ export default function FolderUploadForm() {
 }
 
 const s = {
-  root: { padding: 28, maxWidth: 580 },
+  root: { padding: 28, maxWidth: 680 },
   heading: { fontSize: 18, fontWeight: 700, marginBottom: 6 },
   sub: { fontSize: 13, color: 'var(--mid)', marginBottom: 20, lineHeight: 1.6 },
   detectedLabel: { fontSize: 12, color: 'var(--mid)', display: 'flex', alignItems: 'center', gap: 8 },

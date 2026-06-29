@@ -125,8 +125,11 @@ input:focus, textarea:focus, select:focus { border-color: var(--primary); }
 
 /* ── Layout ── */
 .page { min-height: 100vh; padding-top: 72px; }
-.container { max-width: 1200px; margin: 0 auto; padding: 0 24px; }
+.container { max-width: 1440px; margin: 0 auto; padding: 0 24px; }
 .section { padding: 40px 0; }
+@media (max-width: 600px) {
+  .container { padding: 0 16px; }
+}
 
 /* ── Card ── */
 .card {
@@ -177,6 +180,39 @@ input:focus, textarea:focus, select:focus { border-color: var(--primary); }
 @media (max-width: 760px) {
   .users-table-wrap { display: none; }
   .users-card-list { display: flex; flex-direction: column; gap: 10px; }
+}
+
+/* ── Navbar: role-action buttons collapse into a "More" menu on narrow screens ── */
+.navbar-actions { display: flex; align-items: center; gap: 10px; }
+.navbar-more-btn { display: none; }
+.navbar-welcome, .navbar-search { display: flex; }
+@media (max-width: 860px) {
+  .navbar-actions { display: none; }
+  .navbar-more-btn { display: flex; }
+}
+@media (max-width: 600px) {
+  .navbar-welcome, .navbar-search { display: none; }
+}
+
+/* ── Admin Panel header: hide decorative/placeholder elements on narrow screens ── */
+.admin-label, .admin-search { display: flex; }
+@media (max-width: 700px) {
+  .admin-label, .admin-search { display: none; }
+}
+
+/* ── Dashboard admin sidebar: in-flow on desktop, full-height overlay drawer on mobile ── */
+.dash-sidebar { position: relative; }
+.dash-sidebar-overlay { display: none; }
+@media (max-width: 768px) {
+  .dash-sidebar {
+    position: fixed; top: 72px; bottom: 0; left: 0; z-index: 50;
+    transition: transform 220ms ease, width 220ms ease;
+    transform: translateX(-100%);
+  }
+  .dash-sidebar-open { transform: translateX(0); }
+  .dash-sidebar-overlay.dash-sidebar-overlay-active {
+    display: block; position: fixed; inset: 72px 0 0 0; background: rgba(0,0,0,0.35); z-index: 49;
+  }
 }
 
 /* Storm lighting overlay — irregular lightning flash */
@@ -234,6 +270,16 @@ input:focus, textarea:focus, select:focus { border-color: var(--primary); }
 .toast-success { border-left: 4px solid var(--success); }
 .toast-error { border-left: 4px solid var(--danger); }
 @keyframes toast-in { from { opacity: 0; transform: translateX(16px); } to { opacity: 1; transform: translateX(0); } }
+
+/* ── Rotate-device prompt: site targets landscape only on phones/tablets ── */
+.rotate-prompt { display: none; }
+@media (orientation: portrait) and (max-width: 1024px) {
+  .rotate-prompt {
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 16px; position: fixed; inset: 0; z-index: 99999;
+    background: #14141f; color: #fff; text-align: center; padding: 40px;
+  }
+}
 
 /* ── Command Palette ── */
 .cmdk-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.45); z-index: 1100; display: flex; align-items: flex-start; justify-content: center; padding-top: 14vh; }

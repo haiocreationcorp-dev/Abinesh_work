@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { listComics, createComic, deleteComic } from '../api/comics.js';
-import { getAdminStats, getRecentComics } from '../api/assets.js';
+import { getAdminStats } from '../api/assets.js';
 import { useAuth } from '../context/AuthContext.jsx';
 import { LineChart, DonutChart, BarChart, Sparkline } from '../components/dashboard/Charts.jsx';
 
@@ -200,10 +200,12 @@ export default function DashboardPage() {
   const [comics, setComics] = useState([]);
   const [loading, setLoading] = useState(true);
   const [section, setSection] = useState('dashboard'); // admin-only switch; defaults to the stats view
-  const [collapsed, setCollapsed] = useState(false);
+  // Starts collapsed on phone/tablet-width screens so the sidebar doesn't open as a
+  // full-bleed overlay on first load — see .dash-sidebar in index.css for the
+  // mobile fixed-overlay behavior this pairs with.
+  const [collapsed, setCollapsed] = useState(() => typeof window !== 'undefined' && window.innerWidth <= 768);
   const [stats, setStats] = useState(null);
   const [statsError, setStatsError] = useState('');
-  const [recentComics, setRecentComics] = useState([]);
 
   useEffect(() => {
     listComics().then(setComics).finally(() => setLoading(false));
@@ -213,7 +215,6 @@ export default function DashboardPage() {
     if (!isAdmin) return;
     setStatsError('');
     getAdminStats().then(setStats).catch((err) => setStatsError(err.response?.data?.error || 'Could not load dashboard stats'));
-    getRecentComics().then(setRecentComics).catch(() => {});
   }, [isAdmin]);
 
   const handleCreate = async () => {
@@ -297,7 +298,11 @@ export default function DashboardPage() {
 
   return (
     <div className="page" style={{ display: 'flex', alignItems: 'flex-start' }}>
-      <aside style={{ ...styles.sidebar, width: collapsed ? 64 : 260 }}>
+      <div
+        className={`dash-sidebar-overlay ${!collapsed ? 'dash-sidebar-overlay-active' : ''}`}
+        onClick={() => setCollapsed(true)}
+      />
+      <aside className={`dash-sidebar ${!collapsed ? 'dash-sidebar-open' : ''}`} style={{ ...styles.sidebar, width: collapsed ? 64 : 260 }}>
         <button
           style={styles.collapseBtn}
           onClick={() => setCollapsed((c) => !c)}
@@ -427,25 +432,6 @@ export default function DashboardPage() {
                     <p className="text-sm text-muted">No data available yet.</p>
                   </AnalyticsCard>
                 </div>
-
-                <div className="card" style={styles.panelCard}>
-                  <h3 style={styles.panelTitle}>Latest Comics</h3>
-                  {recentComics.length === 0 ? (
-                    <EmptyState text="No comics created yet." />
-                  ) : (
-                    <div style={styles.latestComicsList}>
-                      {recentComics.map((c) => (
-                        <div key={c.id} style={styles.latestComicRow}>
-                          <div>
-                            <div style={{ fontWeight: 600, fontSize: 14 }}>{c.title}</div>
-                            <div className="text-sm text-muted">{c.user?.name || c.user?.email}</div>
-                          </div>
-                          <div className="text-sm text-muted">{new Date(c.createdAt).toLocaleDateString()}</div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
               </>
             )}
           </div>
@@ -465,7 +451,6 @@ const styles = {
   comicInfo: { padding: '12px 12px 8px', display: 'flex', flexDirection: 'column', gap: 3 },
 
   sidebar: {
-    position: 'relative',
     flex: '0 0 auto',
     display: 'flex',
     flexDirection: 'column',
@@ -525,7 +510,4 @@ const styles = {
   analyticsIconWrap: { width: 32, height: 32, borderRadius: '50%', background: 'var(--primary-light)', color: 'var(--primary)', display: 'flex', alignItems: 'center', justifyContent: 'center' },
   analyticsTitle: { fontSize: 13, fontWeight: 700, color: 'var(--mid)' },
   analyticsValue: { fontSize: 16, fontWeight: 700, marginBottom: 2 },
-
-  latestComicsList: { display: 'flex', flexDirection: 'column' },
-  latestComicRow: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 0', borderBottom: '1px solid var(--border)' },
 };

@@ -3,7 +3,14 @@ const fs = require('fs');
 const path = require('path');
 const { findInheritedHeadBox } = require('../utils/headBoxFallback');
 
-const UPLOADS_ROOT = path.join(__dirname, '../../uploads');
+// asset.filePath is stored as a server-root-relative URL path (e.g. "/uploads/effects/x.webp"),
+// the same string Express serves it from — resolve it back to an absolute disk path for deletion.
+function removeAssetFile(relPath) {
+  try {
+    const full = path.join(__dirname, '../..', relPath.replace(/^\//, ''));
+    if (fs.existsSync(full)) fs.unlinkSync(full);
+  } catch (_) { /* best-effort */ }
+}
 
 // Validated against the live AssetCategory enum so a request for a stale/removed
 // category (e.g. old client code still asking for "CHARACTER" or "DRESS" from before
@@ -54,13 +61,8 @@ const deleteAsset = async (req, res) => {
     const asset = await prisma.asset.findUnique({ where: { id: req.params.id } });
     if (!asset) return res.status(404).json({ error: 'Asset not found' });
 
-    const removeFile = (relPath) => {
-      const full = path.join(UPLOADS_ROOT, relPath);
-      if (fs.existsSync(full)) fs.unlinkSync(full);
-    };
-
-    removeFile(asset.filePath);
-    if (asset.thumbnailPath) removeFile(asset.thumbnailPath);
+    removeAssetFile(asset.filePath);
+    if (asset.thumbnailPath) removeAssetFile(asset.thumbnailPath);
 
     await prisma.asset.delete({ where: { id: req.params.id } });
     res.json({ message: 'Asset deleted' });
@@ -69,25 +71,25 @@ const deleteAsset = async (req, res) => {
   }
 };
 
+// Bulk-deleting more than this many assets at once requires the confirm password below —
+// a deliberate speed bump against an accidental large-scale, unrecoverable delete.
+const BULK_DELETE_PASSWORD_THRESHOLD = 9;
+
 const deleteAssets = async (req, res) => {
   try {
-    const { ids } = req.body;
+    const { ids, password } = req.body;
     if (!Array.isArray(ids) || ids.length === 0) {
       return res.status(400).json({ error: 'ids must be a non-empty array' });
+    }
+    if (ids.length > BULK_DELETE_PASSWORD_THRESHOLD && password !== process.env.BULK_DELETE_CONFIRM_PASSWORD) {
+      return res.status(403).json({ error: 'Incorrect password' });
     }
 
     const assets = await prisma.asset.findMany({ where: { id: { in: ids } } });
 
-    const removeFile = (relPath) => {
-      try {
-        const full = path.join(UPLOADS_ROOT, relPath);
-        if (fs.existsSync(full)) fs.unlinkSync(full);
-      } catch (_) { /* best-effort */ }
-    };
-
     for (const asset of assets) {
-      removeFile(asset.filePath);
-      if (asset.thumbnailPath) removeFile(asset.thumbnailPath);
+      removeAssetFile(asset.filePath);
+      if (asset.thumbnailPath) removeAssetFile(asset.thumbnailPath);
     }
 
     await prisma.asset.deleteMany({ where: { id: { in: ids } } });

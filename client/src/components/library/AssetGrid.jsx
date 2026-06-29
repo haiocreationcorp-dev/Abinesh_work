@@ -1,6 +1,11 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { getAssets, deleteAsset, deleteAssets, renameAsset } from '../../api/assets.js';
 import AssetCard from './AssetCard.jsx';
+import Modal from '../ui/Modal.jsx';
+
+// Bulk-deleting more than this many at once requires the safety password below —
+// mirrors BULK_DELETE_PASSWORD_THRESHOLD in server/src/controllers/assetController.js.
+const BULK_DELETE_PASSWORD_THRESHOLD = 9;
 
 export default function AssetGrid({ category, tags, search = '', partType, gender, view, poseType, eyeType, mouthType, onSelect, adminMode = false }) {
   const [assets, setAssets] = useState([]);
@@ -8,6 +13,9 @@ export default function AssetGrid({ category, tags, search = '', partType, gende
   const [error, setError] = useState(null);
   const [selected, setSelected] = useState(new Set());
   const [bulkDeleting, setBulkDeleting] = useState(false);
+  const [confirmPasswordOpen, setConfirmPasswordOpen] = useState(false);
+  const [bulkPassword, setBulkPassword] = useState('');
+  const [bulkPasswordError, setBulkPasswordError] = useState('');
   const selectAllRef = useRef(null);
 
   const load = useCallback(() => {
@@ -67,12 +75,34 @@ export default function AssetGrid({ category, tags, search = '', partType, gende
 
   const handleBulkDelete = async () => {
     if (selected.size === 0) return;
+    if (selected.size > BULK_DELETE_PASSWORD_THRESHOLD) {
+      setBulkPassword('');
+      setBulkPasswordError('');
+      setConfirmPasswordOpen(true);
+      return;
+    }
     if (!confirm(`Delete ${selected.size} selected asset${selected.size !== 1 ? 's' : ''}? This cannot be undone.`)) return;
     setBulkDeleting(true);
     try {
       await deleteAssets(Array.from(selected));
       setAssets((prev) => prev.filter((a) => !selected.has(a.id)));
       setSelected(new Set());
+    } finally {
+      setBulkDeleting(false);
+    }
+  };
+
+  const handleConfirmBulkDeleteWithPassword = async (e) => {
+    e.preventDefault();
+    setBulkPasswordError('');
+    setBulkDeleting(true);
+    try {
+      await deleteAssets(Array.from(selected), bulkPassword);
+      setAssets((prev) => prev.filter((a) => !selected.has(a.id)));
+      setSelected(new Set());
+      setConfirmPasswordOpen(false);
+    } catch (err) {
+      setBulkPasswordError(err?.response?.data?.error || 'Incorrect password');
     } finally {
       setBulkDeleting(false);
     }
@@ -134,6 +164,31 @@ export default function AssetGrid({ category, tags, search = '', partType, gende
           />
         ))}
       </div>
+
+      <Modal open={confirmPasswordOpen} onClose={() => setConfirmPasswordOpen(false)} title="Confirm bulk delete">
+        <form onSubmit={handleConfirmBulkDeleteWithPassword}>
+          <p className="text-sm text-muted" style={{ marginBottom: 14 }}>
+            You're about to permanently delete <strong>{selected.size}</strong> assets — both the database
+            records and the files on disk. This cannot be undone. Enter the safety password to confirm.
+          </p>
+          <div className="form-group">
+            <label>Password</label>
+            <input
+              type="password"
+              autoFocus
+              value={bulkPassword}
+              onChange={(e) => setBulkPassword(e.target.value)}
+            />
+          </div>
+          {bulkPasswordError && <p className="form-error">{bulkPasswordError}</p>}
+          <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+            <button type="button" className="btn btn-ghost w-full" onClick={() => setConfirmPasswordOpen(false)}>Cancel</button>
+            <button type="submit" className="btn btn-danger w-full" disabled={bulkDeleting || !bulkPassword}>
+              {bulkDeleting ? 'Deleting…' : `Delete ${selected.size}`}
+            </button>
+          </div>
+        </form>
+      </Modal>
     </div>
   );
 }

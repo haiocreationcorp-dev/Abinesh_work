@@ -148,7 +148,7 @@ export default function AdminPage() {
     <div style={{ minHeight: '100vh', background: 'var(--light)' }}>
       <header style={styles.topbar}>
         <div style={styles.leftGroup}>
-          <span style={styles.adminLabel}>Admin Panel</span>
+          <span className="admin-label" style={styles.adminLabel}>Admin Panel</span>
           <button style={{ ...styles.navBtn, ...(navOpen === 'content' ? styles.navBtnActive : {}) }} onClick={() => toggleNav('content')}>
             Content <span style={styles.chevron}>▾</span>
           </button>
@@ -170,7 +170,7 @@ export default function AdminPage() {
             💾 {backupStatus === 'running' ? 'Backing up…' : 'Backup Now'}
           </button>
 
-          <div style={styles.searchWrap} title="Coming soon">
+          <div className="admin-search" style={styles.searchWrap} title="Coming soon">
             <IconSearch />
             <input style={styles.searchInput} placeholder="Search comics, users, institutions…" disabled />
           </div>
@@ -299,12 +299,14 @@ const styles = {
     zIndex: 90,
     display: 'flex',
     alignItems: 'center',
-    justifyContent: 'center',
+    justifyContent: 'space-between',
+    flexWrap: 'wrap',
+    rowGap: 10,
     background: 'var(--surface)',
     borderBottom: '1px solid var(--border)',
     padding: '14px 24px',
   },
-  leftGroup: { position: 'absolute', left: 24, top: '50%', transform: 'translateY(-50%)', display: 'flex', alignItems: 'center', gap: 14 },
+  leftGroup: { display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap' },
   adminLabel: { fontSize: 15, fontWeight: 600, color: 'var(--mid)' },
   navBtn: {
     display: 'flex', alignItems: 'center', gap: 6, padding: '8px 16px',
@@ -314,7 +316,7 @@ const styles = {
   navBtnActive: { background: 'var(--primary)', color: '#fff' },
   chevron: { fontSize: 10 },
   brandCenter: { fontFamily: 'var(--font-display)', fontSize: 26, color: 'var(--primary)', letterSpacing: 0.5 },
-  rightGroup: { position: 'absolute', right: 24, top: '50%', transform: 'translateY(-50%)', display: 'flex', alignItems: 'center', gap: 10 },
+  rightGroup: { display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' },
   searchWrap: {
     display: 'flex', alignItems: 'center', gap: 8, background: 'var(--light)',
     borderRadius: 'var(--radius-sm)', padding: '7px 12px', color: 'var(--mid)', width: 200,
@@ -335,7 +337,7 @@ const styles = {
   notifTitle: { fontSize: 13, fontWeight: 700, color: 'var(--dark)' },
   pageTitle: { fontSize: 20, fontWeight: 700, color: 'var(--dark)', marginBottom: 20, textAlign: 'center' },
   content: { padding: '32px 40px' },
-  contentInner: { maxWidth: 1100, margin: '0 auto' },
+  contentInner: { maxWidth: 1400, margin: '0 auto' },
   tabs: { display: 'flex', gap: 8, flexWrap: 'wrap' },
   backupBtn: (disabled) => ({
     background: disabled ? '#FCA5A5' : '#DC2626', color: '#fff', border: 'none',

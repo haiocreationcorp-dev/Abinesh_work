@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const multer = require('multer');
 const path = require('path');
-const { register, login, me, gateCheck, institutionLookup, updateProfile, uploadAvatar } = require('../controllers/authController');
+const { register, login, me, institutionLookup, updateProfile, uploadAvatar } = require('../controllers/authController');
 const auth = require('../middleware/auth');
 
 const AVATAR_EXTS = ['.png', '.jpg', '.jpeg', '.webp', '.gif'];
@@ -16,7 +16,6 @@ const avatarUpload = multer({
   },
 });
 
-router.post('/gate-check', gateCheck);
 router.get('/institution-lookup/:code', institutionLookup);
 router.post('/register', register);
 router.post('/login', login);

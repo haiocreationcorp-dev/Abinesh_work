@@ -1,10 +1,11 @@
 
+
 import api from './client.js';
 
 export const getAssets = (params = {}) => api.get('/assets', { params }).then((r) => r.data);
 export const getAssetById = (id) => api.get(`/assets/${id}`).then((r) => r.data);
 export const deleteAsset = (id) => api.delete(`/assets/${id}`).then((r) => r.data);
-export const deleteAssets = (ids) => api.delete('/assets/bulk', { data: { ids } }).then((r) => r.data);
+export const deleteAssets = (ids, password) => api.delete('/assets/bulk', { data: { ids, password } }).then((r) => r.data);
 
 export const uploadAsset = (formData) =>
   api.post('/admin/assets/upload', formData, {

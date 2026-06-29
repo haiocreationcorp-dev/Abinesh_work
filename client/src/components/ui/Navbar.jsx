@@ -46,14 +46,34 @@ function IconMoon() {
   );
 }
 
+function IconMenu() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <line x1="3" y1="6" x2="21" y2="6" /><line x1="3" y1="12" x2="21" y2="12" /><line x1="3" y1="18" x2="21" y2="18" />
+    </svg>
+  );
+}
+
 export default function Navbar() {
   const { user, isAdmin, isTeacher, isStudent, isChief } = useAuth();
   const { mode, toggle } = useUITheme();
   const [notifOpen, setNotifOpen] = useState(false);
+  const [moreOpen, setMoreOpen] = useState(false);
+
+  // Role-specific quick links — rendered inline (desktop) or collapsed into the
+  // "More" menu below 860px (see .navbar-actions/.navbar-more-btn in index.css).
+  const roleLinks = [
+    isChief && { to: '/chief/billing', label: 'Billing' },
+    isTeacher && { to: '/teacher/students', label: 'My Students' },
+    isTeacher && { to: '/teacher/classes', label: 'My Classes' },
+    isTeacher && { to: '/teacher/tasks', label: 'Assign Task' },
+    isStudent && { to: '/student/instructors', label: 'Instructors' },
+    isStudent && { to: '/student/tasks', label: 'My Assignments' },
+  ].filter(Boolean);
 
   return (
     <nav style={styles.nav}>
-      <span style={styles.welcome}>Welcome back, {user?.name || 'Boss'}!</span>
+      <span className="navbar-welcome" style={styles.welcome}>Welcome back, {user?.name || 'Boss'}!</span>
 
       <Link to="/dashboard" style={styles.brand}>
         BharathComic
@@ -63,41 +83,38 @@ export default function Navbar() {
         {user && (
           <>
             {isAdmin && (
-              <div style={styles.searchWrap} title="Coming soon">
+              <div className="navbar-search" style={styles.searchWrap} title="Coming soon">
                 <IconSearch />
                 <input style={styles.searchInput} placeholder="Search comics, users, institutions…" disabled />
               </div>
             )}
 
-            {isChief && (
-              <Link to="/chief/billing">
-                <button className="btn btn-outline btn-sm">Billing</button>
-              </Link>
+            {roleLinks.length > 0 && (
+              <div className="navbar-actions">
+                {roleLinks.map((l) => (
+                  <Link key={l.to} to={l.to}>
+                    <button className="btn btn-outline btn-sm">{l.label}</button>
+                  </Link>
+                ))}
+              </div>
             )}
-            {isTeacher && (
-              <Link to="/teacher/students">
-                <button className="btn btn-outline btn-sm">My Students</button>
-              </Link>
-            )}
-            {isTeacher && (
-              <Link to="/teacher/classes">
-                <button className="btn btn-outline btn-sm">My Classes</button>
-              </Link>
-            )}
-            {isTeacher && (
-              <Link to="/teacher/tasks">
-                <button className="btn btn-outline btn-sm">Assign Task</button>
-              </Link>
-            )}
-            {isStudent && (
-              <Link to="/student/instructors">
-                <button className="btn btn-outline btn-sm">Instructors</button>
-              </Link>
-            )}
-            {isStudent && (
-              <Link to="/student/tasks">
-                <button className="btn btn-outline btn-sm">My Assignments</button>
-              </Link>
+
+            {roleLinks.length > 0 && (
+              <div className="navbar-more-btn" style={styles.iconWrap}>
+                {moreOpen && <div style={styles.overlay} onClick={() => setMoreOpen(false)} />}
+                <button style={styles.iconBtn} onClick={() => setMoreOpen((o) => !o)} aria-label="More" title="More">
+                  <IconMenu />
+                </button>
+                {moreOpen && (
+                  <div style={styles.notifMenu}>
+                    {roleLinks.map((l) => (
+                      <Link key={l.to} to={l.to} onClick={() => setMoreOpen(false)}>
+                        <button className="btn btn-outline btn-sm w-full" style={{ marginBottom: 6 }}>{l.label}</button>
+                      </Link>
+                    ))}
+                  </div>
+                )}
+              </div>
             )}
 
             {isAdmin && (

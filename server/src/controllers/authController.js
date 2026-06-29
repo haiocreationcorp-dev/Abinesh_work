@@ -24,13 +24,6 @@ const safeUser = (u) => ({
   createdAt: u.createdAt,
 });
 
-const gateCheck = (req, res) => {
-  if (req.body.password !== process.env.SITE_GATE_PASSWORD) {
-    return res.status(403).json({ error: 'Incorrect access password' });
-  }
-  res.json({ ok: true });
-};
-
 // Public — lets the registration form know whether to render School or College fields
 // before the user has authenticated. Deliberately returns nothing beyond name/type.
 const institutionLookup = async (req, res) => {
@@ -40,8 +33,7 @@ const institutionLookup = async (req, res) => {
 };
 
 const register = async (req, res) => {
-  const { email, password, name, gatePassword, loginType, institutionCode, role } = req.body;
-  if (gatePassword !== process.env.SITE_GATE_PASSWORD) return res.status(403).json({ error: 'Incorrect access password' });
+  const { email, password, name, loginType, institutionCode, role } = req.body;
   if (!email || !password) return res.status(400).json({ error: 'Email and password required' });
 
   const exists = await prisma.user.findUnique({ where: { email } });
@@ -75,8 +67,7 @@ const register = async (req, res) => {
 };
 
 const login = async (req, res) => {
-  const { email, password, gatePassword } = req.body;
-  if (gatePassword !== process.env.SITE_GATE_PASSWORD) return res.status(403).json({ error: 'Incorrect access password' });
+  const { email, password } = req.body;
   if (!email || !password) return res.status(400).json({ error: 'Email and password required' });
 
   const user = await prisma.user.findUnique({ where: { email }, include: { institution: true } });
@@ -141,4 +132,4 @@ const uploadAvatar = async (req, res) => {
   }
 };
 
-module.exports = { register, login, me, gateCheck, institutionLookup, updateProfile, uploadAvatar };
+module.exports = { register, login, me, institutionLookup, updateProfile, uploadAvatar };

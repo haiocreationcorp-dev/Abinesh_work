@@ -6,9 +6,9 @@ import { UIThemeProvider } from './context/UIThemeContext.jsx';
 import { ToastProvider } from './context/ToastContext.jsx';
 import { DragProvider } from './context/DragContext.jsx';
 import ProtectedRoute from './components/ui/ProtectedRoute.jsx';
-import SiteGate from './components/ui/SiteGate.jsx';
 import Navbar from './components/ui/Navbar.jsx';
 import CommandPalette from './components/ui/CommandPalette.jsx';
+import RotateDevicePrompt from './components/ui/RotateDevicePrompt.jsx';
 import HomePage from './pages/HomePage.jsx';
 import LoginPage from './pages/LoginPage.jsx';
 import RegisterPage from './pages/RegisterPage.jsx';
@@ -30,11 +30,11 @@ export default function App() {
   return (
     <UIThemeProvider>
       <ToastProvider>
+        <RotateDevicePrompt />
         <BrowserRouter>
-          <SiteGate>
-            <AuthProvider>
-              <CommandPalette />
-              <Routes>
+          <AuthProvider>
+            <CommandPalette />
+            <Routes>
             <Route path="/" element={<HomePage />} />
             <Route path="/login" element={<LoginPage />} />
             <Route path="/register" element={<RegisterPage />} />
@@ -158,9 +158,8 @@ export default function App() {
             />
 
             <Route path="*" element={<Navigate to="/" replace />} />
-              </Routes>
-            </AuthProvider>
-          </SiteGate>
+            </Routes>
+          </AuthProvider>
         </BrowserRouter>
       </ToastProvider>
     </UIThemeProvider>

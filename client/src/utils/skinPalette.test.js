@@ -27,7 +27,8 @@ test('applySkinPalette replaces only exact skin-palette pixels, leaves everythin
   const result = applySkinPalette(imageData, NORMALIZED_SKIN_PALETTE, preset);
   const px = (i) => [result.data[i * 4], result.data[i * 4 + 1], result.data[i * 4 + 2], result.data[i * 4 + 3]];
 
-  assert.deepEqual(px(0), [...hexToBytes(preset.highlight), 255]);
+  // Highlight folds into shadow — see applySkinPalette's comment on why.
+  assert.deepEqual(px(0), [...hexToBytes(preset.shadow), 255]);
   assert.deepEqual(px(1), [...hexToBytes(preset.base), 255]);
   assert.deepEqual(px(2), [...hexToBytes(preset.shadow), 255]);
   assert.deepEqual(px(3), [...costume, 255]);

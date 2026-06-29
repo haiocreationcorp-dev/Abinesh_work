@@ -10,6 +10,9 @@ const adminAuth = require('../middleware/adminAuth');
 const prisma = require('../config/prisma');
 const { addMonths } = require('../utils/dates');
 const { quantizeSkinTones, DEFAULT_SKIN_THRESHOLDS } = require('../utils/skinNormalize');
+const { findInheritedHeadBox } = require('../utils/headBoxFallback');
+
+const SHARED_ALIGNMENT_KEY = '__ALL__';
 
 // Parses the optional `skinThresholds` form field (JSON string from the admin's
 // mask-tuning UI). Falls back to the hardcoded defaults on missing/invalid input.
@@ -167,8 +170,25 @@ async function maybeToWebP(buffer, originalName, category) {
     const converted = await compressToBudget(buffer, { width: 1200, height: 675, fit: 'inside', withoutEnlargement: true });
     return { buffer: converted, ext: '.webp' };
   }
-  if (['FACE_PART', 'FACE_TEMPLATE', 'BODY_POSE'].includes(category)) {
+  if (['FACE_PART', 'FACE_TEMPLATE'].includes(category)) {
     const converted = await compressToBudget(buffer, { width: 1200, height: 1200, fit: 'inside', withoutEnlargement: true });
+    return { buffer: converted, ext: '.webp' };
+  }
+  if (category === 'BODY_POSE') {
+    // Capped lower than faces: the largest a body pose ever actually renders at is Pose
+    // Builder's stage (560x640) — 800px tall still gives ~25% headroom over that for a
+    // crisp zoom, but a 1200px cap was costing real size for resolution this never uses,
+    // especially once skin-tone masking forces the file to lossless WebP (which scales
+    // with pixel count, not detail — see normalizeSkinTones' lossless comment above).
+    //
+    // Lossless from the very first upload (not compressToBudget's lossy/byte-budgeted
+    // encode): a body pose's skin region can be masked straight from this file later
+    // without losing anything extra in the process, and the resize cap above already
+    // keeps the lossless size reasonable — no separate budget needed on top of that.
+    const converted = await sharp(buffer)
+      .resize(800, 800, { fit: 'inside', withoutEnlargement: true })
+      .webp({ lossless: true })
+      .toBuffer();
     return { buffer: converted, ext: '.webp' };
   }
   return { buffer, ext };
@@ -212,7 +232,7 @@ router.post(
   async (req, res) => {
     try {
       const { name, category, tags, removeWhiteBg, normalizeSkin, skinThresholds, skipProcessing,
-        partType, view, gender, faceFamily, costume, poseType } = req.body;
+        partType, view, gender, eyeType, mouthType, faceFamily, costume, poseType } = req.body;
       if (!name || !category || !req.files?.file) {
         return res.status(400).json({ error: 'name, category, and file are required' });
       }
@@ -269,6 +289,8 @@ router.post(
           partType: partType || undefined,
           view: view || undefined,
           gender: gender || undefined,
+          eyeType: partType === 'EYES' ? (eyeType || undefined) : undefined,
+          mouthType: partType === 'MOUTH' ? (mouthType || undefined) : undefined,
           faceFamily: faceFamily || undefined,
           costume: costume || undefined,
           poseType: poseType || undefined,
@@ -285,7 +307,7 @@ router.post(
 // POST /api/admin/assets/upload-folder — folder-sync upload (upsert per asset name+category)
 router.post('/assets/upload-folder', adminAuth, uploadBatch.array('files', 500), async (req, res) => {
   try {
-    const { category, tags, folderName, removeWhiteBg, normalizeSkin, skinThresholds } = req.body;
+    const { category, tags, folderName, removeWhiteBg, normalizeSkin, skinThresholds, view, partType, gender, eyeType, mouthType, faceFamily, costume, poseType } = req.body;
     const categoryUpper = (category || '').toUpperCase();
     const tagArray = tags ? tags.split(',').map((t) => t.trim()).filter(Boolean) : [];
     const stripBg = removeWhiteBg === 'true';
@@ -307,6 +329,21 @@ router.post('/assets/upload-folder', adminAuth, uploadBatch.array('files', 500),
       return base.replace(/[-_]+/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
     };
 
+    // Strip the "_1" / "_2" front/3-4 view suffix from the filename before naming the
+    // asset, so e.g. "Eye1_1.png" and "Eye1_2.png" both become the same asset name
+    // ("Eye1") distinguished only by their `view` field — letting the Face Builder match
+    // a front/3-4 pair of the same part by name. Only strips the suffix that matches the
+    // view actually selected for this batch, so an unrelated trailing "_1"/"_2" in a
+    // filename (no view chosen) is left alone.
+    const VIEW_SUFFIX = { FRONT: '_1', THREE_QUARTER: '_2' };
+    const stripViewSuffix = (filename) => {
+      const suffix = VIEW_SUFFIX[view];
+      if (!suffix) return filename;
+      const ext = path.extname(filename);
+      const stem = filename.slice(0, -ext.length || filename.length);
+      return stem.endsWith(suffix) ? stem.slice(0, -suffix.length) + ext : filename;
+    };
+
     const deleteOldFile = (filePath) => {
       try {
         const rel = filePath.replace(/^\/uploads\//, '');
@@ -321,7 +358,7 @@ router.post('/assets/upload-folder', adminAuth, uploadBatch.array('files', 500),
 
     for (const file of req.files) {
       try {
-        const baseName = prettify(file.originalname);
+        const baseName = prettify(stripViewSuffix(file.originalname));
         const assetName = (categoryUpper === 'BODY_POSE' && folderPretty)
           ? `${folderPretty} ${baseName}`
           : baseName;
@@ -335,7 +372,7 @@ router.post('/assets/upload-folder', adminAuth, uploadBatch.array('files', 500),
         const newFilePath = `/uploads/${CATEGORY_TO_DIR[categoryUpper]}/${newFilename}`;
 
         const existing = await prisma.asset.findFirst({
-          where: { name: assetName, category: categoryUpper },
+          where: { name: assetName, category: categoryUpper, view: view || null },
         });
 
         if (existing) {
@@ -347,6 +384,14 @@ router.post('/assets/upload-folder', adminAuth, uploadBatch.array('files', 500),
               filePath: newFilePath,
               filename: file.originalname,
               skinThresholds: resolvedSkinThresholds ?? undefined,
+              view: view || undefined,
+              partType: partType || undefined,
+              gender: gender || undefined,
+              eyeType: partType === 'EYES' ? (eyeType || undefined) : undefined,
+              mouthType: partType === 'MOUTH' ? (mouthType || undefined) : undefined,
+              faceFamily: faceFamily || undefined,
+              costume: costume || undefined,
+              poseType: poseType || undefined,
             },
           });
           updated++;
@@ -361,6 +406,14 @@ router.post('/assets/upload-folder', adminAuth, uploadBatch.array('files', 500),
               filePath: newFilePath,
               thumbnailPath: null,
               skinThresholds: resolvedSkinThresholds ?? undefined,
+              view: view || undefined,
+              partType: partType || undefined,
+              gender: gender || undefined,
+              eyeType: partType === 'EYES' ? (eyeType || undefined) : undefined,
+              mouthType: partType === 'MOUTH' ? (mouthType || undefined) : undefined,
+              faceFamily: faceFamily || undefined,
+              costume: costume || undefined,
+              poseType: poseType || undefined,
             },
           });
           added++;
@@ -489,16 +542,37 @@ router.delete('/expressions/:id', adminAuth, async (req, res) => {
 // POST /api/admin/character-presets
 router.post('/character-presets', adminAuth, async (req, res) => {
   try {
-    const { name, frontFaceId, threeQuarterFaceId, skinTone, hairColor, irisColor, defaultExpressionId } = req.body;
-    if (!name || !frontFaceId || !skinTone || !hairColor) {
-      return res.status(400).json({ error: 'name, frontFaceId, skinTone, and hairColor are required' });
+    const { name, frontFaceId, threeQuarterFaceId, defaultFaceView, skinTone, hairColor, irisColor, defaultExpressionId, defaultBodyPoseId } = req.body;
+    if (!name || (!frontFaceId && !threeQuarterFaceId) || !skinTone || !hairColor) {
+      return res.status(400).json({ error: 'name, at least one face (front or 3/4), skinTone, and hairColor are required' });
     }
+    // Auto-resolve when only one face was given; an explicit choice is required (validated
+    // client-side) when both are, since the admin must decide which one is "the" default.
+    const resolvedDefaultView = defaultFaceView || (threeQuarterFaceId && !frontFaceId ? 'THREE_QUARTER' : 'FRONT');
     const preset = await prisma.characterPreset.create({
-      data: { name, frontFaceId, threeQuarterFaceId: threeQuarterFaceId || null, skinTone, hairColor, irisColor: irisColor || null, defaultExpressionId: defaultExpressionId || null },
+      data: { name, frontFaceId: frontFaceId || null, threeQuarterFaceId: threeQuarterFaceId || null, defaultFaceView: resolvedDefaultView, skinTone, hairColor, irisColor: irisColor || null, defaultExpressionId: defaultExpressionId || null, defaultBodyPoseId: defaultBodyPoseId || null },
     });
     res.status(201).json(preset);
   } catch (err) {
     res.status(500).json({ error: err.message || 'Save failed' });
+  }
+});
+
+// PUT /api/admin/character-presets/:id — edits an existing CharacterPreset in place
+router.put('/character-presets/:id', adminAuth, async (req, res) => {
+  try {
+    const { name, frontFaceId, threeQuarterFaceId, defaultFaceView, skinTone, hairColor, irisColor, defaultExpressionId, defaultBodyPoseId } = req.body;
+    if (!name || (!frontFaceId && !threeQuarterFaceId) || !skinTone || !hairColor) {
+      return res.status(400).json({ error: 'name, at least one face (front or 3/4), skinTone, and hairColor are required' });
+    }
+    const resolvedDefaultView = defaultFaceView || (threeQuarterFaceId && !frontFaceId ? 'THREE_QUARTER' : 'FRONT');
+    const preset = await prisma.characterPreset.update({
+      where: { id: req.params.id },
+      data: { name, frontFaceId: frontFaceId || null, threeQuarterFaceId: threeQuarterFaceId || null, defaultFaceView: resolvedDefaultView, skinTone, hairColor, irisColor: irisColor || null, defaultExpressionId: defaultExpressionId || null, defaultBodyPoseId: defaultBodyPoseId || null },
+    });
+    res.json(preset);
+  } catch (err) {
+    res.status(404).json({ error: 'Character preset not found' });
   }
 });
 
@@ -519,6 +593,12 @@ router.get('/face-part-alignment', adminAuth, async (req, res) => {
   const alignment = await prisma.facePartAlignment.findUnique({
     where: { faceAssetId_partAssetId_partType: { faceAssetId, partAssetId, partType } },
   });
+  // No box saved yet for this exact BODY_POSE — borrow a sibling pose's head box (same
+  // poseType, rescaled to this image's own dimensions) as an editable starting default.
+  if (!alignment && partType === 'head' && partAssetId === SHARED_ALIGNMENT_KEY) {
+    const inherited = await findInheritedHeadBox(faceAssetId).catch(() => null);
+    return res.json(inherited);
+  }
   res.json(alignment);
 });
 
@@ -843,6 +923,77 @@ router.patch('/assets/:id/skin-mask', adminAuth, async (req, res) => {
   }
 });
 
+// PATCH /api/admin/assets/:id/rename — renames an asset and syncs the two places its old
+// name gets denormalized (everywhere else just stores/looks up by assetId, which keeps
+// working automatically once Asset.name itself is updated):
+//  1. FACE_TEMPLATE layoutPath JSON files — each assembled part is saved with a `name`/
+//     `customName` snapshot (faceLayout.js falls back to classifying by that name when
+//     partType is missing), so any part referencing this assetId gets re-stamped.
+//  2. Already-placed Comic Panel `data` JSON — characters/faces/props/etc. placed directly
+//     (not via a CharacterPreset) carry a display-only `name` copy alongside `assetId`.
+router.patch('/assets/:id/rename', adminAuth, async (req, res) => {
+  try {
+    const { name } = req.body;
+    if (!name || !name.trim()) return res.status(400).json({ error: 'name is required' });
+    const trimmed = name.trim();
+    const assetId = req.params.id;
+
+    const existing = await prisma.asset.findUnique({ where: { id: assetId } });
+    if (!existing) return res.status(404).json({ error: 'Asset not found' });
+    const oldName = existing.name;
+
+    const updated = await prisma.asset.update({ where: { id: assetId }, data: { name: trimmed } });
+
+    // 1. Re-stamp this asset's name inside any FACE_TEMPLATE layout that placed it.
+    const faceTemplates = await prisma.asset.findMany({
+      where: { category: 'FACE_TEMPLATE', layoutPath: { not: null } },
+      select: { layoutPath: true },
+    });
+    for (const ft of faceTemplates) {
+      try {
+        const abs = path.join(UPLOADS_ROOT, ft.layoutPath.replace(/^\/uploads\//, ''));
+        if (!fs.existsSync(abs)) continue;
+        const layout = JSON.parse(fs.readFileSync(abs, 'utf8'));
+        if (!Array.isArray(layout)) continue;
+        let changed = false;
+        for (const part of layout) {
+          if (part?.assetId !== assetId) continue;
+          if (part.name !== trimmed) { part.name = trimmed; changed = true; }
+          if (part.customName === oldName) { part.customName = trimmed; changed = true; }
+        }
+        if (changed) fs.writeFileSync(abs, JSON.stringify(layout), 'utf8');
+      } catch (_) { /* best-effort — a stale name in one layout file shouldn't fail the rename */ }
+    }
+
+    // 2. Re-stamp any already-placed copy of this asset's name inside saved Panel data.
+    // Generic recursive walk (rather than hardcoding each array shape — characters/faces/
+    // props/dressCharacters/...) so newly-added placement types stay covered automatically.
+    const panels = await prisma.panel.findMany({ select: { id: true, data: true } });
+    for (const panel of panels) {
+      let changed = false;
+      const walk = (node) => {
+        if (Array.isArray(node)) { node.forEach(walk); return; }
+        if (!node || typeof node !== 'object') return;
+        if (node.assetId === assetId && typeof node.name === 'string' && node.name !== trimmed) {
+          node.name = trimmed;
+          changed = true;
+        }
+        for (const v of Object.values(node)) walk(v);
+      };
+      walk(panel.data);
+      if (changed) {
+        try {
+          await prisma.panel.update({ where: { id: panel.id }, data: { data: panel.data } });
+        } catch (_) { /* best-effort */ }
+      }
+    }
+
+    res.json(updated);
+  } catch (err) {
+    res.status(500).json({ error: err.message || 'Rename failed' });
+  }
+});
+
 // PUT /api/admin/assets/:id/file — overwrites an existing asset's image file in place
 // (same asset id, no duplicate created) and optionally updates its skinThresholds mask
 // recipe in the same request. Used by the Palette Normalizer's "Save Mask to Asset":
@@ -888,5 +1039,31 @@ router.put(
     }
   }
 );
+
+// POST /api/admin/backup — runs the same pg_dump + JSON export scripts the scheduled
+// backup task uses, on demand. See server/scripts/backupDb.js and exportData.js, and the
+// database-safety notes in CLAUDE.md for why this exists.
+router.post('/backup', adminAuth, async (req, res) => {
+  const { spawn } = require('child_process');
+  const serverRoot = path.join(__dirname, '../..');
+
+  const run = (script) => new Promise((resolve) => {
+    const proc = spawn(process.execPath, [path.join(serverRoot, 'scripts', script)], { cwd: serverRoot });
+    let output = '';
+    proc.stdout.on('data', (d) => { output += d; });
+    proc.stderr.on('data', (d) => { output += d; });
+    proc.on('close', (code) => resolve({ script, code, output: output.trim() }));
+  });
+
+  try {
+    const [dbResult, dataResult, filesResult, envResult] = await Promise.all([
+      run('backupDb.js'), run('exportData.js'), run('backupUploads.js'), run('backupEnv.js'),
+    ]);
+    const ok = [dbResult, dataResult, filesResult, envResult].every((r) => r.code === 0);
+    res.status(ok ? 200 : 500).json({ ok, dbResult, dataResult, filesResult, envResult });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message || 'Backup failed' });
+  }
+});
 
 module.exports = router;

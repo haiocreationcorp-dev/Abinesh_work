@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import { uploadAsset } from '../../api/assets.js';
-import { CATEGORY_IDS as CATEGORIES, BG_SUBCATEGORIES, VIEWS, FACE_PART_TYPES, GENDERS, POSE_TYPES } from '../../constants/categories.js';
+import { CATEGORY_IDS as CATEGORIES, BG_SUBCATEGORIES, VIEWS, FACE_PART_TYPES, GENDERS, POSE_TYPES, EYE_TYPES, MOUTH_TYPES } from '../../constants/categories.js';
 import SkinMaskTuner from './SkinMaskTuner.jsx';
 import { DEFAULT_SKIN_THRESHOLDS } from '../../utils/skinMaskPreview.js';
 import { useToast } from '../../context/ToastContext.jsx';
@@ -39,6 +39,8 @@ export default function AssetUploadForm() {
   const [partType, setPartType] = useState('');
   const [view, setView] = useState('');
   const [gender, setGender] = useState('');
+  const [eyeType, setEyeType] = useState('');
+  const [mouthType, setMouthType] = useState('');
   const [faceFamily, setFaceFamily] = useState('');
   const [costume, setCostume] = useState('');
   const [poseType, setPoseType] = useState('');
@@ -59,7 +61,7 @@ export default function AssetUploadForm() {
   const isFirstRender = useRef(true);
 
   const resetMetadataFields = () => {
-    setPartType(''); setView(''); setGender(''); setFaceFamily(''); setCostume(''); setPoseType('');
+    setPartType(''); setView(''); setGender(''); setEyeType(''); setMouthType(''); setFaceFamily(''); setCostume(''); setPoseType('');
   };
 
   // Restore an unsaved draft on first mount (metadata fields only — File objects can't be serialized).
@@ -127,6 +129,8 @@ export default function AssetUploadForm() {
       if (partType) fd.append('partType', partType);
       if (view) fd.append('view', view);
       if (gender) fd.append('gender', gender);
+      if (partType === 'EYES' && eyeType) fd.append('eyeType', eyeType);
+      if (partType === 'MOUTH' && mouthType) fd.append('mouthType', mouthType);
     }
     if (form.category === 'FACE_TEMPLATE') {
       if (faceFamily) fd.append('faceFamily', faceFamily);
@@ -234,6 +238,24 @@ export default function AssetUploadForm() {
                 {GENDERS.map((g) => <option key={g.id} value={g.id}>{g.label}</option>)}
               </select>
             </div>
+            {partType === 'EYES' && (
+              <div className="form-group">
+                <label>Eye Type (optional)</label>
+                <select value={eyeType} onChange={(e) => setEyeType(e.target.value)}>
+                  <option value="">— None —</option>
+                  {EYE_TYPES.map((t) => <option key={t.id} value={t.id}>{t.label}</option>)}
+                </select>
+              </div>
+            )}
+            {partType === 'MOUTH' && (
+              <div className="form-group">
+                <label>Mouth Type (optional)</label>
+                <select value={mouthType} onChange={(e) => setMouthType(e.target.value)}>
+                  <option value="">— None —</option>
+                  {MOUTH_TYPES.map((t) => <option key={t.id} value={t.id}>{t.label}</option>)}
+                </select>
+              </div>
+            )}
           </>
         )}
 
@@ -418,7 +440,7 @@ const styles = {
   draftStatus: { fontSize: 12, color: 'var(--mid)', fontWeight: 600 },
   fileInfo: { fontSize: 12, color: 'var(--mid)', marginTop: 2 },
   success: { color: 'var(--success)', fontSize: 13, marginBottom: 8 },
-  checkboxLabel: { display: 'flex', alignItems: 'center', fontSize: 13, color: 'var(--text)', cursor: 'pointer' },
+  checkboxLabel: { display: 'flex', alignItems: 'center', fontSize: 13, color: 'var(--dark)', cursor: 'pointer' },
   checkboxHint: { fontSize: 12, color: 'var(--mid)', marginTop: 6, lineHeight: 1.5 },
   previewWrap: { display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10 },
   previewCheckered: { display: 'inline-block', padding: 4 },

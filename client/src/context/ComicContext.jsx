@@ -1,5 +1,5 @@
 import { createContext, useContext, useReducer, useCallback } from 'react';
-import genId from '../utils/genId.js';
+import { genId } from '../utils/id';
 
 // How many panels each layout requires
 export const LAYOUT_COUNT = { single: 1, '2h': 2, '2v': 2, '4': 4 };

@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, Fragment } from 'react';
 import { useComic, LAYOUT_COUNT } from '../../context/ComicContext.jsx';
 import { useTheme } from '../../context/ThemeContext.jsx';
-import { BG_SUBCATEGORIES } from '../../constants/categories.js';
+import { BG_SUBCATEGORIES, VIEWS } from '../../constants/categories.js';
 import Panel from './Panel.jsx';
 import PanelLayoutPicker from './PanelLayoutPicker.jsx';
 import AssetGrid from '../library/AssetGrid.jsx';
@@ -9,10 +9,11 @@ import ExportControls from './ExportControls.jsx';
 import SpeechBubbleEditor from './SpeechBubble.jsx';
 import AIAssistantPanel from './AIAssistantPanel.jsx';
 import { AlignIcon, ColorSwatch, CustomSelect, FONTS, SIZES } from './BubbleUiKit.jsx';
-import { getAssets, getFacePartAlignmentsPublic, getCharacterPresets as fetchCharacterPresets } from '../../api/assets.js';
-import { FACE_SECTIONS, FACE_CANVAS_W, FACE_CANVAS_H, classifyFacePart, matchesFaceSection, defaultPartOverlay, buildFaceFromLayout } from '../../utils/faceLayout.js';
+import { getAssets, getFacePartAlignmentsPublic, getCharacterPresets as fetchCharacterPresets, getExpressions } from '../../api/assets.js';
+import { FACE_SECTIONS, FACE_CANVAS_W, FACE_CANVAS_H, classifyFacePart, matchesFaceSection, defaultPartOverlay, buildFaceFromLayout, resolveLayoutFilePaths } from '../../utils/faceLayout.js';
 import { SKIN_PRESETS } from '../../utils/skinPalette.js';
-import genId from '../../utils/genId.js';
+import { recolorSkin } from '../../utils/recolorImage.js';
+import { genId } from '../../utils/id.js';
 
 // ── SVG icon components ───────────────────────────────────────────────────────
 function IconCharacters() {
@@ -296,6 +297,43 @@ function LayoutThumb({ layout, active }) {
   );
 }
 
+// BODY_POSE thumbnail — used by both the Outfit and Pose character tools. BODY_POSE
+// assets are stored with neon (magenta/cyan) skin placeholders (see Palette Normalizer),
+// so the raw file looks like a clown by default. Recolor to the default "fair" tone just
+// for this preview; the real placement keeps whatever skin tone is actually set once swapped in.
+function BodyPoseThumb({ asset, active, onClick }) {
+  const [src, setSrc] = useState(asset.filePath);
+  useEffect(() => {
+    let isActive = true;
+    setSrc(asset.filePath);
+    recolorSkin(asset.filePath, 'fair').then((url) => { if (isActive) setSrc(url); }).catch(() => {});
+    return () => { isActive = false; };
+  }, [asset.filePath]);
+  return (
+    <button title={asset.costume || asset.name} onClick={onClick}
+      style={{ ...styles.faceLibThumb, ...(active ? { borderColor: '#8B5CF6', borderWidth: 2 } : {}) }}>
+      <img src={src} alt={asset.costume || asset.name} draggable={false} style={{ width: '100%', height: '100%', objectFit: 'contain', display: 'block' }} />
+    </button>
+  );
+}
+
+// Reliable costume identity for a BODY_POSE asset, shared by the Outfit and Pose
+// character tools. Prefers the (trimmed/lowercased) `costume` text field when set, but
+// falls back to the name's "C<n>" prefix (stripping a trailing "P<n>" pose suffix, e.g.
+// "C1P2" -> "C1") for any asset uploaded without that field filled in, since that's how
+// these are actually authored and stays consistent across that costume's pose variants.
+function costumeKeyOf(bp) {
+  return (bp.costume && bp.costume.trim())
+    ? bp.costume.trim().toLowerCase()
+    : bp.name.replace(/P\d+$/i, '').trim().toLowerCase();
+}
+
+// Numeric pose index from a poseType like "P1"/"P12" — used to sort pose options in
+// natural order (P2 before P10), not lexical string order.
+function poseNumOf(bp) {
+  return parseInt((bp.poseType || '').replace(/^P/i, ''), 10) || 0;
+}
+
 function AddPagePicker({ onPick, onClose }) {
   const options = [
     { id: 'single', label: 'Single' },
@@ -360,6 +398,7 @@ export default function ComicEditor({ readOnly = false } = {}) {
   // "Characters" landing picker: pick a CharacterPreset, then a BODY_POSE to place it on.
   const [characterPresets, setCharacterPresets] = useState([]);
   const [bodyPoses, setBodyPoses] = useState([]);
+  const [savedExpressions, setSavedExpressions] = useState([]);
   const [pendingPreset, setPendingPreset] = useState(null);
   const [expressionTab, setExpressionTab] = useState('eye');
   const [faceAlignments, setFaceAlignments] = useState({});
@@ -524,19 +563,39 @@ export default function ComicEditor({ readOnly = false } = {}) {
     }
   }, [selectedDressCharacter?.instanceId, dressParts.length]);
 
-  // Load Character Presets + Body Poses for the "Characters" landing picker
+  // Load Character Presets for the "Characters" landing picker, and Body Poses for either
+  // that picker or to know the active placement's own pose view (needed to filter
+  // hairstyle options to the matching Front/3-4 view below).
   useEffect(() => {
-    if (activeSidebar !== 'CHARACTER' || characterMenu) return;
-    if (characterPresets.length === 0) fetchCharacterPresets().then(setCharacterPresets).catch(() => setCharacterPresets([]));
+    if (activeSidebar !== 'CHARACTER') return;
+    if (!characterMenu && characterPresets.length === 0) fetchCharacterPresets().then(setCharacterPresets).catch(() => setCharacterPresets([]));
     if (bodyPoses.length === 0) getAssets({ category: 'BODY_POSE' }).then(setBodyPoses).catch(() => setBodyPoses([]));
-  }, [activeSidebar, characterMenu, characterPresets.length, bodyPoses.length]);
+    if (savedExpressions.length === 0) getExpressions().then(setSavedExpressions).catch(() => setSavedExpressions([]));
+  }, [activeSidebar, characterMenu, characterPresets.length, bodyPoses.length, savedExpressions.length]);
+
+  // Shared by both the "pick a pose" picker and the default-body-pose fast path below —
+  // takes the preset explicitly rather than reading `pendingPreset` state, since the fast
+  // path places the character in the same click that would otherwise have just set
+  // `pendingPreset` (that state update wouldn't be visible yet this synchronously).
+  const placeCharacterPreset = (preset, bodyPoseId) => {
+    const instanceId = genId();
+    dispatch({ type: 'ADD_CHARACTER_PRESET_TO_PANEL', panelIndex: activePanelIndex, presetId: preset.id, bodyPoseId, name: preset.name, instanceId });
+    dispatch({ type: 'SELECT_ITEM_IN_PANEL', kind: 'CHARACTER_PRESET', instanceId, panelIndex: activePanelIndex });
+    setPendingPreset(null);
+  };
 
   const handlePickBodyPose = (pose) => {
     if (!pendingPreset) return;
-    const instanceId = crypto.randomUUID();
-    dispatch({ type: 'ADD_CHARACTER_PRESET_TO_PANEL', panelIndex: activePanelIndex, presetId: pendingPreset.id, bodyPoseId: pose.id, name: pendingPreset.name, instanceId });
-    dispatch({ type: 'SELECT_ITEM_IN_PANEL', kind: 'CHARACTER_PRESET', instanceId, panelIndex: activePanelIndex });
-    setPendingPreset(null);
+    placeCharacterPreset(pendingPreset, pose.id);
+  };
+
+  // Clicking a character preset normally opens the "pick a pose" picker. If the preset
+  // has a default costume+pose set (Character Preset Builder), skip straight to placing
+  // it with that default instead of asking every time — still fully changeable afterward
+  // via the Outfit/Pose character tools, same as any other placement.
+  const handlePickPreset = (preset) => {
+    if (preset.defaultBodyPoseId) placeCharacterPreset(preset, preset.defaultBodyPoseId);
+    else setPendingPreset(preset);
   };
 
   const handleSetPresetSkinTone = (skinTone) => {
@@ -569,6 +628,71 @@ export default function ComicEditor({ readOnly = false } = {}) {
     });
   };
 
+  const handleSetPresetHairstyleAsset = (hairstyleAssetId) => {
+    if (!selectedCharacterPreset) return;
+    dispatch({
+      type: 'UPDATE_CHARACTER_PRESET',
+      panelIndex: state.activeSelection.panelIndex,
+      instanceId: selectedCharacterPreset.instanceId,
+      updates: { hairstyleAssetId },
+    });
+  };
+
+  const handleSetPresetExpression = (expressionId) => {
+    if (!selectedCharacterPreset) return;
+    dispatch({
+      type: 'UPDATE_CHARACTER_PRESET',
+      panelIndex: state.activeSelection.panelIndex,
+      instanceId: selectedCharacterPreset.instanceId,
+      updates: { expressionId },
+    });
+  };
+
+  // Used by both the Outfit tool (swap costume, keep pose) and the Pose tool (swap pose,
+  // keep costume) — both just point the placement at a different BODY_POSE asset id.
+  const handleSetPresetBodyPose = (bodyPoseId) => {
+    if (!selectedCharacterPreset) return;
+    dispatch({
+      type: 'UPDATE_CHARACTER_PRESET',
+      panelIndex: state.activeSelection.panelIndex,
+      instanceId: selectedCharacterPreset.instanceId,
+      updates: { bodyPoseId },
+    });
+  };
+
+  // Which face (front/3-4) the active placement's body pose actually resolves to — same
+  // priority CharacterPresetRig uses (pose's own view first, then the preset's explicit
+  // defaultFaceView, then whichever face exists) — needed to know which face's saved
+  // hairstyle alignments are relevant, since hairstyle placement is calibrated per-face.
+  const selectedPresetPose = selectedCharacterPreset ? bodyPoses.find((bp) => bp.id === selectedCharacterPreset.bodyPoseId) : null;
+  const resolvedPresetFaceId = selectedCharacterPresetBase ? (
+    (selectedPresetPose?.view === 'THREE_QUARTER' && selectedCharacterPresetBase.threeQuarterFaceId) ? selectedCharacterPresetBase.threeQuarterFaceId
+    : (selectedPresetPose?.view === 'FRONT' && selectedCharacterPresetBase.frontFaceId) ? selectedCharacterPresetBase.frontFaceId
+    : (selectedCharacterPresetBase.defaultFaceView === 'THREE_QUARTER' && selectedCharacterPresetBase.threeQuarterFaceId) ? selectedCharacterPresetBase.threeQuarterFaceId
+    : (selectedCharacterPresetBase.defaultFaceView === 'FRONT' && selectedCharacterPresetBase.frontFaceId) ? selectedCharacterPresetBase.frontFaceId
+    : (selectedCharacterPresetBase.frontFaceId || selectedCharacterPresetBase.threeQuarterFaceId)
+  ) : null;
+
+  // Which view (Front/3-4) the resolved face above actually is — needed to keep eye/mouth
+  // art (which itself comes in front/3-4 variants, e.g. "Eye5" tagged THREE_QUARTER) from
+  // being placed onto the wrong-view face, which reads as the whole face looking "turned"
+  // even though the body pose itself is front-on.
+  const resolvedFaceView = selectedCharacterPresetBase ? (
+    resolvedPresetFaceId === selectedCharacterPresetBase.threeQuarterFaceId ? 'THREE_QUARTER'
+    : resolvedPresetFaceId === selectedCharacterPresetBase.frontFaceId ? 'FRONT'
+    : null
+  ) : null;
+
+  // Hairstyle is calibrated per-asset (not shared across every hairstyle, unlike eye/
+  // mouth), so only hairstyles with a saved Face Builder alignment for this exact face are
+  // offered — picking an uncalibrated one would have nowhere reliable to place it.
+  const [presetHairAlignedIds, setPresetHairAlignedIds] = useState(new Set());
+  useEffect(() => {
+    if (characterMenu !== 'hairstyle' || !selectedCharacterPreset || !resolvedPresetFaceId) { setPresetHairAlignedIds(new Set()); return; }
+    getFacePartAlignmentsPublic(resolvedPresetFaceId)
+      .then((aligns) => setPresetHairAlignedIds(new Set(aligns.filter((a) => a.partType === 'hairstyle').map((a) => a.partAssetId))))
+      .catch(() => setPresetHairAlignedIds(new Set()));
+  }, [characterMenu, selectedCharacterPreset?.instanceId, resolvedPresetFaceId]);
 
   // Reset the character customization sub-menu when it's no longer relevant
   useEffect(() => {
@@ -713,7 +837,10 @@ export default function ComicEditor({ readOnly = false } = {}) {
   const handleFaceAssetSelect = async (asset) => {
     let layout = null;
     if (asset.layoutPath) {
-      try { layout = await fetch(asset.layoutPath).then((r) => r.json()); } catch { /* fall back below */ }
+      try {
+        layout = await fetch(asset.layoutPath).then((r) => r.json());
+        layout = await resolveLayoutFilePaths(layout);
+      } catch { /* fall back below */ }
     }
     const { faceShape, parts } = buildFaceFromLayout(layout, asset);
     const instanceId = genId();
@@ -986,7 +1113,7 @@ export default function ComicEditor({ readOnly = false } = {}) {
                         {characterPresets
                           .filter((p) => !search || p.name.toLowerCase().includes(search.toLowerCase()))
                           .map((preset) => (
-                            <button key={preset.id} title={preset.name} onClick={() => setPendingPreset(preset)} style={styles.faceLibThumb}>
+                            <button key={preset.id} title={preset.name} onClick={() => handlePickPreset(preset)} style={styles.faceLibThumb}>
                               <span style={{ fontSize: 12, fontWeight: 600, textAlign: 'center', padding: 4 }}>{preset.name}</span>
                             </button>
                           ))}
@@ -1059,8 +1186,161 @@ export default function ComicEditor({ readOnly = false } = {}) {
                       </label>
                     </>
                   );
+                })() : characterMenu === 'hairstyle' ? (() => {
+                  const viewLabel = selectedPresetPose?.view ? VIEWS.find((v) => v.id === selectedPresetPose.view)?.label : null;
+                  const options = faceParts.filter((a) =>
+                    a.partType === 'HAIR' && presetHairAlignedIds.has(a.id) &&
+                    (!selectedPresetPose?.view || !a.view || a.view === selectedPresetPose.view)
+                  );
+                  return (
+                    <>
+                      <p style={{ ...styles.overlayHint, marginTop: 0 }}>
+                        Pick a hairstyle for "{selectedCharacterPreset.name}"{viewLabel ? ` (${viewLabel} view)` : ''} — only hairstyles already calibrated for this face in Face Builder are shown.
+                      </p>
+                      {selectedCharacterPreset.hairstyleAssetId && (
+                        <button className="btn btn-sm btn-outline" onClick={() => handleSetPresetHairstyleAsset(null)} style={{ marginBottom: 8 }}>Reset to face's default hairstyle</button>
+                      )}
+                      <div style={styles.faceLibGrid}>
+                        {(() => {
+                          // Match by name, not raw id — CharacterPresetRig auto-resolves a
+                          // stored hairstyleAssetId to its same-name, matching-view sibling when
+                          // the pose's view doesn't match what was originally picked, so the
+                          // active highlight here should reflect what's actually rendered.
+                          const activeName = faceParts.find((a) => a.id === selectedCharacterPreset.hairstyleAssetId)?.name;
+                          return options.map((a) => {
+                            const active = !!activeName && activeName === a.name;
+                            return (
+                              <button key={a.id} title={a.name} onClick={() => handleSetPresetHairstyleAsset(a.id)}
+                                style={{ ...styles.faceLibThumb, ...(active ? { borderColor: '#8B5CF6', borderWidth: 2 } : {}) }}>
+                                <img src={a.filePath} alt={a.name} draggable={false} style={{ width: '100%', height: '100%', objectFit: 'contain', display: 'block' }} />
+                              </button>
+                            );
+                          });
+                        })()}
+                      </div>
+                      {options.length === 0 && (
+                        <p style={styles.overlayHint}>No hairstyles calibrated for this face's {viewLabel || 'current'} view yet — calibrate one in Face Builder first.</p>
+                      )}
+                    </>
+                  );
+                })() : characterMenu === 'outfit' ? (() => {
+                  const currentPoseType = selectedPresetPose?.poseType;
+
+                  // One representative thumbnail (P1) per distinct costume — shown regardless of
+                  // the character's current pose/view, since the outfit picker itself should
+                  // always list every costume; the swap below is what keeps the current pose.
+                  const seenCostumes = new Set();
+                  const costumeOptions = bodyPoses.filter((bp) => {
+                    if (bp.poseType !== 'P1') return false;
+                    const key = costumeKeyOf(bp);
+                    if (seenCostumes.has(key)) return false;
+                    seenCostumes.add(key);
+                    return true;
+                  });
+                  const currentCostumeKey = selectedPresetPose ? costumeKeyOf(selectedPresetPose) : null;
+
+                  // Swap to the SAME pose type the character currently has, not just P1 — e.g.
+                  // if the character is in P2, picking a new costume should land on that
+                  // costume's P2 (placement data — the head box — comes along automatically
+                  // since it's saved per BODY_POSE asset id in Pose Builder). View isn't part of
+                  // the match — whatever view that costume's P2 actually has is the right one.
+                  const handlePick = (rep) => {
+                    const repKey = costumeKeyOf(rep);
+                    const match = bodyPoses.find((bp) =>
+                      costumeKeyOf(bp) === repKey &&
+                      (currentPoseType ? bp.poseType === currentPoseType : true)
+                    ) || rep;
+                    handleSetPresetBodyPose(match.id);
+                  };
+
+                  return (
+                    <>
+                      <p style={{ ...styles.overlayHint, marginTop: 0 }}>
+                        Pick an outfit for "{selectedCharacterPreset.name}" — keeps the current pose ({currentPoseType || 'P1'}).
+                      </p>
+                      <div style={styles.faceLibGrid}>
+                        {costumeOptions.map((rep) => (
+                          <BodyPoseThumb key={rep.id} asset={rep} active={currentCostumeKey === costumeKeyOf(rep)} onClick={() => handlePick(rep)} />
+                        ))}
+                      </div>
+                      {costumeOptions.length === 0 && (
+                        <p style={styles.overlayHint}>No P1 body poses found yet — upload BODY_POSE assets tagged Pose Type "P1".</p>
+                      )}
+                    </>
+                  );
+                })() : characterMenu === 'pose' ? (() => {
+                  // All P1..PN poses sharing the same costume identity as whichever costume is
+                  // currently active (e.g. selecting "Saree" shows every Saree pose — C2P1,
+                  // C2P2, C2P3, ... — regardless of view, since different poses/stances can
+                  // legitimately be front-facing or 3/4-turned; CharacterPresetRig already picks
+                  // the right face for whichever view the selected pose declares).
+                  const currentKey = selectedPresetPose ? costumeKeyOf(selectedPresetPose) : null;
+                  const poseOptions = bodyPoses
+                    .filter((bp) => !currentKey || costumeKeyOf(bp) === currentKey)
+                    .sort((a, b) => poseNumOf(a) - poseNumOf(b));
+
+                  return (
+                    <>
+                      <p style={{ ...styles.overlayHint, marginTop: 0 }}>
+                        Pick a pose for "{selectedCharacterPreset.name}"{selectedPresetPose?.costume ? ` (${selectedPresetPose.costume})` : ''}.
+                      </p>
+                      <div style={styles.faceLibGrid}>
+                        {poseOptions.map((bp) => (
+                          <BodyPoseThumb key={bp.id} asset={bp} active={selectedCharacterPreset.bodyPoseId === bp.id} onClick={() => handleSetPresetBodyPose(bp.id)} />
+                        ))}
+                      </div>
+                      {poseOptions.length === 0 && (
+                        <p style={styles.overlayHint}>No poses found for this costume yet — upload more BODY_POSE assets for it (Pose Type P1, P2, P3, ...).</p>
+                      )}
+                    </>
+                  );
+                })() : characterMenu === 'expression' ? (() => {
+                  // Expressions are saved eye+mouth pairs (Expression Builder); both parts use
+                  // the SHARED_ALIGNMENT_KEY, so whichever face is currently resolved (front or
+                  // 3/4) already has a calibrated box for them. But the eye/mouth art ITSELF
+                  // comes in front/3-4 variants too (e.g. "Eye5" tagged THREE_QUARTER) — only
+                  // offer expressions whose eye asset matches the resolved face's own view, so a
+                  // 3/4-styled eye never ends up on a front face (reads as the whole face
+                  // looking "turned" even though the body pose itself is front-on).
+                  const viewLabel = resolvedFaceView ? VIEWS.find((v) => v.id === resolvedFaceView)?.label : null;
+                  const expressionOptions = savedExpressions.filter((expr) => {
+                    const eyeAsset = faceParts.find((a) => a.id === expr.eyeAssetId);
+                    return !resolvedFaceView || !eyeAsset?.view || eyeAsset.view === resolvedFaceView;
+                  });
+                  return (
+                    <>
+                      <p style={{ ...styles.overlayHint, marginTop: 0 }}>
+                        Pick an expression for "{selectedCharacterPreset.name}"{viewLabel ? ` (${viewLabel} view)` : ''}.
+                      </p>
+                      {selectedCharacterPreset.expressionId && (
+                        <button className="btn btn-sm btn-outline" onClick={() => handleSetPresetExpression(null)} style={{ marginBottom: 8 }}>Reset to face's default expression</button>
+                      )}
+                      <div style={styles.faceLibGrid}>
+                        {(() => {
+                          // Match by name, not raw id — CharacterPresetRig auto-resolves a
+                          // stored expressionId to its same-name, matching-view sibling when
+                          // the pose's view doesn't match what was originally picked, so the
+                          // active highlight here should reflect what's actually rendered.
+                          const activeName = savedExpressions.find((e) => e.id === selectedCharacterPreset.expressionId)?.name;
+                          return expressionOptions.map((expr) => {
+                            const eyeAsset = faceParts.find((a) => a.id === expr.eyeAssetId);
+                            const active = !!activeName && activeName === expr.name;
+                            return (
+                              <button key={expr.id} title={expr.name} onClick={() => handleSetPresetExpression(expr.id)}
+                                style={{ ...styles.faceLibThumb, ...(active ? { borderColor: '#8B5CF6', borderWidth: 2 } : {}) }}>
+                                {eyeAsset && <img src={eyeAsset.filePath} alt={expr.name} draggable={false} style={{ width: '100%', height: '100%', objectFit: 'contain', display: 'block' }} />}
+                              </button>
+                            );
+                          });
+                        })()}
+                      </div>
+                      {expressionOptions.length === 0 && (
+                        <p style={styles.overlayHint}>No expressions calibrated for this face's {viewLabel || 'current'} view yet — create one in Expression Builder using a matching-view eye/mouth.</p>
+                      )}
+                    </>
+                  );
                 })() : (
-                  <p style={styles.overlayHint}>Select "Skin Color", "Hair Color", or "Eye Color" to customize "{selectedCharacterPreset.name}". Other tools aren't available for Character Presets yet.</p>
+                  <p style={styles.overlayHint}>Select "Skin Color", "Hair Color", "Eye Color", "Hairstyle", "Outfit", "Pose", or "Expression" to customize "{selectedCharacterPreset.name}". Other tools aren't available for Character Presets yet.</p>
                 )
               ) : !selectedCharacter ? (
                 <p style={styles.overlayHint}>Select a character in the panel first to use "{selectedCharacterTool?.label}".</p>

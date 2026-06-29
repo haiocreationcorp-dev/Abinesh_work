@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { getAssets, getExpressions, createExpression, deleteExpression } from '../../api/assets.js';
+import { EYE_TYPES, MOUTH_TYPES } from '../../constants/categories.js';
 
 // A reusable eye+mouth combo (e.g. "happy", "angry") that can be swapped onto any
 // FACE_TEMPLATE. Position on a given face comes from the existing FacePartAlignment
@@ -12,6 +13,8 @@ export default function ExpressionBuilder() {
   const [loading, setLoading] = useState(true);
   const [name, setName] = useState('');
   const [eyeAssetId, setEyeAssetId] = useState('');
+  const [eyeTypeFilter, setEyeTypeFilter] = useState('');
+  const [mouthTypeFilter, setMouthTypeFilter] = useState('');
   const [mouthAssetId, setMouthAssetId] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -51,7 +54,11 @@ export default function ExpressionBuilder() {
     refresh();
   };
 
-  const assetName = (list, id) => list.find((a) => a.id === id)?.name;
+  const assetName = (list, id) => {
+    const a = list.find((x) => x.id === id);
+    if (!a) return null;
+    return a.view ? `${a.name} (${a.view === 'THREE_QUARTER' ? '3/4' : 'Front'})` : a.name;
+  };
 
   return (
     <div className="card" style={s.root}>
@@ -64,18 +71,32 @@ export default function ExpressionBuilder() {
           <input required value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Happy, Angry" />
         </div>
         <div className="form-group">
+          <label>Eye Type (filter, optional)</label>
+          <select value={eyeTypeFilter} onChange={(e) => setEyeTypeFilter(e.target.value)}>
+            <option value="">— All Types —</option>
+            {EYE_TYPES.map((t) => <option key={t.id} value={t.id}>{t.label}</option>)}
+          </select>
+        </div>
+        <div className="form-group">
           <label>Eyes *</label>
           <select required value={eyeAssetId} onChange={(e) => setEyeAssetId(e.target.value)}>
             <option value="">— Choose —</option>
-            {eyeParts.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+            {eyeParts.filter((p) => !eyeTypeFilter || p.eyeType === eyeTypeFilter).map((p) => <option key={p.id} value={p.id}>{p.name}{p.view ? ` (${p.view === 'THREE_QUARTER' ? '3/4' : 'Front'})` : ''}</option>)}
           </select>
           {eyeParts.length === 0 && <p style={s.hint}>No FACE_PART assets tagged Part Type "Eyes + Eyebrows" yet.</p>}
+        </div>
+        <div className="form-group">
+          <label>Mouth Type (filter, optional)</label>
+          <select value={mouthTypeFilter} onChange={(e) => setMouthTypeFilter(e.target.value)}>
+            <option value="">— All Types —</option>
+            {MOUTH_TYPES.map((t) => <option key={t.id} value={t.id}>{t.label}</option>)}
+          </select>
         </div>
         <div className="form-group">
           <label>Mouth *</label>
           <select required value={mouthAssetId} onChange={(e) => setMouthAssetId(e.target.value)}>
             <option value="">— Choose —</option>
-            {mouthParts.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+            {mouthParts.filter((p) => !mouthTypeFilter || p.mouthType === mouthTypeFilter).map((p) => <option key={p.id} value={p.id}>{p.name}{p.view ? ` (${p.view === 'THREE_QUARTER' ? '3/4' : 'Front'})` : ''}</option>)}
           </select>
           {mouthParts.length === 0 && <p style={s.hint}>No FACE_PART assets tagged Part Type "Mouth" yet.</p>}
         </div>

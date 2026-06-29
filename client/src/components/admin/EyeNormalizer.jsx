@@ -3,6 +3,7 @@ import { getAssets, replaceAssetFile } from '../../api/assets.js';
 import { paintStroke } from '../../utils/paletteNormalizer.js';
 import { previewEyeMasks, applyEyeMasks, pickDetection } from '../../utils/eyeNormalizer.js';
 import { EYEBROW_REF_COLOR, IRIS_REF_COLOR } from '../../utils/recolorImage.js';
+import { VIEWS } from '../../constants/categories.js';
 
 // Fixed colors — same ones actually saved to the file (EYEBROW_REF_COLOR/IRIS_REF_COLOR
 // in recolorImage.js), so the mask preview and the Result canvas are always identical.
@@ -45,14 +46,17 @@ export default function EyeNormalizer() {
   const [libraryAssets, setLibraryAssets] = useState([]);
   const [libraryLoading, setLibraryLoading] = useState(false);
   const [selectedAssetId, setSelectedAssetId] = useState(null);
+  const [viewFilter, setViewFilter] = useState('');
 
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState('');
 
   useEffect(() => {
     setLibraryLoading(true);
-    getAssets({ category: 'FACE_PART' }).then(setLibraryAssets).finally(() => setLibraryLoading(false));
+    getAssets({ category: 'FACE_PART', partType: 'EYES' }).then(setLibraryAssets).finally(() => setLibraryLoading(false));
   }, []);
+
+  const filteredLibraryAssets = viewFilter ? libraryAssets.filter((a) => a.view === viewFilter) : libraryAssets;
 
   // Redraw the live mask-preview canvas whenever the source, override paints, or preview
   // mode change.
@@ -218,21 +222,31 @@ export default function EyeNormalizer() {
             {libraryOpen ? '▾' : '▸'} {selectedAssetId ? `Loaded: ${fileName}` : 'Pick an EYE asset…'}
           </button>
           {libraryOpen && (
-            libraryLoading ? (
-              <p style={s.hint}>Loading…</p>
-            ) : libraryAssets.length === 0 ? (
-              <p style={s.hint}>No FACE_PART assets found.</p>
-            ) : (
-              <div style={s.grid}>
-                {libraryAssets.map((a) => (
-                  <button key={a.id} title={a.name} onClick={() => handlePickAsset(a)}
-                    style={{ ...s.thumb, ...(selectedAssetId === a.id ? s.thumbActive : {}) }}>
-                    <img src={a.filePath} alt={a.name} style={{ width: 60, height: 60, objectFit: 'contain', display: 'block' }} />
-                    <p style={s.thumbLabel}>{a.name}</p>
+            <>
+              <div style={{ display: 'flex', gap: 6, marginBottom: 8 }}>
+                <button className={`btn btn-sm ${viewFilter === '' ? 'btn-primary' : 'btn-outline'}`} onClick={() => setViewFilter('')}>All</button>
+                {VIEWS.map((v) => (
+                  <button key={v.id} className={`btn btn-sm ${viewFilter === v.id ? 'btn-primary' : 'btn-outline'}`} onClick={() => setViewFilter(v.id)}>
+                    {v.label}
                   </button>
                 ))}
               </div>
-            )
+              {libraryLoading ? (
+                <p style={s.hint}>Loading…</p>
+              ) : filteredLibraryAssets.length === 0 ? (
+                <p style={s.hint}>No eye assets found{viewFilter ? ' for this view' : ''}.</p>
+              ) : (
+                <div style={s.grid}>
+                  {filteredLibraryAssets.map((a) => (
+                    <button key={a.id} title={a.name} onClick={() => handlePickAsset(a)}
+                      style={{ ...s.thumb, ...(selectedAssetId === a.id ? s.thumbActive : {}) }}>
+                      <img src={a.filePath} alt={a.name} style={{ width: 60, height: 60, objectFit: 'contain', display: 'block' }} />
+                      <p style={s.thumbLabel}>{a.name}</p>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </>
           )}
 
           {loaded && (

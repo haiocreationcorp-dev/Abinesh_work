@@ -1,8 +1,8 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
-import { getAssets, deleteAsset, deleteAssets } from '../../api/assets.js';
+import { getAssets, deleteAsset, deleteAssets, renameAsset } from '../../api/assets.js';
 import AssetCard from './AssetCard.jsx';
 
-export default function AssetGrid({ category, tags, search = '', onSelect, adminMode = false }) {
+export default function AssetGrid({ category, tags, search = '', partType, gender, view, poseType, eyeType, mouthType, onSelect, adminMode = false }) {
   const [assets, setAssets] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -14,14 +14,24 @@ export default function AssetGrid({ category, tags, search = '', onSelect, admin
     setLoading(true);
     setError(null);
     setSelected(new Set());
-    getAssets({ category, tags: tags || undefined, search: search || undefined })
+    getAssets({
+      category,
+      tags: tags || undefined,
+      search: search || undefined,
+      partType: partType || undefined,
+      gender: gender || undefined,
+      view: view || undefined,
+      poseType: poseType || undefined,
+      eyeType: eyeType || undefined,
+      mouthType: mouthType || undefined,
+    })
       .then((data) => { setAssets(data); })
       .catch((err) => {
         setError(err?.response?.data?.error || err?.message || 'Failed to load assets');
         setAssets([]);
       })
       .finally(() => setLoading(false));
-  }, [category, tags, search]);
+  }, [category, tags, search, partType, gender, view, poseType, eyeType, mouthType]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -36,6 +46,11 @@ export default function AssetGrid({ category, tags, search = '', onSelect, admin
     await deleteAsset(id);
     setAssets((prev) => prev.filter((a) => a.id !== id));
     setSelected((prev) => { const next = new Set(prev); next.delete(id); return next; });
+  };
+
+  const handleRename = async (id, name) => {
+    const updated = await renameAsset(id, name);
+    setAssets((prev) => prev.map((a) => (a.id === id ? updated : a)));
   };
 
   const handleToggleSelect = (id) => {
@@ -113,6 +128,7 @@ export default function AssetGrid({ category, tags, search = '', onSelect, admin
             category={category}
             onSelect={onSelect}
             onDelete={adminMode ? handleDelete : undefined}
+            onRename={adminMode ? handleRename : undefined}
             isSelected={selected.has(asset.id)}
             onToggleSelect={adminMode ? handleToggleSelect : undefined}
           />

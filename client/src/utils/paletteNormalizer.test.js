@@ -23,7 +23,8 @@ test('normalize ignores pixels outside detection by default', () => {
   const out = new Uint8ClampedArray(src.length);
   normalize(src, out, NARROW_DETECTION, 70, 40, STANDARD_PALETTE);
 
-  assert.deepEqual([out[0], out[1], out[2]], [STANDARD_PALETTE.highlight.r, STANDARD_PALETTE.highlight.g, STANDARD_PALETTE.highlight.b]);
+  // Highlight-brightness pixels fold into the shadow bucket now (see normalize()'s comment).
+  assert.deepEqual([out[0], out[1], out[2]], [STANDARD_PALETTE.shadow.r, STANDARD_PALETTE.shadow.g, STANDARD_PALETTE.shadow.b]);
   assert.deepEqual([out[4], out[5], out[6]], [200, 30, 30]); // untouched
 });
 

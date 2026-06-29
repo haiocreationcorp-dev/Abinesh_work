@@ -4,9 +4,15 @@ import { CATEGORY_IDS } from '../../constants/categories.js';
 import {
   rgbToHsv, normalize, previewMask, countUniqueSkinShades, recolorNormalized,
   thresholdsFromSample, mergeThresholds, hexToRgb, STANDARD_PALETTE, RECOLOR_PRESETS, paintStroke,
-  removeNearWhiteBackground, paintAlphaStroke,
+  removeNearWhiteBackground, paintAlphaStroke, floodFillColorMask, applyColorMaskAlpha,
+  encodeOverrides, decodeOverrides,
   DEFAULT_DETECTION, DEFAULT_HIGH_CUT, DEFAULT_LOW_CUT,
 } from '../../utils/paletteNormalizer.js';
+
+// Color match tolerance for "Pick BG Color" — same default as the white-bg flood-fill
+// (Remove BG), just generalized to any picked color and seeded from the click point
+// instead of the image edges.
+const BG_PICK_TOLERANCE = 30;
 
 // V-cutoff high enough that no detected pixel can ever cross it — effectively disables
 // the highlight bucket. Used once the admin starts picking Base/Shadow samples directly,
@@ -104,6 +110,10 @@ export default function PaletteNormalizer() {
   const [maskBusy, setMaskBusy] = useState(false);
   const [maskMsg, setMaskMsg] = useState('');
   const [bgMsg, setBgMsg] = useState('');
+  // Pending "Pick BG Color" selection — set after a click, cleared on Yes/No. Holds the
+  // mask so the highlight overlay and the actual delete use the exact same pixels.
+  const [bgPickPending, setBgPickPending] = useState(null); // { mask, count } | null
+  const bgPickOverlayCanvasRef = useRef(null);
   // Detection sliders / output palette are tucked behind this toggle — the brush/eraser
   // workflow doesn't need them visible all the time.
   const [toolsOpen, setToolsOpen] = useState(false);
@@ -121,13 +131,13 @@ export default function PaletteNormalizer() {
     const ctx = canvas.getContext('2d');
     if (showMask) {
       const out = ctx.createImageData(originalImageDataRef.current.width, originalImageDataRef.current.height);
-      previewMask(originalImageDataRef.current.data, out.data, detection, maskOverrideRef.current);
+      previewMask(originalImageDataRef.current.data, out.data, detection, maskOverrideRef.current, highCut, lowCut);
       ctx.putImageData(out, 0, 0);
     } else {
       ctx.putImageData(originalImageDataRef.current, 0, 0);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [loaded, showMask, detection, overrideTick]);
+  }, [loaded, showMask, detection, overrideTick, highCut, lowCut]);
 
   // Recompute the Normalized canvas whenever detection/mapping/palette/mode/overrides change.
   useEffect(() => {
@@ -156,6 +166,25 @@ export default function PaletteNormalizer() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loaded, detection, highCut, lowCut, paletteHex, alreadyNormalized, overrideTick]);
 
+  // Draws the red highlight overlay for a pending "Pick BG Color" selection. Cleared
+  // (canvas wiped) whenever there's nothing pending.
+  useEffect(() => {
+    const canvas = bgPickOverlayCanvasRef.current;
+    if (!canvas || !originalImageDataRef.current) return;
+    const { width, height } = originalImageDataRef.current;
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext('2d');
+    ctx.clearRect(0, 0, width, height);
+    if (!bgPickPending) return;
+    const out = ctx.createImageData(width, height);
+    const { mask } = bgPickPending;
+    for (let p = 0; p < mask.length; p++) {
+      if (mask[p]) { out.data[p * 4] = 239; out.data[p * 4 + 1] = 68; out.data[p * 4 + 2] = 68; out.data[p * 4 + 3] = 170; }
+    }
+    ctx.putImageData(out, 0, 0);
+  }, [bgPickPending]);
+
   // Recompute the Recolored canvas whenever the normalized result or active preset changes.
   useEffect(() => {
     if (!normalizedImageDataRef.current) return;
@@ -176,7 +205,9 @@ export default function PaletteNormalizer() {
 
   // Shared image-loading core — used for both ad-hoc file uploads and picking an
   // existing library asset (loaded from its filePath URL instead of a blob URL).
-  const loadImageFromSrc = (src, displayName, revokeAfter) => {
+  // `savedOverrideRuns` restores a previously-saved brush/eraser correction map (see
+  // encodeOverrides/decodeOverrides) — null for a fresh ad-hoc file with nothing to restore.
+  const loadImageFromSrc = (src, displayName, revokeAfter, savedOverrideRuns = null) => {
     const img = new Image();
     img.crossOrigin = 'anonymous';
     img.onload = () => {
@@ -189,13 +220,16 @@ export default function PaletteNormalizer() {
       oCtx.drawImage(img, 0, 0);
       originalImageDataRef.current = oCtx.getImageData(0, 0, img.width, img.height);
       normalizedImageDataRef.current = null;
-      maskOverrideRef.current = new Int8Array(img.width * img.height);
+      maskOverrideRef.current = savedOverrideRuns
+        ? decodeOverrides(savedOverrideRuns, img.width * img.height)
+        : new Int8Array(img.width * img.height);
       undoStackRef.current = [];
       redoStackRef.current = [];
       setOverrideTick((t) => t + 1);
       setHistoryTick((t) => t + 1);
       setBaseSample(null);
       setShadowSample(null);
+      setBgPickPending(null);
       fileNameRef.current = displayName;
       setFileName(displayName);
       setStats('');
@@ -244,7 +278,7 @@ export default function PaletteNormalizer() {
       setAlreadyNormalized(false);
     }
 
-    loadImageFromSrc(asset.filePath, asset.name, false);
+    loadImageFromSrc(asset.filePath, asset.name, false, saved?.overrides ?? null);
   };
 
   // Shared pixel-coordinate conversion for both the eyedropper and the brush/eraser.
@@ -268,13 +302,34 @@ export default function PaletteNormalizer() {
   };
 
   const handleEyedropperClick = (e) => {
-    if (canvasTool !== 'eyedropper-base' && canvasTool !== 'eyedropper-shadow') return;
+    if (!['eyedropper-base', 'eyedropper-shadow', 'bg-pick'].includes(canvasTool)) return;
     if (!originalImageDataRef.current) return;
     const { x, y, width, height } = canvasEventToPixel(e);
     if (x < 0 || y < 0 || x >= width || y >= height) return;
     const i = (y * width + x) * 4;
     const { data } = originalImageDataRef.current;
-    if (data[i + 3] === 0) return;
+    if (data[i + 3] === 0) {
+      if (canvasTool === 'bg-pick') {
+        setBgPickPending(null);
+        setBgMsg('That spot is already transparent — there\'s no background pixel there to pick.');
+      }
+      return;
+    }
+
+    if (canvasTool === 'bg-pick') {
+      const mask = floodFillColorMask(data, width, height, x, y, BG_PICK_TOLERANCE);
+      let count = 0;
+      for (let p = 0; p < mask.length; p++) if (mask[p]) count++;
+      if (count <= 1) {
+        setBgPickPending(null);
+        setBgMsg('No connected pixels of a similar color around that spot — try a different click point.');
+        return;
+      }
+      setBgMsg('');
+      setBgPickPending({ mask, count });
+      return;
+    }
+
     const sample = rgbToHsv(data[i], data[i + 1], data[i + 2]);
     if (canvasTool === 'eyedropper-base') {
       setBaseSample(sample);
@@ -284,6 +339,18 @@ export default function PaletteNormalizer() {
       applySamples(baseSample, sample);
     }
   };
+
+  const confirmBgPick = () => {
+    if (!bgPickPending || !originalImageDataRef.current) return;
+    pushUndoSnapshot();
+    const erased = applyColorMaskAlpha(originalImageDataRef.current.data, bgPickPending.mask);
+    setBgPickPending(null);
+    setCanvasTool('none');
+    setOverrideTick((t) => t + 1);
+    setBgMsg(`Erased ${erased} background pixels.`);
+  };
+
+  const cancelBgPick = () => setBgPickPending(null);
 
   // Brush (1, force-include) / Eraser (-1, force-exclude) act on the skin-mask override
   // map — the only way to separate two regions sharing the same RGB value. bg-erase /
@@ -439,7 +506,10 @@ export default function PaletteNormalizer() {
     }, 'image/png');
   };
 
-  const buildMaskRecipe = () => ({ detection, highCut, lowCut, palette: paletteHex, alreadyNormalized });
+  const buildMaskRecipe = () => ({
+    detection, highCut, lowCut, palette: paletteHex, alreadyNormalized,
+    overrides: encodeOverrides(maskOverrideRef.current),
+  });
 
   // Creates a brand-new asset from the rendered canvas — used when working from an
   // ad-hoc file (there's no existing asset to attach a mask to yet). The mask recipe
@@ -487,7 +557,10 @@ export default function PaletteNormalizer() {
         const fd = new FormData();
         fd.append('file', blob, `${saveName || 'asset'}.png`);
         fd.append('mask', JSON.stringify(buildMaskRecipe()));
-        await replaceAssetFile(selectedAssetId, fd);
+        const updated = await replaceAssetFile(selectedAssetId, fd);
+        // Patch the library list in place so the "mask saved" dot shows up immediately,
+        // instead of only after the library panel is closed and reopened.
+        setLibraryAssets((prev) => prev.map((a) => (a.id === selectedAssetId ? { ...a, ...updated } : a)));
         setMaskMsg('✓ Mask applied — asset image updated in place.');
       } catch (err) {
         setMaskMsg(err.response?.data?.error || 'Save failed');
@@ -574,6 +647,15 @@ export default function PaletteNormalizer() {
           >
             ↩ Restore BG
           </button>
+          <button
+            type="button"
+            style={{ ...s.btn, ...(canvasTool === 'bg-pick' ? s.btnActive : {}) }}
+            onClick={() => { setCanvasTool((t) => (t === 'bg-pick' ? 'none' : 'bg-pick')); setBgPickPending(null); }}
+            disabled={!loaded}
+            title="Click a pixel to pick the background color — highlights every connected matching pixel around that spot, then asks before deleting"
+          >
+            🎯 Pick BG Color
+          </button>
         </div>
 
         <div style={s.toolbarGroup}>
@@ -587,7 +669,13 @@ export default function PaletteNormalizer() {
         </div>
       </header>
 
-      {bgMsg && <p style={s.bgMsg}>{bgMsg}</p>}
+      {bgPickPending ? (
+        <div style={s.bgPickConfirm}>
+          <span>Found {bgPickPending.count.toLocaleString()} background-colored pixels (highlighted in red). Delete them?</span>
+          <button type="button" style={s.btn} onClick={confirmBgPick}>Yes, delete</button>
+          <button type="button" style={s.btn} onClick={cancelBgPick}>No, cancel</button>
+        </div>
+      ) : bgMsg && <p style={s.bgMsg}>{bgMsg}</p>}
 
       {libraryOpen && (
         <div style={s.libraryPanel}>
@@ -610,10 +698,10 @@ export default function PaletteNormalizer() {
           ) : (
             <div style={s.libraryGrid}>
               {libraryAssets.map((asset) => (
-                <button key={asset.id} type="button" style={s.libraryThumb} title={asset.name} onClick={() => handlePickAsset(asset)}>
+                <button key={asset.id} type="button" style={s.libraryThumb} title={asset.skinThresholds ? `${asset.name} (mask saved)` : asset.name} onClick={() => handlePickAsset(asset)}>
                   <img src={asset.filePath} alt={asset.name} style={s.libraryThumbImg} />
                   <span style={s.libraryThumbLabel}>{asset.name}</span>
-                  {asset.skinThresholds && <span style={s.libraryMaskTag}>mask saved</span>}
+                  {asset.skinThresholds && <span style={s.libraryMaskDot} />}
                 </button>
               ))}
             </div>
@@ -635,6 +723,7 @@ export default function PaletteNormalizer() {
               onMouseUp={stopPainting}
               onMouseLeave={handleCanvasMouseLeave}
             />
+            <canvas ref={bgPickOverlayCanvasRef} style={s.bgPickOverlay} />
             {brushCursor && (
               <div
                 style={{
@@ -803,6 +892,14 @@ const s = {
   h1: { fontSize: 16, margin: 0 },
   fileName: { fontSize: 11, color: '#999', display: 'block', marginTop: 4 },
   bgMsg: { fontSize: 12, color: '#7fd17f', textAlign: 'center', margin: '8px 16px 0' },
+  bgPickConfirm: {
+    display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 12,
+    fontSize: 12, color: '#fff', background: '#3a2020', border: '1px solid #c0392b',
+    margin: '8px 16px 0', padding: '8px 12px', borderRadius: 6,
+  },
+  bgPickOverlay: {
+    position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', pointerEvents: 'none',
+  },
   fileLoadSide: { fontSize: 12, display: 'flex', flexDirection: 'column', gap: 4, marginTop: 8 },
   libraryPanel: { padding: 12, background: '#1f1f24', borderBottom: '1px solid #333' },
   libraryCategoryRow: { display: 'flex', gap: 8, marginBottom: 10 },
@@ -810,7 +907,10 @@ const s = {
   libraryThumb: { display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, width: 96, padding: 6, background: '#2a2a31', border: '1px solid #3a3a42', borderRadius: 4, cursor: 'pointer', position: 'relative' },
   libraryThumbImg: { width: 80, height: 80, objectFit: 'contain', background: '#fff', borderRadius: 4 },
   libraryThumbLabel: { fontSize: 10, color: '#ddd', textAlign: 'center', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', width: '100%' },
-  libraryMaskTag: { fontSize: 9, color: '#7fd17f', position: 'absolute', top: 2, right: 4 },
+  libraryMaskDot: {
+    position: 'absolute', bottom: 4, right: 4, width: 9, height: 9, borderRadius: '50%',
+    background: '#22c55e', border: '1.5px solid #15151a', boxShadow: '0 0 4px rgba(34,197,94,0.7)',
+  },
   mainRow: { display: 'flex', gap: 16, padding: 16, alignItems: 'flex-start' },
   bigStage: { flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', minWidth: 0 },
   sideCol: { width: 200, flexShrink: 0, display: 'flex', flexDirection: 'column', maxHeight: '80vh', overflowY: 'auto' },

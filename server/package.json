@@ -9,6 +9,13 @@
     "db:migrate": "prisma migrate dev --name init",
     "db:studio": "prisma studio",
     "db:seed": "node prisma/seed.js",
+    "db:backup": "node scripts/backupDb.js",
+    "db:export": "node scripts/exportData.js",
+    "files:backup": "node scripts/backupUploads.js",
+    "env:backup": "node scripts/backupEnv.js",
+    "backup:all": "node scripts/backupDb.js && node scripts/exportData.js && node scripts/backupUploads.js && node scripts/backupEnv.js",
+    "db:restore:test": "node scripts/restoreDb.js",
+    "files:restore:test": "node scripts/restoreUploads.js",
     "test": "node --test src/utils/*.test.js"
   },
   "dependencies": {

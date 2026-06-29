@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { loadTrimRect, trimmedRect } from '../../utils/trimRect.js';
 import { hexToRgb } from '../../lighting/lightingEngine.js';
-import { classifyFacePart } from '../../utils/faceLayout.js';
+import { classifyFacePart, resolveLayoutFilePaths } from '../../utils/faceLayout.js';
 import { recolorSkin } from '../../utils/recolorImage.js';
 
 const DRESS_CANVAS_W = 400;
@@ -140,6 +140,7 @@ export default function DressRig({ character, onSize }) {
     setTrims({});
     fetch(character.layoutPath)
       .then((r) => r.json())
+      .then(resolveLayoutFilePaths)
       .then(setLayout)
       .catch(() => {});
   }, [character.layoutPath]);

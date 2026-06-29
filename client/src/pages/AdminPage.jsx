@@ -15,7 +15,8 @@ import AssetGrid from '../components/library/AssetGrid.jsx';
 import ManageUsersPanel from '../components/admin/ManageUsersPanel.jsx';
 import InstitutionsPanel from '../components/admin/InstitutionsPanel.jsx';
 import AdminNavDrawer from '../components/admin/AdminNavDrawer.jsx';
-import { CATEGORY_IDS } from '../constants/categories.js';
+import { triggerBackup } from '../api/assets.js';
+import { CATEGORY_IDS, FACE_PART_TYPES, GENDERS, VIEWS, POSE_TYPES, EYE_TYPES, MOUTH_TYPES } from '../constants/categories.js';
 
 function IconSun() {
   return (
@@ -86,6 +87,23 @@ const NAV_GROUPS = {
   admin: { title: 'Administration', items: ADMINISTRATION_TABS },
 };
 
+// One row of "All" + option chips for a single-select filter — used for the
+// Browse Assets sub-category filters (Part Type, Gender, View, Pose Type).
+function FilterChipRow({ value, onChange, options }) {
+  return (
+    <div style={styles.categoryRow}>
+      <button className={`btn btn-sm ${value === '' ? 'btn-primary' : 'btn-outline'}`} onClick={() => onChange('')}>
+        All
+      </button>
+      {options.map((o) => (
+        <button key={o.id} className={`btn btn-sm ${value === o.id ? 'btn-primary' : 'btn-outline'}`} onClick={() => onChange(o.id)}>
+          {o.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 export default function AdminPage() {
   const { mode, toggle } = useUITheme();
   const [searchParams] = useSearchParams();
@@ -94,10 +112,37 @@ export default function AdminPage() {
   const initialTab = Number(searchParams.get('tab'));
   const [tab, setTab] = useState(Number.isInteger(initialTab) && initialTab >= 0 && initialTab < TABS.length ? initialTab : 0);
   const [category, setCategory] = useState('FACE_PART');
+  const [partType, setPartType] = useState('');
+  const [gender, setGender] = useState('');
+  const [view, setView] = useState('');
+  const [poseType, setPoseType] = useState('');
+  const [eyeType, setEyeType] = useState('');
+  const [mouthType, setMouthType] = useState('');
   const [fbMode, setFbMode] = useState('face');
+  const [backupStatus, setBackupStatus] = useState('idle'); // idle | running | done | error
+  const [backupMsg, setBackupMsg] = useState('');
 
   const toggleNav = (key) => setNavOpen((cur) => (cur === key ? null : key));
   const activeGroup = navOpen ? NAV_GROUPS[navOpen] : NAV_GROUPS.content;
+
+  const handleBackup = async () => {
+    setBackupStatus('running');
+    setBackupMsg('');
+    try {
+      const result = await triggerBackup();
+      if (result.ok) {
+        setBackupStatus('done');
+        setBackupMsg('Backup complete');
+      } else {
+        setBackupStatus('error');
+        setBackupMsg(result.dbResult?.output || result.dataResult?.output || result.filesResult?.output || result.envResult?.output || 'Backup failed');
+      }
+    } catch (err) {
+      setBackupStatus('error');
+      setBackupMsg(err.response?.data?.error || 'Backup failed');
+    }
+    setTimeout(() => setBackupStatus('idle'), 4000);
+  };
 
   return (
     <div style={{ minHeight: '100vh', background: 'var(--light)' }}>
@@ -115,6 +160,16 @@ export default function AdminPage() {
         <Link to="/dashboard" style={styles.brandCenter}>BharathComic</Link>
 
         <div style={styles.rightGroup}>
+          {backupMsg && <span style={{ fontSize: 12, color: backupStatus === 'error' ? 'var(--danger)' : 'var(--success)' }}>{backupMsg}</span>}
+          <button
+            onClick={handleBackup}
+            disabled={backupStatus === 'running'}
+            title="Back up the database now (pg_dump + JSON export)"
+            style={styles.backupBtn(backupStatus === 'running')}
+          >
+            💾 {backupStatus === 'running' ? 'Backing up…' : 'Backup Now'}
+          </button>
+
           <div style={styles.searchWrap} title="Coming soon">
             <IconSearch />
             <input style={styles.searchInput} placeholder="Search comics, users, institutions…" disabled />
@@ -184,12 +239,47 @@ export default function AdminPage() {
             <div>
               <div style={styles.categoryRow}>
                 {CATEGORY_IDS.map((c) => (
-                  <button key={c} className={`btn btn-sm ${category === c ? 'btn-primary' : 'btn-outline'}`} onClick={() => setCategory(c)}>
+                  <button
+                    key={c}
+                    className={`btn btn-sm ${category === c ? 'btn-primary' : 'btn-outline'}`}
+                    onClick={() => { setCategory(c); setPartType(''); setGender(''); setView(''); setPoseType(''); setEyeType(''); setMouthType(''); }}
+                  >
                     {c}
                   </button>
                 ))}
               </div>
-              <AssetGrid category={category} adminMode />
+              {category === 'FACE_PART' && (
+                <>
+                  <FilterChipRow value={partType} onChange={(v) => { setPartType(v); if (v !== 'EYES') setEyeType(''); if (v !== 'MOUTH') setMouthType(''); }} options={FACE_PART_TYPES} />
+                  <FilterChipRow value={gender} onChange={setGender} options={GENDERS} />
+                  <FilterChipRow value={view} onChange={setView} options={VIEWS} />
+                  {partType === 'EYES' && (
+                    <FilterChipRow value={eyeType} onChange={setEyeType} options={EYE_TYPES} />
+                  )}
+                  {partType === 'MOUTH' && (
+                    <FilterChipRow value={mouthType} onChange={setMouthType} options={MOUTH_TYPES} />
+                  )}
+                </>
+              )}
+              {category === 'FACE_TEMPLATE' && (
+                <FilterChipRow value={view} onChange={setView} options={VIEWS} />
+              )}
+              {category === 'BODY_POSE' && (
+                <>
+                  <FilterChipRow value={poseType} onChange={setPoseType} options={POSE_TYPES} />
+                  <FilterChipRow value={view} onChange={setView} options={VIEWS} />
+                </>
+              )}
+              <AssetGrid
+                category={category}
+                partType={category === 'FACE_PART' ? partType : ''}
+                gender={category === 'FACE_PART' ? gender : ''}
+                view={['FACE_PART', 'FACE_TEMPLATE', 'BODY_POSE'].includes(category) ? view : ''}
+                poseType={category === 'BODY_POSE' ? poseType : ''}
+                eyeType={category === 'FACE_PART' && partType === 'EYES' ? eyeType : ''}
+                mouthType={category === 'FACE_PART' && partType === 'MOUTH' ? mouthType : ''}
+                adminMode
+              />
             </div>
           )}
 
@@ -247,5 +337,10 @@ const styles = {
   content: { padding: '32px 40px' },
   contentInner: { maxWidth: 1100, margin: '0 auto' },
   tabs: { display: 'flex', gap: 8, flexWrap: 'wrap' },
+  backupBtn: (disabled) => ({
+    background: disabled ? '#FCA5A5' : '#DC2626', color: '#fff', border: 'none',
+    borderRadius: 8, padding: '8px 16px', fontSize: 13, fontWeight: 700,
+    cursor: disabled ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', gap: 6,
+  }),
   categoryRow: { display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 20 },
 };

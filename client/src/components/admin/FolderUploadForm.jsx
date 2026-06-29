@@ -1,11 +1,8 @@
 import { useState, useRef } from 'react';
 import { uploadFolder } from '../../api/assets.js';
-import { CATEGORY_IDS as CATEGORIES, BG_SUBCATEGORIES } from '../../constants/categories.js';
-import SkinMaskTuner from './SkinMaskTuner.jsx';
-import { DEFAULT_SKIN_THRESHOLDS } from '../../utils/skinMaskPreview.js';
+import { CATEGORY_IDS as CATEGORIES, BG_SUBCATEGORIES, VIEWS, FACE_PART_TYPES, GENDERS, POSE_TYPES, EYE_TYPES, MOUTH_TYPES } from '../../constants/categories.js';
 
 const ALLOWED_EXTS = ['.svg', '.png', '.jpg', '.jpeg', '.gif', '.webp', '.mp3', '.wav', '.ogg', '.m4a'];
-const SKIN_NORMALIZABLE_CATEGORIES = ['FACE_PART', 'BODY_POSE'];
 
 const FOLDER_CATEGORY_MAP = {
   // FACE_PART
@@ -47,14 +44,24 @@ export default function FolderUploadForm() {
   const [folderName, setFolderName] = useState('');
   const [category, setCategory] = useState('FACE_PART');
   const [bgSubcategory, setBgSubcategory] = useState('');
-  const [removeWhiteBg, setRemoveWhiteBg] = useState(false);
-  const [normalizeSkin, setNormalizeSkin] = useState(false);
-  const [skinThresholds, setSkinThresholds] = useState(DEFAULT_SKIN_THRESHOLDS);
+  // Per-category structured metadata (applies to the whole batch, same as view/bgSubcategory).
+  const [partType, setPartType] = useState('');
+  const [view, setView] = useState('');
+  const [gender, setGender] = useState('');
+  const [eyeType, setEyeType] = useState('');
+  const [mouthType, setMouthType] = useState('');
+  const [faceFamily, setFaceFamily] = useState('');
+  const [costume, setCostume] = useState('');
+  const [poseType, setPoseType] = useState('');
   const [autoDetected, setAutoDetected] = useState(false);
   const [progress, setProgress] = useState(null);
   const [result, setResult] = useState(null);
   const [error, setError] = useState('');
   const inputRef = useRef(null);
+
+  const resetMetadataFields = () => {
+    setPartType(''); setView(''); setGender(''); setEyeType(''); setMouthType(''); setFaceFamily(''); setCostume(''); setPoseType('');
+  };
 
   const handleFolderChange = (e) => {
     const selected = Array.from(e.target.files);
@@ -98,10 +105,21 @@ export default function FolderUploadForm() {
     fd.append('category', category);
     fd.append('folderName', folderName);
     if (category === 'BACKGROUND' && bgSubcategory) fd.append('tags', bgSubcategory);
-    if (removeWhiteBg) fd.append('removeWhiteBg', 'true');
-    if (normalizeSkin) {
-      fd.append('normalizeSkin', 'true');
-      fd.append('skinThresholds', JSON.stringify(skinThresholds));
+    if (category === 'FACE_PART') {
+      if (partType) fd.append('partType', partType);
+      if (view) fd.append('view', view);
+      if (gender) fd.append('gender', gender);
+      if (partType === 'EYES' && eyeType) fd.append('eyeType', eyeType);
+      if (partType === 'MOUTH' && mouthType) fd.append('mouthType', mouthType);
+    }
+    if (category === 'FACE_TEMPLATE') {
+      if (faceFamily) fd.append('faceFamily', faceFamily);
+      if (view) fd.append('view', view);
+    }
+    if (category === 'BODY_POSE') {
+      if (costume) fd.append('costume', costume);
+      if (poseType) fd.append('poseType', poseType);
+      if (view) fd.append('view', view);
     }
     files.forEach((f) => fd.append('files', f));
 
@@ -124,9 +142,7 @@ export default function FolderUploadForm() {
     setFolderName('');
     setCategory('FACE_PART');
     setBgSubcategory('');
-    setRemoveWhiteBg(false);
-    setNormalizeSkin(false);
-    setSkinThresholds(DEFAULT_SKIN_THRESHOLDS);
+    resetMetadataFields();
     setAutoDetected(false);
     setProgress(null);
     setResult(null);
@@ -170,7 +186,7 @@ export default function FolderUploadForm() {
       {/* Category */}
       <div className="form-group">
         <label>Category {autoDetected ? '(auto-detected — override if needed)' : '(choose manually)'}</label>
-        <select value={category} onChange={(e) => { setCategory(e.target.value); setAutoDetected(false); setBgSubcategory(''); }}>
+        <select value={category} onChange={(e) => { setCategory(e.target.value); setAutoDetected(false); setBgSubcategory(''); resetMetadataFields(); }}>
           {CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
         </select>
       </div>
@@ -186,51 +202,108 @@ export default function FolderUploadForm() {
         </div>
       )}
 
-      {/* Remove white background — face-part / body-pose uploads only */}
-      {SKIN_NORMALIZABLE_CATEGORIES.includes(category) && (
-        <div className="form-group">
-          <label style={s.checkboxLabel}>
-            <input
-              type="checkbox"
-              checked={removeWhiteBg}
-              onChange={(e) => setRemoveWhiteBg(e.target.checked)}
-              style={{ marginRight: 8 }}
-            />
-            Remove white background from all files
-          </label>
-          {removeWhiteBg && (
+      {/* Per-category structured metadata — applies to every file in this folder */}
+      {category === 'FACE_PART' && (
+        <>
+          <div className="form-group">
+            <label>Part Type (all files in this folder will be tagged)</label>
+            <select value={partType} onChange={(e) => setPartType(e.target.value)}>
+              <option value="">— None —</option>
+              {FACE_PART_TYPES.map((t) => <option key={t.id} value={t.id}>{t.label}</option>)}
+            </select>
+          </div>
+          <div className="form-group">
+            <label>View (all files in this folder will be tagged)</label>
+            <select value={view} onChange={(e) => setView(e.target.value)}>
+              <option value="">— None —</option>
+              {VIEWS.map((v) => <option key={v.id} value={v.id}>{v.label}</option>)}
+            </select>
             <p style={s.checkboxHint}>
-              White/near-white pixels connected to each image's edges will be made transparent. White areas inside are preserved. Output as WebP.
+              Set this when the whole folder is either all front-facing or all 3/4-angle art,
+              so front and 3/4 variants of the same name are kept as separate assets.
             </p>
+          </div>
+          <div className="form-group">
+            <label>Gender (optional)</label>
+            <select value={gender} onChange={(e) => setGender(e.target.value)}>
+              <option value="">— None —</option>
+              {GENDERS.map((g) => <option key={g.id} value={g.id}>{g.label}</option>)}
+            </select>
+          </div>
+          {partType === 'EYES' && (
+            <div className="form-group">
+              <label>Eye Type (optional)</label>
+              <select value={eyeType} onChange={(e) => setEyeType(e.target.value)}>
+                <option value="">— None —</option>
+                {EYE_TYPES.map((t) => <option key={t.id} value={t.id}>{t.label}</option>)}
+              </select>
+            </div>
           )}
-        </div>
+          {partType === 'MOUTH' && (
+            <div className="form-group">
+              <label>Mouth Type (optional)</label>
+              <select value={mouthType} onChange={(e) => setMouthType(e.target.value)}>
+                <option value="">— None —</option>
+                {MOUTH_TYPES.map((t) => <option key={t.id} value={t.id}>{t.label}</option>)}
+              </select>
+            </div>
+          )}
+        </>
       )}
 
-      {/* Normalize skin tones — face-part / body-pose uploads */}
-      {SKIN_NORMALIZABLE_CATEGORIES.includes(category) && (
-        <div className="form-group">
-          <label style={s.checkboxLabel}>
+      {category === 'FACE_TEMPLATE' && (
+        <>
+          <div className="form-group">
+            <label>Face Family (all files in this folder will be tagged)</label>
             <input
-              type="checkbox"
-              checked={normalizeSkin}
-              onChange={(e) => setNormalizeSkin(e.target.checked)}
-              style={{ marginRight: 8 }}
+              value={faceFamily}
+              onChange={(e) => setFaceFamily(e.target.value)}
+              placeholder="e.g. Rahul, Teacher"
             />
-            Normalize skin tones for all files
-          </label>
-          {normalizeSkin && (
-            <>
-              <p style={s.checkboxHint}>
-                Detected skin-toned pixels are quantized down to 3 flat reference tones so the
-                Comic UI's Skin Color tool can recolor them. Required for gradient/anti-aliased art.
-                The same thresholds, tuned below against the first file, apply to the whole batch.
-              </p>
-              {files.length > 0 && (
-                <SkinMaskTuner file={files[0]} thresholds={skinThresholds} onChange={setSkinThresholds} />
-              )}
-            </>
-          )}
-        </div>
+          </div>
+          <div className="form-group">
+            <label>View (all files in this folder will be tagged)</label>
+            <select value={view} onChange={(e) => setView(e.target.value)}>
+              <option value="">— None —</option>
+              {VIEWS.map((v) => <option key={v.id} value={v.id}>{v.label}</option>)}
+            </select>
+            <p style={s.checkboxHint}>
+              Set this when the whole folder is either all front-facing or all 3/4-angle art,
+              so front and 3/4 variants of the same name are kept as separate assets.
+            </p>
+          </div>
+        </>
+      )}
+
+      {category === 'BODY_POSE' && (
+        <>
+          <div className="form-group">
+            <label>Costume (all files in this folder will be tagged)</label>
+            <input
+              value={costume}
+              onChange={(e) => setCostume(e.target.value)}
+              placeholder="e.g. Student, Police, Teacher"
+            />
+          </div>
+          <div className="form-group">
+            <label>Pose Type (all files in this folder will be tagged)</label>
+            <select value={poseType} onChange={(e) => setPoseType(e.target.value)}>
+              <option value="">— None —</option>
+              {POSE_TYPES.map((p) => <option key={p.id} value={p.id}>{p.label}</option>)}
+            </select>
+          </div>
+          <div className="form-group">
+            <label>View (all files in this folder will be tagged)</label>
+            <select value={view} onChange={(e) => setView(e.target.value)}>
+              <option value="">— None —</option>
+              {VIEWS.map((v) => <option key={v.id} value={v.id}>{v.label}</option>)}
+            </select>
+            <p style={s.checkboxHint}>
+              Set this when the whole folder is either all front-facing or all 3/4-angle art,
+              so front and 3/4 variants of the same name are kept as separate assets.
+            </p>
+          </div>
+        </>
       )}
 
       {/* Skipped files warning */}
@@ -251,6 +324,7 @@ export default function FolderUploadForm() {
           <div style={s.previewHeader}>
             {files.length} file{files.length !== 1 ? 's' : ''} ready to upload
             {' '}from <strong>{folderName || 'folder'}</strong> → <strong>{category}</strong>
+            {view && <> (<strong>{VIEWS.find((v) => v.id === view)?.label}</strong>)</>}
           </div>
           <div style={s.fileList}>
             {files.slice(0, 8).map((f) => (
@@ -384,6 +458,5 @@ const s = {
   errRow: { display: 'flex', gap: 8, fontSize: 12, alignItems: 'flex-start' },
   errFile: { color: '#374151', fontWeight: 500, fontFamily: 'monospace', minWidth: 140 },
   errMsg: { color: '#dc2626' },
-  checkboxLabel: { display: 'flex', alignItems: 'center', fontSize: 13, color: 'var(--text)', cursor: 'pointer' },
   checkboxHint: { fontSize: 12, color: 'var(--mid)', marginTop: 6, lineHeight: 1.5 },
 };

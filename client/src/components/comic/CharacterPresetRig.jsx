@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
-import { getCharacterPresets, getExpressions, getAssetById, getFacePartAlignmentsPublic } from '../../api/assets.js';
-import { buildFaceFromLayout, computeFaceContentBounds, FACE_CANVAS_W, FACE_CANVAS_H } from '../../utils/faceLayout.js';
+import { getCharacterPresets, getExpressions, getAssetById, getFacePartAlignmentsPublic, getAssets } from '../../api/assets.js';
+import { buildFaceFromLayout, computeFaceContentBounds, resolveLayoutFilePaths, orderFaceParts, FACE_CANVAS_W, FACE_CANVAS_H } from '../../utils/faceLayout.js';
 import { loadTrimRect, trimmedRect } from '../../utils/trimRect.js';
 import { hexToRgb } from '../../lighting/lightingEngine.js';
 import { recolorSkin, recolorEyeAsset } from '../../utils/recolorImage.js';
@@ -79,7 +79,14 @@ function CPPart({ part, hairColor, skinTone, eyeColors }) {
 // both the body image and the face shape to the preset's skin tone (plus a hair-color
 // tint on the hairstyle part) — all via the existing exact-match recolor/alignment
 // mechanisms, nothing new there. instance = { presetId, bodyPoseId }.
-export default function CharacterPresetRig({ instance }) {
+//
+// `presetOverride` lets a caller render a live preview of a NOT-YET-SAVED preset (e.g.
+// Character Preset Builder, while the admin is still picking options) — when provided, it's
+// used directly instead of fetching+looking up a saved preset by instance.presetId.
+// `headBoxOverride` lets a caller (Pose Builder) supply a head box that hasn't been saved
+// yet — e.g. while live-dragging the placement box — instead of always fetching the saved
+// FacePartAlignment for instance.bodyPoseId. Takes priority over the fetched one when set.
+export default function CharacterPresetRig({ instance, presetOverride, headBoxOverride, maxW = MAX_W, maxH = MAX_H }) {
   const [preset, setPreset] = useState(null);
   const [bodyPose, setBodyPose] = useState(null);
   const [face, setFace] = useState(null); // { faceShape, parts }
@@ -87,24 +94,52 @@ export default function CharacterPresetRig({ instance }) {
   const [naturalSize, setNaturalSize] = useState(null);
   const [recoloredBodySrc, setRecoloredBodySrc] = useState(null);
 
+  // Looks up the CharacterPreset definition (name/skinTone/hairColor/face ids/etc) —
+  // split from the pose/face effect below so that switching only the placement-level
+  // bodyPoseId or hairstyleAssetId (Outfit/Hairstyle tools) doesn't refetch the entire
+  // CharacterPreset list every time; it only reruns when the preset identity itself changes.
   useEffect(() => {
     let active = true;
-    setFace(null); setHeadBox(null); setNaturalSize(null);
+    (async () => {
+      if (presetOverride) { if (active) setPreset(presetOverride); return; }
+      const presets = await getCharacterPresets().catch(() => []);
+      if (!active) return;
+      setPreset(presets.find((x) => x.id === instance.presetId) || null);
+    })();
+    return () => { active = false; };
+  }, [instance.presetId, presetOverride]);
+
+  useEffect(() => {
+    let active = true;
+    // Reset bodyPose too, not just naturalSize/face/headBox — otherwise the still-stale
+    // bodyPose object (from the previous costume) briefly renders the measuring pass
+    // against the OLD image while naturalSize has already been cleared, capturing the
+    // wrong natural pixel dimensions and scaling the new head box against them.
+    setBodyPose(null); setFace(null); setHeadBox(null); setNaturalSize(null);
     setRecoloredBodySrc(null);
 
     (async () => {
-      const [presets, pose] = await Promise.all([
-        getCharacterPresets(),
-        getAssetById(instance.bodyPoseId).catch(() => null),
-      ]);
+      const p = preset;
+      if (!p) return;
+      const pose = await getAssetById(instance.bodyPoseId).catch(() => null);
       if (!active) return;
-      const p = presets.find((x) => x.id === instance.presetId) || null;
-      setPreset(p);
       setBodyPose(pose);
-      if (!p || !pose) return;
+      if (!pose) return;
 
-      const faceId = (pose.view === 'THREE_QUARTER' && p.threeQuarterFaceId) ? p.threeQuarterFaceId : p.frontFaceId;
+      // Prefer the face matching this body pose's own view; if that view has no face
+      // assigned, fall back to whichever view the admin explicitly picked as default
+      // (defaultFaceView); if even that isn't set, fall back to whichever face exists.
+      const faceId = (pose.view === 'THREE_QUARTER' && p.threeQuarterFaceId) ? p.threeQuarterFaceId
+        : (pose.view === 'FRONT' && p.frontFaceId) ? p.frontFaceId
+        : (p.defaultFaceView === 'THREE_QUARTER' && p.threeQuarterFaceId) ? p.threeQuarterFaceId
+        : (p.defaultFaceView === 'FRONT' && p.frontFaceId) ? p.frontFaceId
+        : (p.frontFaceId || p.threeQuarterFaceId);
       if (!faceId) return;
+      // Which view (Front/3-4) the face above actually resolved to — used below to keep a
+      // chosen expression's eye/mouth art in sync with whatever view the character is
+      // currently on, since switching pose (Outfit/Pose tools) doesn't itself touch
+      // instance.expressionId.
+      const resolvedView = faceId === p.threeQuarterFaceId ? 'THREE_QUARTER' : faceId === p.frontFaceId ? 'FRONT' : null;
 
       const [faceAsset, faceAlignments, headAlignments] = await Promise.all([
         getAssetById(faceId).catch(() => null),
@@ -115,21 +150,47 @@ export default function CharacterPresetRig({ instance }) {
 
       let layout = null;
       if (faceAsset.layoutPath) {
-        try { layout = await fetch(faceAsset.layoutPath).then((r) => r.json()); } catch { /* ignore */ }
+        try {
+          layout = await fetch(faceAsset.layoutPath).then((r) => r.json());
+          layout = await resolveLayoutFilePaths(layout);
+        } catch { /* ignore */ }
       }
       const built = buildFaceFromLayout(layout, faceAsset);
 
-      if (p.defaultExpressionId) {
+      // Per-placement expression override (chosen directly in the Comic canvas) wins over
+      // the preset's own default — eye/mouth use the SHARED_ALIGNMENT_KEY (not a per-asset
+      // one like hairstyle), so any expression's eye/mouth pair drops into the same
+      // calibrated box this specific face (front or 3/4, whichever got resolved above) already
+      // has saved.
+      const effectiveExpressionId = instance.expressionId || p.defaultExpressionId;
+      if (effectiveExpressionId) {
         try {
           const expressions = await getExpressions();
-          const expr = expressions.find((e) => e.id === p.defaultExpressionId);
+          let expr = expressions.find((e) => e.id === effectiveExpressionId);
           if (expr) {
             const eyeAlign = faceAlignments.find((a) => a.partType === 'eye' && a.partAssetId === SHARED_ALIGNMENT_KEY);
             const mouthAlign = faceAlignments.find((a) => a.partType === 'mouth' && a.partAssetId === SHARED_ALIGNMENT_KEY);
-            const [eyeAsset, mouthAsset] = await Promise.all([
+            let [eyeAsset, mouthAsset] = await Promise.all([
               getAssetById(expr.eyeAssetId).catch(() => null),
               getAssetById(expr.mouthAssetId).catch(() => null),
             ]);
+            // The chosen expression's own eye art may be for a different view than the face
+            // we just landed on (e.g. picked while on a 3/4 pose, then the pose switched to
+            // front via Outfit/Pose) — swap to the same-NAME sibling expression for the
+            // correct view instead of dragging mismatched-view art and its now-wrong
+            // position onto this face.
+            if (resolvedView && eyeAsset?.view && eyeAsset.view !== resolvedView) {
+              const sibling = expressions.find((e) => e.name === expr.name && e.id !== expr.id);
+              if (sibling) {
+                const [siblingEye, siblingMouth] = await Promise.all([
+                  getAssetById(sibling.eyeAssetId).catch(() => null),
+                  getAssetById(sibling.mouthAssetId).catch(() => null),
+                ]);
+                if (siblingEye?.view === resolvedView) {
+                  expr = sibling; eyeAsset = siblingEye; mouthAsset = siblingMouth;
+                }
+              }
+            }
             if (eyeAlign && eyeAsset) {
               built.parts.eye = { ...built.parts.eye, assetId: eyeAsset.id, filePath: eyeAsset.filePath,
                 x: eyeAlign.x, y: eyeAlign.y, w: eyeAlign.w, h: eyeAlign.h,
@@ -144,6 +205,29 @@ export default function CharacterPresetRig({ instance }) {
         } catch { /* keep the face template's own eye/mouth */ }
       }
 
+      // Per-placement hairstyle override (chosen directly in the Comic canvas) wins over
+      // the face template's own native hairstyle — calibrated per-asset (not a shared key
+      // like eye/mouth), so its alignment is looked up by the specific override asset id.
+      if (instance.hairstyleAssetId) {
+        let hairAsset = await getAssetById(instance.hairstyleAssetId).catch(() => null);
+        // Same situation as expressions: an override picked while on one view's face
+        // doesn't carry over to a different view's face (different pose switched in via
+        // Outfit/Pose) — that asset's id simply has no alignment on this face. Swap to the
+        // same-NAME sibling hairstyle for the view we're actually on instead of silently
+        // falling back to the face's default hair.
+        if (resolvedView && hairAsset?.view && hairAsset.view !== resolvedView) {
+          const siblings = await getAssets({ category: 'FACE_PART', partType: 'HAIR', view: resolvedView }).catch(() => []);
+          const sibling = siblings.find((a) => a.name === hairAsset.name);
+          if (sibling) hairAsset = sibling;
+        }
+        const hairAlign = faceAlignments.find((a) => a.partType === 'hairstyle' && a.partAssetId === hairAsset?.id);
+        if (hairAlign && hairAsset) {
+          built.parts.hairstyle = { ...built.parts.hairstyle, assetId: hairAsset.id, filePath: hairAsset.filePath,
+            x: hairAlign.x, y: hairAlign.y, w: hairAlign.w, h: hairAlign.h,
+            rotation: hairAlign.rotation, flipX: hairAlign.flipX, flipY: hairAlign.flipY };
+        }
+      }
+
       if (!active) return;
       setFace(built);
 
@@ -152,7 +236,7 @@ export default function CharacterPresetRig({ instance }) {
     })();
 
     return () => { active = false; };
-  }, [instance.presetId, instance.bodyPoseId]);
+  }, [preset, instance.bodyPoseId, instance.hairstyleAssetId, instance.expressionId]);
 
   // Per-placement overrides (set via the Comic UI's Skin Tone/Hair Color controls) win
   // over the preset's own defaults, without mutating the underlying CharacterPreset.
@@ -167,14 +251,15 @@ export default function CharacterPresetRig({ instance }) {
     return () => { active = false; };
   }, [skinTone, bodyPose]);
 
-  if (!bodyPose) return <div style={{ width: MAX_W, height: MAX_H }} />;
+  if (!bodyPose) return <div style={{ width: maxW, height: maxH }} />;
 
   const bodySrc = recoloredBodySrc || bodyPose.filePath;
+  const effectiveHeadBox = headBoxOverride || headBox;
 
   if (!naturalSize) {
     // Measuring pass — load invisibly just to get natural width/height before drawing.
     return (
-      <div style={{ width: MAX_W, height: MAX_H, position: 'relative', overflow: 'hidden' }}>
+      <div style={{ width: maxW, height: maxH, position: 'relative', overflow: 'hidden' }}>
         <img src={bodySrc} alt="" draggable={false}
           onLoad={(e) => setNaturalSize({ w: e.target.naturalWidth, h: e.target.naturalHeight })}
           style={{ position: 'absolute', opacity: 0, width: 1, height: 1 }} />
@@ -182,65 +267,76 @@ export default function CharacterPresetRig({ instance }) {
     );
   }
 
-  // Content bounds = union of the body image's own pixel bounds and the head box, since
-  // a head box can deliberately extend above/beside the body's natural frame (e.g. y<0
-  // for a pose whose visible crop starts at the shoulders). Fitting just the body's own
-  // size would leave zero margin on that side and the head box would get clipped by the
-  // outer overflow:hidden.
-  const unionMinX = Math.min(0, headBox?.x ?? 0);
-  const unionMinY = Math.min(0, headBox?.y ?? 0);
-  const unionMaxX = Math.max(naturalSize.w, headBox ? headBox.x + headBox.w : 0);
-  const unionMaxY = Math.max(naturalSize.h, headBox ? headBox.y + headBox.h : 0);
-  const drawScale = Math.min(MAX_W / (unionMaxX - unionMinX), MAX_H / (unionMaxY - unionMinY));
+  // Anchor the head box to the FACE SHAPE alone, not the full face+hair+eyes+mouth union
+  // — hair length/volume varies wildly between characters, and fitting the whole union
+  // into one calibrated box meant the face itself rendered at a different size/position
+  // depending purely on hairstyle. Instead: R is the canvas-unit -> natural-pixel ratio
+  // that fits just the face shape into the head box; naturalOrigin is where canvas (0,0)
+  // lands in natural-pixel space. Hair/eyes/mouth then ride along at that same R/origin
+  // (their x/y/w/h are already relative to the same canvas the face shape lives on), so
+  // they scale and move in lockstep with the face shape and are free to extend beyond the
+  // box's nominal rectangle — exactly like real hair draping past a head outline.
+  // Both R and naturalOrigin are independent of drawScale (it cancels out), so they can
+  // be computed before drawScale is chosen — needed so the outer canvas can be sized to
+  // fit hair overflow too, instead of clipping it.
+  let faceGeom = null;
+  if (face && effectiveHeadBox) {
+    const faceShape = face.faceShape;
+    const fsBounds = faceShape
+      ? { minX: faceShape.x, minY: faceShape.y, maxX: faceShape.x + faceShape.w, maxY: faceShape.y + faceShape.h }
+      : computeFaceContentBounds(face);
+    const fsW = (fsBounds.maxX - fsBounds.minX) || FACE_CANVAS_W;
+    const fsH = (fsBounds.maxY - fsBounds.minY) || FACE_CANVAS_H;
+    const R = Math.min(effectiveHeadBox.w / fsW, effectiveHeadBox.h / fsH);
+    const naturalOriginX = effectiveHeadBox.x + (effectiveHeadBox.w - fsW * R) / 2 - fsBounds.minX * R;
+    const naturalOriginY = effectiveHeadBox.y + (effectiveHeadBox.h - fsH * R) / 2 - fsBounds.minY * R;
+    const contentBounds = computeFaceContentBounds(face);
+    faceGeom = {
+      R, naturalOriginX, naturalOriginY,
+      fullMinX: naturalOriginX + contentBounds.minX * R,
+      fullMaxX: naturalOriginX + contentBounds.maxX * R,
+      fullMinY: naturalOriginY + contentBounds.minY * R,
+      fullMaxY: naturalOriginY + contentBounds.maxY * R,
+    };
+  }
+
+  // Content bounds = union of the body image's own pixel bounds, the head box, and the
+  // face's actual rendered extent (which can spill past the head box via long hair etc.)
+  // — a head box (or hair) can deliberately extend above/beside the body's natural frame
+  // (e.g. y<0 for a pose whose visible crop starts at the shoulders, or hair draping past
+  // the box). Fitting just the body's own size would leave zero margin on that side and
+  // this content would get clipped by the outer overflow:hidden.
+  const unionMinX = Math.min(0, effectiveHeadBox?.x ?? 0, faceGeom?.fullMinX ?? 0);
+  const unionMinY = Math.min(0, effectiveHeadBox?.y ?? 0, faceGeom?.fullMinY ?? 0);
+  const unionMaxX = Math.max(naturalSize.w, effectiveHeadBox ? effectiveHeadBox.x + effectiveHeadBox.w : 0, faceGeom?.fullMaxX ?? 0);
+  const unionMaxY = Math.max(naturalSize.h, effectiveHeadBox ? effectiveHeadBox.y + effectiveHeadBox.h : 0, faceGeom?.fullMaxY ?? 0);
+  const drawScale = Math.min(maxW / (unionMaxX - unionMinX), maxH / (unionMaxY - unionMinY));
   const drawW = Math.round(naturalSize.w * drawScale);
   const drawH = Math.round(naturalSize.h * drawScale);
-  const originLeft = (MAX_W - (unionMaxX - unionMinX) * drawScale) / 2 - unionMinX * drawScale;
-  const originTop = (MAX_H - (unionMaxY - unionMinY) * drawScale) / 2 - unionMinY * drawScale;
+  const originLeft = (maxW - (unionMaxX - unionMinX) * drawScale) / 2 - unionMinX * drawScale;
+  const originTop = (maxH - (unionMaxY - unionMinY) * drawScale) / 2 - unionMinY * drawScale;
 
   return (
-    <div style={{ width: MAX_W, height: MAX_H, position: 'relative', overflow: 'hidden' }}>
+    <div style={{ width: maxW, height: maxH, position: 'relative', overflow: 'hidden' }}>
       <div style={{ position: 'absolute', left: originLeft, top: originTop, width: drawW, height: drawH }}>
         <img src={bodySrc} alt={bodyPose.name} draggable={false} style={{ width: drawW, height: drawH, display: 'block' }} />
-        {face && headBox && (() => {
-          const boxW = headBox.w * drawScale;
-          const boxH = headBox.h * drawScale;
-          // Fit the face's actual content bounds (not the nominal canvas, which has
-          // padding and lets parts like hair extend above y=0) into the head box,
-          // uniformly scaled and centered — guarantees nothing gets clipped.
-          const bounds = computeFaceContentBounds(face);
-          const contentW = bounds.maxX - bounds.minX || FACE_CANVAS_W;
-          const contentH = bounds.maxY - bounds.minY || FACE_CANVAS_H;
-          const faceScale = Math.min(boxW / contentW, boxH / contentH);
-          const innerW = contentW * faceScale;
-          const innerH = contentH * faceScale;
-          const drawLeft = (boxW - innerW) / 2 - bounds.minX * faceScale;
-          const drawTop = (boxH - innerH) / 2 - bounds.minY * faceScale;
+        {face && faceGeom && (() => {
+          const faceScale = faceGeom.R * drawScale;
           return (
             <div style={{
               position: 'absolute',
-              left: headBox.x * drawScale, top: headBox.y * drawScale,
-              width: boxW, height: boxH,
-              overflow: 'hidden',
+              left: faceGeom.naturalOriginX * drawScale, top: faceGeom.naturalOriginY * drawScale,
+              width: FACE_CANVAS_W, height: FACE_CANVAS_H,
+              transform: `scale(${faceScale})`,
+              transformOrigin: 'top left',
             }}>
-              <div style={{
-                position: 'absolute', left: drawLeft, top: drawTop,
-                width: FACE_CANVAS_W, height: FACE_CANVAS_H,
-                transform: `scale(${faceScale})`,
-                transformOrigin: 'top left',
-              }}>
-                {face.faceShape && <CPPart part={face.faceShape} skinTone={skinTone} />}
-                {['hairstyle', 'nose', 'eye', 'mouth'].map((pt) => {
-                  const part = face.parts[pt];
-                  if (!part) return null;
-                  return (
-                    <CPPart key={pt} part={part}
-                      hairColor={pt === 'hairstyle' ? hairColor : null}
-                      skinTone={pt === 'nose' ? skinTone : null}
-                      eyeColors={pt === 'eye' ? { hairColor, irisColor } : null}
-                    />
-                  );
-                })}
-              </div>
+              {orderFaceParts(face).map(({ pt, part }) => (
+                <CPPart key={pt} part={part}
+                  hairColor={pt === 'hairstyle' ? hairColor : null}
+                  skinTone={(pt === 'nose' || pt === 'faceShape') ? skinTone : null}
+                  eyeColors={pt === 'eye' ? { hairColor, irisColor } : null}
+                />
+              ))}
             </div>
           );
         })()}

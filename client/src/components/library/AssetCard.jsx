@@ -67,7 +67,7 @@ function PreviewModal({ asset, fileSize, onClose }) {
   );
 }
 
-export default function AssetCard({ asset, category, onSelect, onDelete, isSelected, onToggleSelect }) {
+export default function AssetCard({ asset, category, onSelect, onDelete, onRename, isSelected, onToggleSelect }) {
   const thumb = (asset.thumbnailPath || asset.filePath) + (asset.updatedAt ? `?v=${new Date(asset.updatedAt).getTime()}` : '');
   const isSelectable = !!onSelect;
   const { startDrag, moveOverlay, endDrag } = useDrag();
@@ -78,7 +78,6 @@ export default function AssetCard({ asset, category, onSelect, onDelete, isSelec
   const [preview, setPreview] = useState(false);
 
   useEffect(() => {
-    if (category !== 'BACKGROUND' && category !== 'CHARACTER') return;
     fetch(asset.filePath, { method: 'HEAD' })
       .then((r) => {
         const len = r.headers.get('content-length');
@@ -165,7 +164,7 @@ export default function AssetCard({ asset, category, onSelect, onDelete, isSelec
       >
         {asset.isNew && <span style={styles.newBadge}>NEW</span>}
 
-        {category === 'BACKGROUND' && showSize && fileSize != null && (
+        {category !== 'CHARACTER' && showSize && fileSize != null && (
           <span style={styles.sizeBadge}>{formatBytes(fileSize)}</span>
         )}
 
@@ -195,6 +194,18 @@ export default function AssetCard({ asset, category, onSelect, onDelete, isSelec
           >
             {isSelected && <span style={styles.checkmark}>✓</span>}
           </div>
+        )}
+
+        {onRename && (
+          <button
+            style={styles.renameBtn}
+            onClick={(e) => {
+              e.stopPropagation();
+              const next = window.prompt('Rename asset', asset.name);
+              if (next && next.trim() && next.trim() !== asset.name) onRename(asset.id, next.trim());
+            }}
+            title="Rename asset"
+          >✎</button>
         )}
 
         {onDelete && (
@@ -255,6 +266,14 @@ const styles = {
     background: '#ef4444', color: '#fff', border: 'none',
     borderRadius: '50%', width: 18, height: 18,
     fontSize: 13, cursor: 'pointer', lineHeight: 1,
+    display: 'flex', alignItems: 'center', justifyContent: 'center',
+    zIndex: 2,
+  },
+  renameBtn: {
+    position: 'absolute', top: 4, right: 24,
+    background: '#6B7280', color: '#fff', border: 'none',
+    borderRadius: '50%', width: 18, height: 18,
+    fontSize: 10, cursor: 'pointer', lineHeight: 1,
     display: 'flex', alignItems: 'center', justifyContent: 'center',
     zIndex: 2,
   },

@@ -1,6 +1,7 @@
 const prisma = require('../config/prisma');
 const fs = require('fs');
 const path = require('path');
+const { findInheritedHeadBox } = require('../utils/headBoxFallback');
 
 const UPLOADS_ROOT = path.join(__dirname, '../../uploads');
 
@@ -12,7 +13,7 @@ const VALID_CATEGORIES = ['FACE_PART', 'FACE_TEMPLATE', 'BODY_POSE', 'BACKGROUND
 
 const getAssets = async (req, res) => {
   try {
-    const { category, tags, search } = req.query;
+    const { category, tags, search, partType, gender, view, poseType, eyeType, mouthType } = req.query;
     const where = {};
 
     if (category) {
@@ -24,6 +25,12 @@ const getAssets = async (req, res) => {
     }
     if (tags) where.tags = { hasSome: tags.split(',').map((t) => t.trim()) };
     if (search) where.name = { contains: search, mode: 'insensitive' };
+    if (partType) where.partType = partType.toUpperCase();
+    if (gender) where.gender = gender.toUpperCase();
+    if (view) where.view = view.toUpperCase();
+    if (poseType) where.poseType = poseType.toUpperCase();
+    if (eyeType) where.eyeType = eyeType.toUpperCase();
+    if (mouthType) where.mouthType = mouthType.toUpperCase();
 
     const assets = await prisma.asset.findMany({ where, orderBy: { createdAt: 'desc' } });
     res.json(assets);
@@ -93,6 +100,13 @@ const deleteAssets = async (req, res) => {
 const getFacePartAlignments = async (req, res) => {
   try {
     const rows = await prisma.facePartAlignment.findMany({ where: { faceAssetId: req.params.faceAssetId } });
+    // BODY_POSE assets with no head box of their own yet (most pose variants beyond the
+    // first fully-calibrated costume) borrow one from a sibling pose instead of rendering
+    // headless — see headBoxFallback.js for why and how.
+    if (!rows.some((r) => r.partType === 'head')) {
+      const inherited = await findInheritedHeadBox(req.params.faceAssetId).catch(() => null);
+      if (inherited) rows.push(inherited);
+    }
     res.json(rows);
   } catch (err) {
     res.status(500).json({ error: err.message || 'Failed to load alignments' });

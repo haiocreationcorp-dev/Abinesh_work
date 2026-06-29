@@ -1,10 +1,6 @@
 import { useState, useRef } from 'react';
 import { uploadAsset } from '../../api/assets.js';
-import { CATEGORY_IDS as CATEGORIES, BG_SUBCATEGORIES, VIEWS, FACE_PART_TYPES, GENDERS, POSE_TYPES } from '../../constants/categories.js';
-import SkinMaskTuner from './SkinMaskTuner.jsx';
-import { DEFAULT_SKIN_THRESHOLDS } from '../../utils/skinMaskPreview.js';
-
-const SKIN_NORMALIZABLE_CATEGORIES = ['FACE_PART', 'BODY_POSE'];
+import { CATEGORY_IDS as CATEGORIES, BG_SUBCATEGORIES, VIEWS, FACE_PART_TYPES, GENDERS, POSE_TYPES, EYE_TYPES, MOUTH_TYPES } from '../../constants/categories.js';
 
 export default function AssetUploadForm() {
   const [form, setForm] = useState({ name: '', category: 'FACE_PART', tags: '' });
@@ -13,12 +9,11 @@ export default function AssetUploadForm() {
   const [partType, setPartType] = useState('');
   const [view, setView] = useState('');
   const [gender, setGender] = useState('');
+  const [eyeType, setEyeType] = useState('');
+  const [mouthType, setMouthType] = useState('');
   const [faceFamily, setFaceFamily] = useState('');
   const [costume, setCostume] = useState('');
   const [poseType, setPoseType] = useState('');
-  const [removeWhiteBg, setRemoveWhiteBg] = useState(false);
-  const [normalizeSkin, setNormalizeSkin] = useState(false);
-  const [skinThresholds, setSkinThresholds] = useState(DEFAULT_SKIN_THRESHOLDS);
   const [file, setFile] = useState(null);
   const [thumbnail, setThumbnail] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -28,7 +23,7 @@ export default function AssetUploadForm() {
   const thumbRef = useRef(null);
 
   const resetMetadataFields = () => {
-    setPartType(''); setView(''); setGender(''); setFaceFamily(''); setCostume(''); setPoseType('');
+    setPartType(''); setView(''); setGender(''); setEyeType(''); setMouthType(''); setFaceFamily(''); setCostume(''); setPoseType('');
   };
 
   const handleSubmit = async (e) => {
@@ -47,6 +42,8 @@ export default function AssetUploadForm() {
       if (partType) fd.append('partType', partType);
       if (view) fd.append('view', view);
       if (gender) fd.append('gender', gender);
+      if (partType === 'EYES' && eyeType) fd.append('eyeType', eyeType);
+      if (partType === 'MOUTH' && mouthType) fd.append('mouthType', mouthType);
     }
     if (form.category === 'FACE_TEMPLATE') {
       if (faceFamily) fd.append('faceFamily', faceFamily);
@@ -57,11 +54,6 @@ export default function AssetUploadForm() {
       if (poseType) fd.append('poseType', poseType);
       if (view) fd.append('view', view);
     }
-    if (removeWhiteBg) fd.append('removeWhiteBg', 'true');
-    if (normalizeSkin) {
-      fd.append('normalizeSkin', 'true');
-      fd.append('skinThresholds', JSON.stringify(skinThresholds));
-    }
     fd.append('file', file);
     if (thumbnail) fd.append('thumbnail', thumbnail);
 
@@ -71,9 +63,6 @@ export default function AssetUploadForm() {
       setForm({ name: '', category: form.category, tags: '' });
       setBgSubcategory('');
       resetMetadataFields();
-      setRemoveWhiteBg(false);
-      setNormalizeSkin(false);
-      setSkinThresholds(DEFAULT_SKIN_THRESHOLDS);
       setFile(null);
       setThumbnail(null);
       if (fileRef.current) fileRef.current.value = '';
@@ -140,6 +129,24 @@ export default function AssetUploadForm() {
                 {GENDERS.map((g) => <option key={g.id} value={g.id}>{g.label}</option>)}
               </select>
             </div>
+            {partType === 'EYES' && (
+              <div className="form-group">
+                <label>Eye Type (optional)</label>
+                <select value={eyeType} onChange={(e) => setEyeType(e.target.value)}>
+                  <option value="">— None —</option>
+                  {EYE_TYPES.map((t) => <option key={t.id} value={t.id}>{t.label}</option>)}
+                </select>
+              </div>
+            )}
+            {partType === 'MOUTH' && (
+              <div className="form-group">
+                <label>Mouth Type (optional)</label>
+                <select value={mouthType} onChange={(e) => setMouthType(e.target.value)}>
+                  <option value="">— None —</option>
+                  {MOUTH_TYPES.map((t) => <option key={t.id} value={t.id}>{t.label}</option>)}
+                </select>
+              </div>
+            )}
           </>
         )}
 
@@ -211,49 +218,6 @@ export default function AssetUploadForm() {
           {file && <span style={styles.fileInfo}>{file.name} ({(file.size / 1024).toFixed(1)} KB)</span>}
         </div>
 
-        {SKIN_NORMALIZABLE_CATEGORIES.includes(form.category) && (
-          <div className="form-group">
-            <label style={styles.checkboxLabel}>
-              <input
-                type="checkbox"
-                checked={removeWhiteBg}
-                onChange={(e) => setRemoveWhiteBg(e.target.checked)}
-                style={{ marginRight: 8 }}
-              />
-              Remove white background
-            </label>
-            {removeWhiteBg && (
-              <p style={styles.checkboxHint}>
-                White/near-white pixels connected to the image edges will be made transparent. White areas inside (eyes, clothing) are preserved. Output saved as PNG.
-              </p>
-            )}
-          </div>
-        )}
-
-        {SKIN_NORMALIZABLE_CATEGORIES.includes(form.category) && (
-          <div className="form-group">
-            <label style={styles.checkboxLabel}>
-              <input
-                type="checkbox"
-                checked={normalizeSkin}
-                onChange={(e) => setNormalizeSkin(e.target.checked)}
-                style={{ marginRight: 8 }}
-              />
-              Normalize skin tones
-            </label>
-            {normalizeSkin && (
-              <>
-                <p style={styles.checkboxHint}>
-                  Detected skin-toned pixels (face, neck, hands) will be quantized down to 3 flat
-                  reference tones so the Comic UI's Skin Color tool can recolor them. Required for
-                  art with gradient/anti-aliased shading — flat cel-shaded art is unaffected.
-                </p>
-                <SkinMaskTuner file={file} thresholds={skinThresholds} onChange={setSkinThresholds} />
-              </>
-            )}
-          </div>
-        )}
-
         <div className="form-group">
           <label>Thumbnail (optional — shown in library grid)</label>
           <input
@@ -280,8 +244,6 @@ const styles = {
   heading: { fontSize: 18, fontWeight: 700, marginBottom: 20 },
   fileInfo: { fontSize: 12, color: 'var(--mid)', marginTop: 2 },
   success: { color: 'var(--success)', fontSize: 13, marginBottom: 8 },
-  checkboxLabel: { display: 'flex', alignItems: 'center', fontSize: 13, color: 'var(--text)', cursor: 'pointer' },
-  checkboxHint: { fontSize: 12, color: 'var(--mid)', marginTop: 6, lineHeight: 1.5 },
   hint: {
     marginTop: 24, background: 'var(--primary-light)', borderRadius: 8,
     padding: '12px 16px', fontSize: 12, lineHeight: 1.7, color: 'var(--mid)',

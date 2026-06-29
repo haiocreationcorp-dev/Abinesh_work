@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { FACE_CANVAS_W, FACE_CANVAS_H } from '../../utils/faceLayout.js';
+import { FACE_CANVAS_W, FACE_CANVAS_H, orderFaceParts } from '../../utils/faceLayout.js';
 import { loadTrimRect, trimmedRect } from '../../utils/trimRect.js';
 import { hexToRgb } from '../../lighting/lightingEngine.js';
 
@@ -72,11 +72,9 @@ export default function FaceRig({ face }) {
         width: FACE_CANVAS_W, height: FACE_CANVAS_H,
         transform: `scale(${SCALE})`, transformOrigin: 'top left',
       }}>
-        {faceShape && <FacePart part={faceShape} />}
-        {['hairstyle', 'nose', 'eye', 'mouth'].map((partType) => {
-          const part = parts[partType];
-          return part ? <FacePart key={partType} part={part} /> : null;
-        })}
+        {orderFaceParts({ faceShape, parts }).map(({ pt, part }) => (
+          <FacePart key={pt} part={part} />
+        ))}
       </div>
     </div>
   );

@@ -1,6 +1,13 @@
-// Character art is pre-normalized: every skin pixel (face, neck, hands, etc.) is
-// exactly one of these 3 flat hex colors — no anti-aliasing, no in-between shades.
-export const NORMALIZED_SKIN_PALETTE = { highlight: '#FFE0C8', base: '#FFC8A0', shadow: '#D89A70' };
+// Character art is pre-normalized: every skin pixel (face, neck, hands, etc.) is exactly
+// one of these 2 flat neon placeholder colors — no anti-aliasing, no in-between shades.
+// Deliberately obviously-synthetic (not a plausible real skin shade) so a normalized-but-
+// not-yet-recolored asset is unmistakably a "marked placeholder" wherever it's viewed raw
+// (Browse Assets, Face Builder, Pose Builder's box canvas, any picker thumbnail), instead
+// of looking like a real (wrong) skin tone — same convention Eye Normalizer already uses
+// for eyebrow/iris (EYEBROW_REF_COLOR/IRIS_REF_COLOR in recolorImage.js). Every render path
+// that actually displays a character always resolves and applies a real skinTone on top of
+// this, the same way hairColor/irisColor always get applied over the eye placeholders.
+export const NORMALIZED_SKIN_PALETTE = { highlight: '#00F0FF', base: '#FF00FF', shadow: '#00F0FF' };
 
 export const SKIN_PRESETS = {
   fair:      { id: 'fair',      label: 'Fair',       highlight: '#FFE0C8', base: '#FFC8A0', shadow: '#D89A70' },
@@ -19,10 +26,14 @@ function hexToBytes(hex) {
 // Exact pixel-color replacement. No HSV/hue range, no segmentation: every pixel is
 // compared byte-for-byte against the 3 reference colors, and only exact matches swap.
 // Alpha is preserved as-is; fully transparent pixels are skipped untouched.
+// The highlight bucket is no longer produced by Palette Normalizer (disabled once an
+// admin picks Base+Shadow samples directly), but a few older assets normalized before
+// that existed may still have real highlight-colored pixels — still recognized here so
+// they keep recoloring, just folded into the shadow tone instead of a separate highlight.
 export function applySkinPalette(imageData, oldPalette, newPalette) {
   const data = new Uint8ClampedArray(imageData.data);
   const oldRgb = [oldPalette.highlight, oldPalette.base, oldPalette.shadow].map(hexToBytes);
-  const newRgb = [newPalette.highlight, newPalette.base, newPalette.shadow].map(hexToBytes);
+  const newRgb = [newPalette.shadow, newPalette.base, newPalette.shadow].map(hexToBytes);
 
   for (let i = 0; i < data.length; i += 4) {
     if (data[i + 3] === 0) continue;

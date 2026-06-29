@@ -36,14 +36,30 @@ enum FacePartType {
 }
 
 enum PoseType {
-  STANDING
-  WALKING
-  RUNNING
-  SITTING
-  POINTING
-  TALKING
-  READING
-  ARMS_CROSSED
+  P1
+  P2
+  P3
+  P4
+  P5
+  P6
+  P7
+  P8
+  P9
+  P10
+  P11
+  P12
+  P13
+  P14
+  P15
+  P16
+  P17
+  P18
+  P19
+  P20
+  P21
+  P22
+  P23
+  P24
 }
 
 model User {
@@ -76,6 +92,11 @@ model Asset {
   partType        FacePartType?
   // FACE_PART only, optional.
   gender          String?
+  // FACE_PART (partType EYES) only, optional — which of the 5 eye styles this is,
+  // tracked separately per Gender (same as other FACE_PART metadata).
+  eyeType         String?
+  // FACE_PART (partType MOUTH) only, optional — same convention as eyeType.
+  mouthType       String?
   // FACE_TEMPLATE only: groups a Front+3/4 pair under one named identity (e.g. "Rahul").
   faceFamily      String?
   // BODY_POSE only: free-text costume name (e.g. "Student", "Police").
@@ -165,12 +186,20 @@ model Expression {
 model CharacterPreset {
   id                  String   @id @default(cuid())
   name                String
-  frontFaceId         String
+  frontFaceId         String?
   threeQuarterFaceId  String?
+  // Which face to use when the active body pose's own view has no matching face assigned
+  // (e.g. pose is Front but only a 3/4 face was set) — 'FRONT' or 'THREE_QUARTER'. Explicit
+  // so neither face is silently assumed as "the" default; admin picks it.
+  defaultFaceView     String?
   skinTone            String
   hairColor           String
   irisColor           String?
   defaultExpressionId String?
+  // BODY_POSE asset (costume+pose baked together) used automatically the first time this
+  // character is placed in a panel, instead of forcing a manual pick every time — still
+  // freely changeable afterward per-placement via the Outfit/Pose tools, same as today.
+  defaultBodyPoseId   String?
   createdAt           DateTime @default(now())
   updatedAt           DateTime @updatedAt
 }

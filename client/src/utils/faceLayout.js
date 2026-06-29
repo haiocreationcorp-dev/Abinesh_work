@@ -1,4 +1,24 @@
 // Shared helpers for composing a FACE preset from its assembled layout + calibrated alignments.
+import { getAssetById } from '../api/assets.js';
+
+// A saved layout (FACE_TEMPLATE or Dress character) stores each part's filePath as a
+// snapshot from whenever it was assembled — if that part's underlying asset file is later
+// replaced (e.g. re-normalizing it in Palette Normalizer or Eye Normalizer, which uploads
+// a new file and deletes the old one), the saved snapshot points at a now-deleted file and
+// the part silently stops rendering. assetId is the durable reference; filePath is not.
+// Call this right after parsing a layout's JSON, before using it for anything, to replace
+// every part's filePath with its asset's CURRENT one. Falls back to the stored filePath if
+// the asset itself can't be found (e.g. actually deleted) rather than breaking the part.
+export async function resolveLayoutFilePaths(layout) {
+  if (!Array.isArray(layout)) return layout;
+  const ids = [...new Set(layout.map((p) => p.assetId).filter(Boolean))];
+  const fresh = await Promise.all(ids.map((id) => getAssetById(id).catch(() => null)));
+  const byId = new Map(ids.map((id, i) => [id, fresh[i]]));
+  return layout.map((part) => {
+    const asset = part.assetId && byId.get(part.assetId);
+    return asset ? { ...part, filePath: asset.filePath } : part;
+  });
+}
 
 // Must match PartAssembler.jsx's CANVAS_W/CANVAS_H — that's the logical canvas every
 // FACE_TEMPLATE's part x/y/w/h coordinates are actually saved relative to.
@@ -74,6 +94,23 @@ export function buildFaceFromLayout(layout, fallbackAsset) {
     };
   }
   return { faceShape, parts };
+}
+
+// Fixed paint order: face shape always bottom, hairstyle always top, eye/nose/mouth in
+// between (their relative order doesn't matter since they don't overlap each other) —
+// simpler and more robust than a custom per-part zIndex, which has to be correctly carried
+// through every place a part can be created, loaded, or swapped, and silently reverts to
+// guesswork wherever that's missed. Same order Face Builder's own canvas uses.
+const FACE_PART_RENDER_ORDER = ['faceShape', 'eye', 'nose', 'mouth', 'hairstyle'];
+
+// Returns [{ pt, part }] for faceShape + all present parts, in that fixed paint order.
+export function orderFaceParts(face) {
+  return FACE_PART_RENDER_ORDER
+    .map((pt) => {
+      const part = pt === 'faceShape' ? face.faceShape : face.parts?.[pt];
+      return part ? { pt, part } : null;
+    })
+    .filter(Boolean);
 }
 
 // Tight bounding box of all visible face content (faceShape + parts). The nominal

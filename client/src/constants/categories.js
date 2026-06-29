@@ -33,16 +33,15 @@ export const GENDERS = [
   { id: 'UNISEX',  label: 'Unisex' },
 ];
 
-export const POSE_TYPES = [
-  { id: 'STANDING',     label: 'Standing' },
-  { id: 'WALKING',      label: 'Walking' },
-  { id: 'RUNNING',      label: 'Running' },
-  { id: 'SITTING',      label: 'Sitting' },
-  { id: 'POINTING',     label: 'Pointing' },
-  { id: 'TALKING',      label: 'Talking' },
-  { id: 'READING',      label: 'Reading' },
-  { id: 'ARMS_CROSSED', label: 'Arms Crossed' },
-];
+export const POSE_TYPES = Array.from({ length: 24 }, (_, i) => ({ id: `P${i + 1}`, label: `P${i + 1}` }));
+
+// Placeholder names — rename these labels once the actual 5 eye styles (separate per
+// Gender, same as other FACE_PART metadata) are decided; the ids stay stable either way.
+export const EYE_TYPES = Array.from({ length: 5 }, (_, i) => ({ id: `TYPE_${i + 1}`, label: `Type ${i + 1}` }));
+
+// Same placeholder convention as EYE_TYPES — rename labels once the actual 5 mouth
+// styles (separate per Gender) are decided; ids stay stable either way.
+export const MOUTH_TYPES = Array.from({ length: 5 }, (_, i) => ({ id: `TYPE_${i + 1}`, label: `Type ${i + 1}` }));
 
 export const BG_SUBCATEGORIES = [
   { id: 'home',       label: 'Home',       icon: '🏠' },

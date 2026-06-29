@@ -57,7 +57,13 @@ export function recolorEyeAsset(filePath, { hairColor, irisColor } = {}) {
 
   const isSvg = filePath.toLowerCase().endsWith('.svg');
   const promise = (isSvg ? recolorSvgSwaps(filePath, swaps) : recolorRasterSwaps(filePath, swaps))
-    .catch(() => filePath);
+    .catch(() => {
+      // Don't let a one-off failure (e.g. the image briefly failing to load) become a
+      // permanent wrong answer for the rest of the tab's session — drop this entry so the
+      // next call retries from scratch instead of replaying the same failure forever.
+      cache.delete(key);
+      return filePath;
+    });
   cache.set(key, promise);
   return promise;
 }
@@ -106,7 +112,13 @@ export function recolorSkin(filePath, presetId) {
 
   const isSvg = filePath.toLowerCase().endsWith('.svg');
   const promise = (isSvg ? recolorSvg(filePath, preset) : recolorRaster(filePath, preset))
-    .catch(() => filePath);
+    .catch(() => {
+      // Same reasoning as recolorEyeAsset above: never let a transient failure (a slow
+      // load, a dev-server restart mid-request, etc.) get permanently cached as "this is
+      // just what this filePath+tone looks like" for the rest of the tab's session.
+      cache.delete(key);
+      return filePath;
+    });
   cache.set(key, promise);
   return promise;
 }
@@ -136,8 +148,12 @@ function recolorSvg(filePath, preset) {
     .then((r) => r.text())
     .then((svgText) => {
       let out = svgText;
+      // Highlight pixels (rare, only from older un-normalized-the-current-way assets)
+      // fold into the shadow tone rather than keeping their own separate color — see
+      // applySkinPalette in skinPalette.js for the same merge on the raster path.
+      const targets = { highlight: preset.shadow, base: preset.base, shadow: preset.shadow };
       for (const key of ['highlight', 'base', 'shadow']) {
-        out = out.replace(new RegExp(NORMALIZED_SKIN_PALETTE[key], 'gi'), preset[key]);
+        out = out.replace(new RegExp(NORMALIZED_SKIN_PALETTE[key], 'gi'), targets[key]);
       }
       return URL.createObjectURL(new Blob([out], { type: 'image/svg+xml' }));
     });

@@ -17,12 +17,21 @@ export const uploadFolder = (formData, onProgress) =>
   }).then((r) => r.data);
 
 export const getAdminUsers = () => api.get('/admin/users').then((r) => r.data);
+
+// Runs an on-demand pg_dump + JSON data export (same as the scheduled backup task).
+export const triggerBackup = () => api.post('/admin/backup').then((r) => r.data);
 export const updateUserRole = (id, role) => api.patch(`/admin/users/${id}/role`, { role }).then((r) => r.data);
 
 // Persists just the Palette Normalizer's mask recipe (detection thresholds, brightness
 // cutoffs, output palette) onto an existing asset — no image is re-uploaded.
 export const saveAssetSkinMask = (assetId, mask) =>
   api.patch(`/admin/assets/${assetId}/skin-mask`, { mask }).then((r) => r.data);
+
+// Renames an asset. The server also re-stamps the old name wherever it was denormalized
+// (FACE_TEMPLATE layout JSON, already-placed Comic Panel data) so the new name is reflected
+// everywhere it's used, not just in the asset's own record.
+export const renameAsset = (assetId, name) =>
+  api.patch(`/admin/assets/${assetId}/rename`, { name }).then((r) => r.data);
 
 // Overwrites an existing asset's image file in place (same asset id, no duplicate) and
 // optionally updates its skinThresholds mask recipe in the same request.
@@ -54,4 +63,5 @@ export const deleteExpression = (id) => api.delete(`/admin/expressions/${id}`).t
 
 export const getCharacterPresets = () => api.get('/assets/character-presets').then((r) => r.data);
 export const createCharacterPreset = (data) => api.post('/admin/character-presets', data).then((r) => r.data);
+export const updateCharacterPreset = (id, data) => api.put(`/admin/character-presets/${id}`, data).then((r) => r.data);
 export const deleteCharacterPreset = (id) => api.delete(`/admin/character-presets/${id}`).then((r) => r.data);

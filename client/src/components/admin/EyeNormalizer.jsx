@@ -32,12 +32,6 @@ export default function EyeNormalizer() {
   const paintingRef = useRef(false);
   const lastPaintPointRef = useRef(null);
   const bgPickOverlayCanvasRef = useRef(null);
-  // Undo/redo stacks of full snapshots (both override arrays + alpha channel), one entry
-  // per *stroke*/action (taken before it happens, not per dab) so a single Ctrl+Z reverts
-  // a whole brush stroke or BG deletion — same design as Palette Normalizer's history.
-  const undoStackRef = useRef([]);
-  const redoStackRef = useRef([]);
-  const MAX_HISTORY = 30;
 
   const [loaded, setLoaded] = useState(false);
   const [fileName, setFileName] = useState('');
@@ -63,26 +57,10 @@ export default function EyeNormalizer() {
 
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState('');
-  const [, setHistoryTick] = useState(0); // bump to re-render so undo/redo button disabled-state stays in sync
 
   useEffect(() => {
     setLibraryLoading(true);
     getAssets({ category: 'FACE_PART', partType: 'EYES' }).then(setLibraryAssets).finally(() => setLibraryLoading(false));
-  }, []);
-
-  // Global Ctrl+Z / Ctrl+Y, skipped while typing in a text field so normal text-undo
-  // still works there. Reads undo/redo via refs, so this one-time listener never goes stale.
-  useEffect(() => {
-    const handler = (e) => {
-      const tag = e.target.tagName;
-      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
-      if (!e.ctrlKey) return;
-      if (e.key === 'z' || e.key === 'Z') { e.preventDefault(); undo(); }
-      else if (e.key === 'y' || e.key === 'Y') { e.preventDefault(); redo(); }
-    };
-    window.addEventListener('keydown', handler);
-    return () => window.removeEventListener('keydown', handler);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const filteredLibraryAssets = viewFilter ? libraryAssets.filter((a) => a.view === viewFilter) : libraryAssets;
@@ -151,9 +129,6 @@ export default function EyeNormalizer() {
       setEyebrowDetection(null);
       setIrisDetection(null);
       setBgPickPending(null);
-      undoStackRef.current = [];
-      redoStackRef.current = [];
-      setHistoryTick((t) => t + 1);
       setOverrideTick((t) => t + 1);
       setLoaded(true);
     };
@@ -223,7 +198,6 @@ export default function EyeNormalizer() {
 
   const confirmBgPick = () => {
     if (!bgPickPending || !originalImageDataRef.current) return;
-    pushUndoSnapshot();
     const erased = applyColorMaskAlpha(originalImageDataRef.current.data, bgPickPending.mask);
     setBgPickPending(null);
     setTool('none');
@@ -255,7 +229,6 @@ export default function EyeNormalizer() {
       doBgPick(x, y);
       return;
     }
-    pushUndoSnapshot();
     paintingRef.current = true;
     lastPaintPointRef.current = { x, y };
     doPaintStroke(x, y, x, y);
@@ -273,61 +246,7 @@ export default function EyeNormalizer() {
   const stopPainting = () => { paintingRef.current = false; lastPaintPointRef.current = null; };
   const handleMouseLeave = () => { stopPainting(); setBrushCursor(null); };
 
-  const extractAlpha = (data) => {
-    const out = new Uint8ClampedArray(data.length / 4);
-    for (let i = 0; i < out.length; i++) out[i] = data[i * 4 + 3];
-    return out;
-  };
-  const applyAlpha = (data, alpha) => {
-    for (let i = 0; i < alpha.length; i++) data[i * 4 + 3] = alpha[i];
-  };
-
-  // Undo/redo snapshots both override arrays AND the alpha channel together, so a single
-  // history works regardless of which tool (brush/eraser or Remove BG/Pick BG Color) was used.
-  const pushUndoSnapshot = () => {
-    if (!eyebrowOverrideRef.current || !irisOverrideRef.current || !originalImageDataRef.current) return;
-    undoStackRef.current.push({
-      eyebrowOverrides: eyebrowOverrideRef.current.slice(),
-      irisOverrides: irisOverrideRef.current.slice(),
-      alpha: extractAlpha(originalImageDataRef.current.data),
-    });
-    if (undoStackRef.current.length > MAX_HISTORY) undoStackRef.current.shift();
-    redoStackRef.current = [];
-    setHistoryTick((t) => t + 1);
-  };
-
-  const undo = () => {
-    if (undoStackRef.current.length === 0 || !eyebrowOverrideRef.current || !irisOverrideRef.current || !originalImageDataRef.current) return;
-    redoStackRef.current.push({
-      eyebrowOverrides: eyebrowOverrideRef.current.slice(),
-      irisOverrides: irisOverrideRef.current.slice(),
-      alpha: extractAlpha(originalImageDataRef.current.data),
-    });
-    const snap = undoStackRef.current.pop();
-    eyebrowOverrideRef.current = snap.eyebrowOverrides;
-    irisOverrideRef.current = snap.irisOverrides;
-    applyAlpha(originalImageDataRef.current.data, snap.alpha);
-    setOverrideTick((t) => t + 1);
-    setHistoryTick((t) => t + 1);
-  };
-
-  const redo = () => {
-    if (redoStackRef.current.length === 0 || !eyebrowOverrideRef.current || !irisOverrideRef.current || !originalImageDataRef.current) return;
-    undoStackRef.current.push({
-      eyebrowOverrides: eyebrowOverrideRef.current.slice(),
-      irisOverrides: irisOverrideRef.current.slice(),
-      alpha: extractAlpha(originalImageDataRef.current.data),
-    });
-    const snap = redoStackRef.current.pop();
-    eyebrowOverrideRef.current = snap.eyebrowOverrides;
-    irisOverrideRef.current = snap.irisOverrides;
-    applyAlpha(originalImageDataRef.current.data, snap.alpha);
-    setOverrideTick((t) => t + 1);
-    setHistoryTick((t) => t + 1);
-  };
-
   const clearLayer = (layer) => {
-    pushUndoSnapshot();
     const ref = layer === 'eyebrow' ? eyebrowOverrideRef : irisOverrideRef;
     if (ref.current) ref.current.fill(0);
     if (layer === 'eyebrow') setEyebrowDetection(null);
@@ -341,7 +260,6 @@ export default function EyeNormalizer() {
   // preview and Result canvas redraw from it via the overrideTick bump.
   const removeBackground = () => {
     if (!originalImageDataRef.current) return;
-    pushUndoSnapshot();
     const { data, width, height } = originalImageDataRef.current;
     const erased = removeNearWhiteBackground(data, width, height);
     setOverrideTick((t) => t + 1);
@@ -412,12 +330,6 @@ export default function EyeNormalizer() {
 
           {loaded && (
             <>
-              <p style={s.sectionTitle}>History</p>
-              <div style={{ display: 'flex', gap: 6, marginBottom: 10 }}>
-                <button className="btn btn-sm btn-outline" disabled={undoStackRef.current.length === 0} onClick={undo} title="Ctrl+Z">↶ Undo</button>
-                <button className="btn btn-sm btn-outline" disabled={redoStackRef.current.length === 0} onClick={redo} title="Ctrl+Y">↷ Redo</button>
-              </div>
-
               <p style={s.sectionTitle}>Background</p>
               <div style={{ display: 'flex', gap: 6, marginBottom: 10, flexWrap: 'wrap' }}>
                 <button className="btn btn-sm btn-outline" onClick={removeBackground} title="Auto-erase white background connected to the edges">

@@ -16,8 +16,6 @@
     "backup:all": "node scripts/backupDb.js && node scripts/exportData.js && node scripts/backupUploads.js && node scripts/backupEnv.js",
     "db:restore:test": "node scripts/restoreDb.js",
     "files:restore:test": "node scripts/restoreUploads.js",
-    "data:export": "node scripts/exportAssetLibrary.js",
-    "data:import": "node scripts/importAssetLibrary.js",
     "test": "node --test src/utils/*.test.js"
   },
   "dependencies": {

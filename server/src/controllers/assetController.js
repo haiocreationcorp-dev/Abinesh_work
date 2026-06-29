@@ -55,7 +55,7 @@ const deleteAsset = async (req, res) => {
     if (!asset) return res.status(404).json({ error: 'Asset not found' });
 
     const removeFile = (relPath) => {
-      const full = path.join(UPLOADS_ROOT, relPath.replace(/^\/uploads\//, ''));
+      const full = path.join(UPLOADS_ROOT, relPath);
       if (fs.existsSync(full)) fs.unlinkSync(full);
     };
 
@@ -80,7 +80,7 @@ const deleteAssets = async (req, res) => {
 
     const removeFile = (relPath) => {
       try {
-        const full = path.join(UPLOADS_ROOT, relPath.replace(/^\/uploads\//, ''));
+        const full = path.join(UPLOADS_ROOT, relPath);
         if (fs.existsSync(full)) fs.unlinkSync(full);
       } catch (_) { /* best-effort */ }
     };

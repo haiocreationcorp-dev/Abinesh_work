@@ -1,4 +1,7 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
+import { Link, useSearchParams } from 'react-router-dom';
+import ProfileMenu from '../components/ui/ProfileMenu.jsx';
+import { useUITheme } from '../context/UIThemeContext.jsx';
 import AssetUploadForm from '../components/admin/AssetUploadForm.jsx';
 import FolderUploadForm from '../components/admin/FolderUploadForm.jsx';
 import LightingAdjuster from '../components/admin/LightingAdjuster.jsx';
@@ -9,120 +12,146 @@ import CharacterPresetBuilder from '../components/admin/CharacterPresetBuilder.j
 import PaletteNormalizer from '../components/admin/PaletteNormalizer.jsx';
 import EyeNormalizer from '../components/admin/EyeNormalizer.jsx';
 import AssetGrid from '../components/library/AssetGrid.jsx';
-import {
-  getAdminUsers, updateUserRole, listInstitutions, createInstitution, renewInstitution, updateInstitution, suspendInstitution,
-  createInstitutionChief, updateInstitutionSystemCount,
-} from '../api/assets.js';
+import ManageUsersPanel from '../components/admin/ManageUsersPanel.jsx';
+import InstitutionsPanel from '../components/admin/InstitutionsPanel.jsx';
+import AdminNavDrawer from '../components/admin/AdminNavDrawer.jsx';
 import { CATEGORY_IDS } from '../constants/categories.js';
 
-const TABS = ['Upload Asset', 'Folder Upload', 'F_B Edit', 'Expressions', 'Character Presets', 'Palette Normalizer', 'Eye Normalizer', 'Lighting Adjuster', 'Browse Assets', 'Manage Users', 'Institutions'];
+function IconSun() {
+  return (
+    <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="12" cy="12" r="5" />
+      <path d="M12 1v2M12 21v2M4.2 4.2l1.4 1.4M18.4 18.4l1.4 1.4M1 12h2M21 12h2M4.2 19.8l1.4-1.4M18.4 5.6l1.4-1.4" />
+    </svg>
+  );
+}
+
+function IconMoon() {
+  return (
+    <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z" />
+    </svg>
+  );
+}
+
+function IconSearch() {
+  return (
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" />
+    </svg>
+  );
+}
+
+function IconBell() {
+  return (
+    <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M18 8a6 6 0 1 0-12 0c0 7-3 9-3 9h18s-3-2-3-9" /><path d="M13.73 21a2 2 0 0 1-3.46 0" />
+    </svg>
+  );
+}
+
+function tabIcon(name) {
+  const paths = {
+    upload: <><path d="M16 16l-4-4-4 4" /><path d="M12 12v9" /><path d="M20.39 18.39A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.3" /></>,
+    folder: <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z" />,
+    face: <><circle cx="12" cy="12" r="9" /><path d="M9 10h.01M15 10h.01M8.5 15a4 4 0 0 0 7 0" /></>,
+    smile: <><circle cx="12" cy="12" r="9" /><path d="M8 14s1.5 2 4 2 4-2 4-2" /><line x1="9" y1="9" x2="9.01" y2="9" /><line x1="15" y1="9" x2="15.01" y2="9" /></>,
+    users: <><circle cx="9" cy="8" r="3.5" /><path d="M2 20c0-3.3 3-6 7-6s7 2.7 7 6" /><path d="M16.5 5.2a3.5 3.5 0 0 1 0 6.6" /><path d="M22 20c0-2.6-2-4.8-4.7-5.7" /></>,
+    palette: <><path d="M12 2a10 10 0 1 0 0 20c1.1 0 2-.9 2-2 0-.5-.2-1-.5-1.4-.3-.4-.5-.8-.5-1.3 0-1.1.9-2 2-2h2.3A4.2 4.2 0 0 0 21.5 11 9.96 9.96 0 0 0 12 2z" /><circle cx="7.5" cy="10.5" r="1.2" /><circle cx="11" cy="6.5" r="1.2" /><circle cx="15.5" cy="8" r="1.2" /></>,
+    eye: <><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7z" /><circle cx="12" cy="12" r="3" /></>,
+    bulb: <><path d="M9 18h6M10 22h4" /><path d="M12 2a6 6 0 0 0-4 10.5c.6.5 1 1.3 1 2.1V16h6v-1.4c0-.8.4-1.6 1-2.1A6 6 0 0 0 12 2z" /></>,
+    grid: <><rect x="3" y="3" width="7" height="7" rx="1" /><rect x="14" y="3" width="7" height="7" rx="1" /><rect x="14" y="14" width="7" height="7" rx="1" /><rect x="3" y="14" width="7" height="7" rx="1" /></>,
+    building: <><path d="M3 21h18" /><path d="M6 21V8l6-4 6 4v13" /><path d="M10 21v-6h4v6" /></>,
+  };
+  return (
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      {paths[name]}
+    </svg>
+  );
+}
+
+// Index 0-8 = Content tools, 9-10 = Administration tools — kept as one flat list so the
+// existing tab===N checks throughout this file don't need to change, just grouped
+// visually via CONTENT_TABS/ADMINISTRATION_TABS below.
+const TABS = [
+  'Asset Library', 'Bulk Import', 'Face & Body Editor', 'Expression Library', 'Character Templates',
+  'Color Palette Manager', 'Eye Alignment Tool', 'Lighting Studio', 'Asset Explorer',
+  'User Management', 'Organization Management',
+];
+const TAB_ICON_NAMES = ['upload', 'folder', 'face', 'smile', 'users', 'palette', 'eye', 'bulb', 'grid', 'users', 'building'];
+const CONTENT_TABS = TABS.slice(0, 9).map((label, i) => ({ label, index: i, icon: tabIcon(TAB_ICON_NAMES[i]) }));
+const ADMINISTRATION_TABS = TABS.slice(9).map((label, i) => ({ label, index: i + 9, icon: tabIcon(TAB_ICON_NAMES[i + 9]) }));
+const NAV_GROUPS = {
+  content: { title: 'Content', items: CONTENT_TABS },
+  admin: { title: 'Administration', items: ADMINISTRATION_TABS },
+};
 
 export default function AdminPage() {
-  const [tab, setTab] = useState(0);
-  const [users, setUsers] = useState([]);
+  const { mode, toggle } = useUITheme();
+  const [searchParams] = useSearchParams();
+  const [navOpen, setNavOpen] = useState(null); // 'content' | 'admin' | null
+  const [notifOpen, setNotifOpen] = useState(false);
+  const initialTab = Number(searchParams.get('tab'));
+  const [tab, setTab] = useState(Number.isInteger(initialTab) && initialTab >= 0 && initialTab < TABS.length ? initialTab : 0);
   const [category, setCategory] = useState('FACE_PART');
   const [fbMode, setFbMode] = useState('face');
-  const [institutions, setInstitutions] = useState([]);
-  const [newInstitutionName, setNewInstitutionName] = useState('');
-  const [newInstitutionType, setNewInstitutionType] = useState('SCHOOL');
-  const [creatingInstitution, setCreatingInstitution] = useState(false);
-  const [justCreatedCode, setJustCreatedCode] = useState(null);
-  const [editingId, setEditingId] = useState(null);
-  const [editForm, setEditForm] = useState({ name: '', type: 'SCHOOL', subscriptionStartedAt: '', subscriptionExpiresAt: '', systemCount: 0 });
-  const [chiefFormId, setChiefFormId] = useState(null);
-  const [chiefForm, setChiefForm] = useState({ name: '', email: '', password: '' });
-  const [chiefError, setChiefError] = useState('');
-  const [justCreatedChief, setJustCreatedChief] = useState(null);
 
-  useEffect(() => {
-    if (tab === 9) getAdminUsers().then(setUsers);
-    if (tab === 10) listInstitutions().then(setInstitutions);
-  }, [tab]);
-
-  const handleRoleToggle = async (user) => {
-    const newRole = user.role === 'ADMIN' ? 'USER' : 'ADMIN';
-    const updated = await updateUserRole(user.id, newRole);
-    setUsers((prev) => prev.map((u) => (u.id === updated.id ? updated : u)));
-  };
-
-  const handleCreateInstitution = async (e) => {
-    e.preventDefault();
-    if (!newInstitutionName.trim()) return;
-    setCreatingInstitution(true);
-    try {
-      const created = await createInstitution(newInstitutionName.trim(), newInstitutionType);
-      setInstitutions((prev) => [{ ...created, _count: { users: 0 } }, ...prev]);
-      setJustCreatedCode(created.code);
-      setNewInstitutionName('');
-    } finally {
-      setCreatingInstitution(false);
-    }
-  };
-
-  const handleRenew = async (id) => {
-    const updated = await renewInstitution(id);
-    setInstitutions((prev) => prev.map((i) => (i.id === updated.id ? { ...i, subscriptionExpiresAt: updated.subscriptionExpiresAt } : i)));
-  };
-
-  const handleSuspendToggle = async (inst) => {
-    const updated = await suspendInstitution(inst.id, !inst.suspended);
-    setInstitutions((prev) => prev.map((i) => (i.id === updated.id ? { ...i, suspended: updated.suspended } : i)));
-  };
-
-  const toDateInput = (d) => (d ? new Date(d).toISOString().slice(0, 10) : '');
-
-  const startEdit = (inst) => {
-    setEditingId(inst.id);
-    setEditForm({
-      name: inst.name,
-      type: inst.type,
-      subscriptionStartedAt: toDateInput(inst.subscriptionStartedAt),
-      subscriptionExpiresAt: toDateInput(inst.subscriptionExpiresAt),
-      systemCount: inst.systemCount ?? 0,
-    });
-  };
-
-  const saveEdit = async () => {
-    const { systemCount, ...rest } = editForm;
-    const [updated] = await Promise.all([
-      updateInstitution(editingId, rest),
-      updateInstitutionSystemCount(editingId, Number(systemCount) || 0),
-    ]);
-    setInstitutions((prev) => prev.map((i) => (i.id === updated.id ? { ...i, ...updated, systemCount: Number(systemCount) || 0 } : i)));
-    setEditingId(null);
-  };
-
-  const startChiefForm = (inst) => {
-    setChiefFormId(inst.id);
-    setChiefForm({ name: '', email: '', password: '' });
-    setChiefError('');
-  };
-
-  const handleCreateChief = async (institutionId) => {
-    setChiefError('');
-    try {
-      const chief = await createInstitutionChief(institutionId, chiefForm);
-      setJustCreatedChief({ institutionId, email: chief.email });
-      setChiefFormId(null);
-    } catch (err) {
-      setChiefError(err.response?.data?.error || 'Could not create chief login');
-    }
-  };
+  const toggleNav = (key) => setNavOpen((cur) => (cur === key ? null : key));
+  const activeGroup = navOpen ? NAV_GROUPS[navOpen] : NAV_GROUPS.content;
 
   return (
-    <div className="page">
-      <div className="container section">
-        <h2 style={{ fontSize: 26, fontWeight: 700, marginBottom: 24 }}>Admin Panel</h2>
-
-        <div style={styles.tabs}>
-          {TABS.map((t, i) => (
-            <button key={t} className={`btn ${tab === i ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setTab(i)}>
-              {t}
-            </button>
-          ))}
+    <div style={{ minHeight: '100vh', background: 'var(--light)' }}>
+      <header style={styles.topbar}>
+        <div style={styles.leftGroup}>
+          <span style={styles.adminLabel}>Admin Panel</span>
+          <button style={{ ...styles.navBtn, ...(navOpen === 'content' ? styles.navBtnActive : {}) }} onClick={() => toggleNav('content')}>
+            Content <span style={styles.chevron}>▾</span>
+          </button>
+          <button style={{ ...styles.navBtn, ...(navOpen === 'admin' ? styles.navBtnActive : {}) }} onClick={() => toggleNav('admin')}>
+            Administration <span style={styles.chevron}>▾</span>
+          </button>
         </div>
 
-        <div style={{ marginTop: 24 }}>
+        <Link to="/dashboard" style={styles.brandCenter}>BharathComic</Link>
+
+        <div style={styles.rightGroup}>
+          <div style={styles.searchWrap} title="Coming soon">
+            <IconSearch />
+            <input style={styles.searchInput} placeholder="Search comics, users, institutions…" disabled />
+          </div>
+
+          <div style={styles.iconWrap}>
+            {notifOpen && <div style={styles.overlay} onClick={() => setNotifOpen(false)} />}
+            <button style={styles.iconBtn} onClick={() => setNotifOpen((o) => !o)} aria-label="Notifications" title="Notifications">
+              <IconBell />
+            </button>
+            {notifOpen && (
+              <div style={styles.notifMenu}>
+                <div style={styles.notifTitle}>Notifications</div>
+                <p className="text-muted text-sm" style={{ textAlign: 'center', padding: '12px 0' }}>No notifications yet.</p>
+              </div>
+            )}
+          </div>
+
+          <button style={styles.iconBtn} onClick={toggle} aria-label="Toggle dark mode" title="Toggle dark mode">
+            {mode === 'dark' ? <IconSun /> : <IconMoon />}
+          </button>
+          <ProfileMenu />
+        </div>
+      </header>
+
+      <AdminNavDrawer
+        open={!!navOpen}
+        title={activeGroup.title}
+        items={activeGroup.items}
+        activeIndex={tab}
+        onSelect={(index) => { setTab(index); setNavOpen(null); }}
+        onClose={() => setNavOpen(null)}
+      />
+
+      <main style={styles.content}>
+          <div style={styles.contentInner}>
+          {tab !== 9 && tab !== 10 && <h3 style={styles.pageTitle}>{TABS[tab]}</h3>}
           {tab === 0 && <AssetUploadForm />}
 
           {tab === 1 && <FolderUploadForm />}
@@ -164,172 +193,59 @@ export default function AdminPage() {
             </div>
           )}
 
-          {tab === 9 && (
-            <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
-              <table style={styles.table}>
-                <thead>
-                  <tr style={styles.thead}>
-                    <th style={styles.th}>Email</th>
-                    <th style={styles.th}>Name</th>
-                    <th style={styles.th}>Role</th>
-                    <th style={styles.th}>Institution</th>
-                    <th style={styles.th}>Joined</th>
-                    <th style={styles.th}>Action</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {users.map((u) => (
-                    <tr key={u.id} style={styles.tr}>
-                      <td style={styles.td}>{u.email}</td>
-                      <td style={styles.td}>{u.name || '—'}</td>
-                      <td style={styles.td}><span className={`badge ${u.role === 'ADMIN' ? 'badge-admin' : ''}`}>{u.role}</span></td>
-                      <td style={styles.td}>{u.institution?.name || '—'}</td>
-                      <td style={styles.td}>{new Date(u.createdAt).toLocaleDateString()}</td>
-                      <td style={styles.td}>
-                        <button className="btn btn-outline btn-sm" onClick={() => handleRoleToggle(u)}>
-                          Make {u.role === 'ADMIN' ? 'User' : 'Admin'}
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
+          {tab === 9 && <ManageUsersPanel />}
 
-          {tab === 10 && (
-            <div>
-              <form onSubmit={handleCreateInstitution} style={styles.institutionForm}>
-                <input
-                  type="text"
-                  placeholder="Institution name (e.g. Springfield High School)"
-                  value={newInstitutionName}
-                  onChange={(e) => setNewInstitutionName(e.target.value)}
-                  style={{ flex: 1 }}
-                />
-                <select value={newInstitutionType} onChange={(e) => setNewInstitutionType(e.target.value)}>
-                  <option value="SCHOOL">School</option>
-                  <option value="COLLEGE">College</option>
-                </select>
-                <button className="btn btn-primary" type="submit" disabled={creatingInstitution}>
-                  {creatingInstitution ? 'Creating…' : '+ Create Institution'}
-                </button>
-              </form>
-
-              {justCreatedCode && (
-                <div style={styles.codeCallout}>
-                  Created! Share this join code with teachers and students: <strong>{justCreatedCode}</strong>
-                </div>
-              )}
-
-              <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
-                <table style={styles.table}>
-                  <thead>
-                    <tr style={styles.thead}>
-                      <th style={styles.th}>Name</th>
-                      <th style={styles.th}>Type</th>
-                      <th style={styles.th}>Join Code</th>
-                      <th style={styles.th}>Members</th>
-                      <th style={styles.th}>Systems</th>
-                      <th style={styles.th}>Start Date</th>
-                      <th style={styles.th}>End Date</th>
-                      <th style={styles.th}>Status</th>
-                      <th style={styles.th}>Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {institutions.map((inst) => {
-                      if (editingId === inst.id) {
-                        return (
-                          <tr key={inst.id} style={styles.tr}>
-                            <td style={styles.td} colSpan={9}>
-                              <div style={styles.editRow}>
-                                <input type="text" value={editForm.name} onChange={(e) => setEditForm({ ...editForm, name: e.target.value })} placeholder="Name" />
-                                <select value={editForm.type} onChange={(e) => setEditForm({ ...editForm, type: e.target.value })}>
-                                  <option value="SCHOOL">School</option>
-                                  <option value="COLLEGE">College</option>
-                                </select>
-                                <input type="number" min="0" value={editForm.systemCount} onChange={(e) => setEditForm({ ...editForm, systemCount: e.target.value })} placeholder="Systems" style={{ width: 90 }} />
-                                <input type="date" value={editForm.subscriptionStartedAt} onChange={(e) => setEditForm({ ...editForm, subscriptionStartedAt: e.target.value })} />
-                                <input type="date" value={editForm.subscriptionExpiresAt} onChange={(e) => setEditForm({ ...editForm, subscriptionExpiresAt: e.target.value })} />
-                                <button className="btn btn-primary btn-sm" onClick={saveEdit}>Save</button>
-                                <button className="btn btn-ghost btn-sm" onClick={() => setEditingId(null)}>Cancel</button>
-                              </div>
-                            </td>
-                          </tr>
-                        );
-                      }
-                      if (chiefFormId === inst.id) {
-                        return (
-                          <tr key={inst.id} style={styles.tr}>
-                            <td style={styles.td} colSpan={9}>
-                              <div style={styles.editRow}>
-                                <input type="text" value={chiefForm.name} onChange={(e) => setChiefForm({ ...chiefForm, name: e.target.value })} placeholder="Chief name" />
-                                <input type="email" value={chiefForm.email} onChange={(e) => setChiefForm({ ...chiefForm, email: e.target.value })} placeholder="Chief email" />
-                                <input type="password" value={chiefForm.password} onChange={(e) => setChiefForm({ ...chiefForm, password: e.target.value })} placeholder="Password" />
-                                <button className="btn btn-primary btn-sm" onClick={() => handleCreateChief(inst.id)}>Create</button>
-                                <button className="btn btn-ghost btn-sm" onClick={() => setChiefFormId(null)}>Cancel</button>
-                                {chiefError && <p className="form-error" style={{ margin: 0 }}>{chiefError}</p>}
-                              </div>
-                            </td>
-                          </tr>
-                        );
-                      }
-                      const expiresAt = inst.subscriptionExpiresAt ? new Date(inst.subscriptionExpiresAt) : null;
-                      const startedAt = inst.subscriptionStartedAt ? new Date(inst.subscriptionStartedAt) : null;
-                      const active = !inst.suspended && expiresAt && expiresAt > new Date();
-                      return (
-                        <tr key={inst.id} style={styles.tr}>
-                          <td style={styles.td}>{inst.name}</td>
-                          <td style={styles.td}>{inst.type === 'COLLEGE' ? 'College' : 'School'}</td>
-                          <td style={styles.td}><span className="badge">{inst.code}</span></td>
-                          <td style={styles.td}>{inst._count?.users ?? 0}</td>
-                          <td style={styles.td}>{inst.systemCount ?? 0}</td>
-                          <td style={styles.td}>{startedAt ? startedAt.toLocaleDateString() : '—'}</td>
-                          <td style={styles.td}>{expiresAt ? expiresAt.toLocaleDateString() : '—'}</td>
-                          <td style={styles.td}>
-                            <span className={`badge ${active ? '' : 'badge-admin'}`}>
-                              {inst.suspended ? 'Suspended' : active ? 'Active' : 'Expired'}
-                            </span>
-                          </td>
-                          <td style={styles.td}>
-                            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                              <button className="btn btn-outline btn-sm" onClick={() => handleRenew(inst.id)}>Renew +3mo</button>
-                              <button className="btn btn-outline btn-sm" onClick={() => handleSuspendToggle(inst)}>
-                                {inst.suspended ? 'Reactivate' : 'Suspend'}
-                              </button>
-                              <button className="btn btn-outline btn-sm" onClick={() => startEdit(inst)}>Edit</button>
-                              <button className="btn btn-outline btn-sm" onClick={() => startChiefForm(inst)}>Create Chief</button>
-                            </div>
-                            {justCreatedChief?.institutionId === inst.id && (
-                              <div style={styles.codeCallout}>
-                                Chief login created: <strong>{justCreatedChief.email}</strong>
-                              </div>
-                            )}
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          )}
-        </div>
-      </div>
+          {tab === 10 && <InstitutionsPanel />}
+          </div>
+        </main>
     </div>
   );
 }
 
 const styles = {
+  topbar: {
+    position: 'sticky',
+    top: 0,
+    zIndex: 90,
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    background: 'var(--surface)',
+    borderBottom: '1px solid var(--border)',
+    padding: '14px 24px',
+  },
+  leftGroup: { position: 'absolute', left: 24, top: '50%', transform: 'translateY(-50%)', display: 'flex', alignItems: 'center', gap: 14 },
+  adminLabel: { fontSize: 15, fontWeight: 600, color: 'var(--mid)' },
+  navBtn: {
+    display: 'flex', alignItems: 'center', gap: 6, padding: '8px 16px',
+    borderRadius: 12, background: 'var(--light)', color: 'var(--mid)',
+    fontSize: 14, fontWeight: 700, transition: 'background 0.18s ease, color 0.18s ease',
+  },
+  navBtnActive: { background: 'var(--primary)', color: '#fff' },
+  chevron: { fontSize: 10 },
+  brandCenter: { fontFamily: 'var(--font-display)', fontSize: 26, color: 'var(--primary)', letterSpacing: 0.5 },
+  rightGroup: { position: 'absolute', right: 24, top: '50%', transform: 'translateY(-50%)', display: 'flex', alignItems: 'center', gap: 10 },
+  searchWrap: {
+    display: 'flex', alignItems: 'center', gap: 8, background: 'var(--light)',
+    borderRadius: 'var(--radius-sm)', padding: '7px 12px', color: 'var(--mid)', width: 200,
+  },
+  searchInput: { background: 'transparent', border: 'none', color: 'var(--dark)', fontSize: 13, width: '100%', padding: 0 },
+  iconWrap: { position: 'relative' },
+  overlay: { position: 'fixed', inset: 0, zIndex: 89 },
+  iconBtn: {
+    width: 36, height: 36, borderRadius: '50%', background: 'var(--light)',
+    color: 'var(--mid)', display: 'flex', alignItems: 'center', justifyContent: 'center',
+    position: 'relative', zIndex: 90,
+  },
+  notifMenu: {
+    position: 'absolute', right: 0, top: 46, background: 'var(--surface)',
+    border: '1px solid var(--border)', borderRadius: 'var(--radius)', boxShadow: 'var(--shadow-lg)',
+    padding: 14, width: 240, zIndex: 90,
+  },
+  notifTitle: { fontSize: 13, fontWeight: 700, color: 'var(--dark)' },
+  pageTitle: { fontSize: 20, fontWeight: 700, color: 'var(--dark)', marginBottom: 20, textAlign: 'center' },
+  content: { padding: '32px 40px' },
+  contentInner: { maxWidth: 1100, margin: '0 auto' },
   tabs: { display: 'flex', gap: 8, flexWrap: 'wrap' },
   categoryRow: { display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 20 },
-  table: { width: '100%', borderCollapse: 'collapse', fontSize: 14 },
-  thead: { background: 'var(--primary-light)' },
-  tr: { borderBottom: '1px solid var(--border)' },
-  th: { padding: '10px 14px', textAlign: 'left', fontWeight: 600, fontSize: 13 },
-  td: { padding: '10px 14px' },
-  institutionForm: { display: 'flex', gap: 10, marginBottom: 16 },
-  codeCallout: { background: 'var(--primary-light)', color: 'var(--primary)', borderRadius: 8, padding: '10px 14px', marginBottom: 16, fontSize: 14 },
-  editRow: { display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' },
 };

@@ -540,27 +540,161 @@ router.post('/face-part-alignment', adminAuth, async (req, res) => {
   }
 });
 
+// GET /api/admin/stats — counts + trends + 6-month growth history for the admin Dashboard section
+router.get('/stats', adminAuth, async (_req, res) => {
+  const now = new Date();
+  const startOfMonth = (d) => new Date(d.getFullYear(), d.getMonth(), 1);
+  const thisMonthStart = startOfMonth(now);
+  const lastMonthStart = startOfMonth(new Date(now.getFullYear(), now.getMonth() - 1, 1));
+  const notAdmin = { role: { not: 'ADMIN' } };
+
+  const pctTrend = (thisMonth, lastMonth) => {
+    if (lastMonth === 0) return thisMonth > 0 ? { pct: null, isNew: true } : { pct: 0, isNew: false };
+    return { pct: Math.round(((thisMonth - lastMonth) / lastMonth) * 100), isNew: false };
+  };
+
+  const userTrend = async (where) => {
+    const [thisMonth, lastMonth] = await Promise.all([
+      prisma.user.count({ where: { ...where, createdAt: { gte: thisMonthStart } } }),
+      prisma.user.count({ where: { ...where, createdAt: { gte: lastMonthStart, lt: thisMonthStart } } }),
+    ]);
+    return pctTrend(thisMonth, lastMonth);
+  };
+
+  const comicsTrend = async () => {
+    const [thisMonth, lastMonth] = await Promise.all([
+      prisma.comic.count({ where: { createdAt: { gte: thisMonthStart } } }),
+      prisma.comic.count({ where: { createdAt: { gte: lastMonthStart, lt: thisMonthStart } } }),
+    ]);
+    return pctTrend(thisMonth, lastMonth);
+  };
+
+  const institutionsTrend = async () => {
+    const [thisMonth, lastMonth] = await Promise.all([
+      prisma.institution.count({ where: { createdAt: { gte: thisMonthStart } } }),
+      prisma.institution.count({ where: { createdAt: { gte: lastMonthStart, lt: thisMonthStart } } }),
+    ]);
+    return pctTrend(thisMonth, lastMonth);
+  };
+
+  const [
+    institutionUsers, individualUsers, totalComics, totalInstitutions, students, teachers, chiefs, admins,
+    institutionTrend, individualTrend, totalComicsTrend, totalInstitutionsTrend, studentsTrend, teachersTrend,
+  ] = await Promise.all([
+    prisma.user.count({ where: { ...notAdmin, institutionId: { not: null } } }),
+    prisma.user.count({ where: { ...notAdmin, institutionId: null } }),
+    prisma.comic.count(),
+    prisma.institution.count(),
+    prisma.user.count({ where: { role: 'STUDENT' } }),
+    prisma.user.count({ where: { role: 'TEACHER' } }),
+    prisma.user.count({ where: { role: 'INSTITUTION_CHIEF' } }),
+    prisma.user.count({ where: { role: 'ADMIN' } }),
+    userTrend({ ...notAdmin, institutionId: { not: null } }),
+    userTrend({ ...notAdmin, institutionId: null }),
+    comicsTrend(),
+    institutionsTrend(),
+    userTrend({ role: 'STUDENT' }),
+    userTrend({ role: 'TEACHER' }),
+  ]);
+
+  // Last 6 months: cumulative totals at month-end + new users/comics that month (for charts)
+  const months = [];
+  for (let i = 5; i >= 0; i--) {
+    const monthStart = startOfMonth(new Date(now.getFullYear(), now.getMonth() - i, 1));
+    const monthEnd = startOfMonth(new Date(now.getFullYear(), now.getMonth() - i + 1, 1));
+    const [cumulativeUsers, newUsers, newComics, cumulativeComics, cumulativeInstitutions, cumulativeStudents, cumulativeTeachers] = await Promise.all([
+      prisma.user.count({ where: { ...notAdmin, createdAt: { lt: monthEnd } } }),
+      prisma.user.count({ where: { ...notAdmin, createdAt: { gte: monthStart, lt: monthEnd } } }),
+      prisma.comic.count({ where: { createdAt: { gte: monthStart, lt: monthEnd } } }),
+      prisma.comic.count({ where: { createdAt: { lt: monthEnd } } }),
+      prisma.institution.count({ where: { createdAt: { lt: monthEnd } } }),
+      prisma.user.count({ where: { role: 'STUDENT', createdAt: { lt: monthEnd } } }),
+      prisma.user.count({ where: { role: 'TEACHER', createdAt: { lt: monthEnd } } }),
+    ]);
+    months.push({
+      label: monthStart.toLocaleString('en-US', { month: 'short' }),
+      cumulativeUsers, newUsers, newComics, cumulativeComics, cumulativeInstitutions, cumulativeStudents, cumulativeTeachers,
+    });
+  }
+
+  const institutions = await prisma.institution.findMany({ include: { _count: { select: { users: true } } } });
+  const mostActive = institutions.sort((a, b) => b._count.users - a._count.users)[0];
+
+  res.json({
+    institutionUsers,
+    individualUsers,
+    totalComics,
+    totalInstitutions,
+    students,
+    teachers,
+    chiefs,
+    admins,
+    trends: {
+      institutionUsers: institutionTrend, individualUsers: individualTrend, totalComics: totalComicsTrend,
+      totalInstitutions: totalInstitutionsTrend, students: studentsTrend, teachers: teachersTrend,
+    },
+    monthly: months,
+    mostActiveInstitution: mostActive && mostActive._count.users > 0
+      ? { name: mostActive.name, type: mostActive.type, userCount: mostActive._count.users }
+      : null,
+  });
+});
+
+// GET /api/admin/recent-comics — latest comics across all users, for the Dashboard's "Latest Comics" panel
+router.get('/recent-comics', adminAuth, async (_req, res) => {
+  const comics = await prisma.comic.findMany({
+    take: 6,
+    orderBy: { createdAt: 'desc' },
+    include: { user: { select: { name: true, email: true } } },
+  });
+  res.json(comics);
+});
+
 // GET /api/admin/users
 router.get('/users', adminAuth, async (_req, res) => {
   const users = await prisma.user.findMany({
-    select: { id: true, email: true, name: true, role: true, createdAt: true, institutionId: true, institution: { select: { name: true } } },
+    select: {
+      id: true, email: true, name: true, role: true, createdAt: true, institutionId: true,
+      avatarPath: true, disabled: true,
+      institution: { select: { name: true } },
+      _count: { select: { comics: true, submissions: true, tasksCreated: true, classesCreated: true, enrollments: true } },
+    },
     orderBy: { createdAt: 'desc' },
   });
   res.json(users);
 });
 
-// PATCH /api/admin/users/:id/role
-router.patch('/users/:id/role', adminAuth, async (req, res) => {
-  const { role } = req.body;
-  if (!['USER', 'ADMIN'].includes(role)) {
-    return res.status(400).json({ error: 'Role must be USER or ADMIN' });
-  }
+// PATCH /api/admin/users/:id/disable — block/restore login access (checked at login time)
+router.patch('/users/:id/disable', adminAuth, async (req, res) => {
+  const { disabled } = req.body;
+  if (typeof disabled !== 'boolean') return res.status(400).json({ error: 'disabled must be true or false' });
+  if (req.params.id === req.user.id) return res.status(400).json({ error: 'You cannot disable your own account' });
+
   const user = await prisma.user.update({
     where: { id: req.params.id },
-    data: { role },
-    select: { id: true, email: true, name: true, role: true },
-  });
+    data: { disabled },
+    select: { id: true, email: true, name: true, role: true, disabled: true },
+  }).catch(() => null);
+  if (!user) return res.status(404).json({ error: 'User not found' });
   res.json(user);
+});
+
+// DELETE /api/admin/users/:id — cascades to the user's comics/submissions/enrollments,
+// and (for a teacher) their classes/tasks, which in turn removes other students' enrollments
+// and submissions tied to those — irreversible, the frontend must confirm this clearly first.
+router.delete('/users/:id', adminAuth, async (req, res) => {
+  if (req.params.id === req.user.id) return res.status(400).json({ error: 'You cannot delete your own account' });
+
+  const target = await prisma.user.findUnique({ where: { id: req.params.id } });
+  if (!target) return res.status(404).json({ error: 'User not found' });
+
+  if (target.role === 'ADMIN') {
+    const adminCount = await prisma.user.count({ where: { role: 'ADMIN' } });
+    if (adminCount <= 1) return res.status(400).json({ error: 'Cannot delete the last remaining admin' });
+  }
+
+  await prisma.user.delete({ where: { id: req.params.id } });
+  res.json({ ok: true });
 });
 
 // Generates a human-friendly join code like "AB3X-7KQM", avoiding ambiguous chars (0/O, 1/I).
@@ -577,10 +711,22 @@ function generateInstitutionCode() {
 // GET /api/admin/institutions
 router.get('/institutions', adminAuth, async (_req, res) => {
   const institutions = await prisma.institution.findMany({
-    include: { _count: { select: { users: true } } },
+    include: {
+      _count: { select: { users: true, classes: true, tasks: true, payments: true } },
+      users: { where: { role: 'INSTITUTION_CHIEF' }, select: { name: true, email: true }, take: 1 },
+    },
     orderBy: { createdAt: 'desc' },
   });
-  res.json(institutions);
+  res.json(institutions.map((inst) => ({ ...inst, chief: inst.users[0] || null, users: undefined })));
+});
+
+// DELETE /api/admin/institutions/:id — cascades to the institution's classes/tasks/payments
+// (and, transitively, those classes'/tasks' enrollments/submissions); members are kept but
+// disconnected (institutionId set to null), per the schema's onDelete rules.
+router.delete('/institutions/:id', adminAuth, async (req, res) => {
+  const institution = await prisma.institution.delete({ where: { id: req.params.id } }).catch(() => null);
+  if (!institution) return res.status(404).json({ error: 'Institution not found' });
+  res.json({ ok: true });
 });
 
 // POST /api/admin/institutions

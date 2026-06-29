@@ -2,10 +2,13 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider } from './context/AuthContext.jsx';
 import { ComicProvider } from './context/ComicContext.jsx';
 import { ThemeProvider } from './context/ThemeContext.jsx';
+import { UIThemeProvider } from './context/UIThemeContext.jsx';
+import { ToastProvider } from './context/ToastContext.jsx';
 import { DragProvider } from './context/DragContext.jsx';
 import ProtectedRoute from './components/ui/ProtectedRoute.jsx';
 import SiteGate from './components/ui/SiteGate.jsx';
 import Navbar from './components/ui/Navbar.jsx';
+import CommandPalette from './components/ui/CommandPalette.jsx';
 import HomePage from './pages/HomePage.jsx';
 import LoginPage from './pages/LoginPage.jsx';
 import RegisterPage from './pages/RegisterPage.jsx';
@@ -25,10 +28,13 @@ import StudentInstructorsPage from './pages/StudentInstructorsPage.jsx';
 
 export default function App() {
   return (
-    <BrowserRouter>
-      <SiteGate>
-        <AuthProvider>
-          <Routes>
+    <UIThemeProvider>
+      <ToastProvider>
+        <BrowserRouter>
+          <SiteGate>
+            <AuthProvider>
+              <CommandPalette />
+              <Routes>
             <Route path="/" element={<HomePage />} />
             <Route path="/login" element={<LoginPage />} />
             <Route path="/register" element={<RegisterPage />} />
@@ -65,7 +71,6 @@ export default function App() {
               element={
                 <ProtectedRoute adminOnly>
                   <DragProvider>
-                    <Navbar />
                     <AdminPage />
                   </DragProvider>
                 </ProtectedRoute>
@@ -153,9 +158,11 @@ export default function App() {
             />
 
             <Route path="*" element={<Navigate to="/" replace />} />
-          </Routes>
-        </AuthProvider>
-      </SiteGate>
-    </BrowserRouter>
+              </Routes>
+            </AuthProvider>
+          </SiteGate>
+        </BrowserRouter>
+      </ToastProvider>
+    </UIThemeProvider>
   );
 }

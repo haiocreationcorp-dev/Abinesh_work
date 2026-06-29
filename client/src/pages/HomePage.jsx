@@ -54,7 +54,7 @@ export default function HomePage() {
 const styles = {
   root: { minHeight: '100vh', background: 'linear-gradient(135deg, #1a1a2e 0%, #2a2a4a 100%)', color: '#fff' },
   nav: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 40px', height: 64 },
-  brand: { fontFamily: 'Bangers, cursive', fontSize: 28, color: '#a78bfa', letterSpacing: 1 },
+  brand: { fontFamily: 'var(--font-display)', fontSize: 28, color: '#a78bfa', letterSpacing: 1 },
   hero: { maxWidth: 900, margin: '0 auto', padding: '100px 24px 60px', textAlign: 'center' },
   title: { fontFamily: 'Bangers, cursive', fontSize: 72, lineHeight: 1.1, letterSpacing: 2, color: '#f8f9ff' },
   sub: { fontSize: 18, color: '#94a3b8', marginTop: 20, lineHeight: 1.7 },

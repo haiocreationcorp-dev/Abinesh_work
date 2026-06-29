@@ -7,3 +7,8 @@ export const register = (data) => api.post('/auth/register', withGate(data)).the
 export const login = (data) => api.post('/auth/login', withGate(data)).then((r) => r.data);
 export const me = () => api.get('/auth/me').then((r) => r.data);
 export const lookupInstitution = (code) => api.get(`/auth/institution-lookup/${encodeURIComponent(code)}`).then((r) => r.data);
+export const updateProfile = (data) => api.patch('/auth/me', data).then((r) => r.data);
+export const uploadAvatar = (formData) =>
+  api.post('/auth/me/avatar', formData, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  }).then((r) => r.data);

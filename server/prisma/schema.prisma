@@ -79,6 +79,8 @@ model User {
   role          Role         @default(USER)
   institutionId String?
   institution   Institution? @relation(fields: [institutionId], references: [id], onDelete: SetNull)
+  avatarPath    String?      // profile photo, e.g. "/uploads/avatars/<uuid>.webp"; null = show initial-letter icon
+  disabled      Boolean      @default(false) // blocks login when true (checked at login time, not per-request)
   // School-only registration fields
   gradeLevel    String?      // e.g. "10th" — a school grade level, unrelated to the Class model below
   section       String?      // e.g. "A"

@@ -30,9 +30,17 @@ export function AuthProvider({ children }) {
     setUser(null);
   }, []);
 
+  const updateUser = useCallback((partial) => {
+    setUser((prev) => {
+      const next = { ...prev, ...partial };
+      localStorage.setItem('bc_user', JSON.stringify(next));
+      return next;
+    });
+  }, []);
+
   return (
     <AuthContext.Provider value={{
-      user, loading, saveSession, logout,
+      user, loading, saveSession, logout, updateUser,
       isAdmin: user?.role === 'ADMIN',
       isTeacher: user?.role === 'TEACHER',
       isStudent: user?.role === 'STUDENT',

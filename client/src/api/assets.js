@@ -17,14 +17,18 @@ export const uploadFolder = (formData, onProgress) =>
     onUploadProgress: onProgress,
   }).then((r) => r.data);
 
+export const getAdminStats = () => api.get('/admin/stats').then((r) => r.data);
+export const getRecentComics = () => api.get('/admin/recent-comics').then((r) => r.data);
 export const getAdminUsers = () => api.get('/admin/users').then((r) => r.data);
-export const updateUserRole = (id, role) => api.patch(`/admin/users/${id}/role`, { role }).then((r) => r.data);
+export const disableUser = (id, disabled) => api.patch(`/admin/users/${id}/disable`, { disabled }).then((r) => r.data);
+export const deleteUser = (id) => api.delete(`/admin/users/${id}`).then((r) => r.data);
 
 export const listInstitutions = () => api.get('/admin/institutions').then((r) => r.data);
 export const createInstitution = (name, type) => api.post('/admin/institutions', { name, type }).then((r) => r.data);
 export const renewInstitution = (id) => api.patch(`/admin/institutions/${id}/renew`).then((r) => r.data);
 export const updateInstitution = (id, data) => api.patch(`/admin/institutions/${id}`, data).then((r) => r.data);
 export const suspendInstitution = (id, suspended) => api.patch(`/admin/institutions/${id}/suspend`, { suspended }).then((r) => r.data);
+export const deleteInstitution = (id) => api.delete(`/admin/institutions/${id}`).then((r) => r.data);
 export const createInstitutionChief = (id, data) => api.post(`/admin/institutions/${id}/chief`, data).then((r) => r.data);
 export const updateInstitutionSystemCount = (id, systemCount) => api.patch(`/admin/institutions/${id}/system-count`, { systemCount }).then((r) => r.data);
 

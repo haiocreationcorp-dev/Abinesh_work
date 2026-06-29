@@ -106,7 +106,7 @@ export default function ExpressionBuilder() {
 }
 
 const s = {
-  root: { padding: 28, maxWidth: 680 },
+  root: { padding: 28 },
   heading: { fontSize: 18, fontWeight: 700, marginBottom: 6 },
   sub: { fontSize: 13, color: 'var(--mid)', marginBottom: 20, lineHeight: 1.6 },
   hint: { fontSize: 12, color: 'var(--mid)', marginTop: 4 },

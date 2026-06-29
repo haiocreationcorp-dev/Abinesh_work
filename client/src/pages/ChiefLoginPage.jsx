@@ -56,6 +56,6 @@ export default function ChiefLoginPage() {
 const styles = {
   root: { minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--light)' },
   card: { width: '100%', maxWidth: 400, padding: 36 },
-  title: { fontFamily: 'Bangers, cursive', fontSize: 32, color: 'var(--primary)', textAlign: 'center', letterSpacing: 1 },
+  title: { fontFamily: 'var(--font-display)', fontSize: 32, color: 'var(--primary)', textAlign: 'center', letterSpacing: 1 },
   sub: { fontSize: 20, fontWeight: 600, margin: '8px 0 24px', textAlign: 'center' },
 };

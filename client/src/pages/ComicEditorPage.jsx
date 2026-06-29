@@ -395,7 +395,7 @@ const styles = {
   },
   star: { fontSize: 14, color: 'rgba(255,255,255,0.8)', userSelect: 'none', flexShrink: 0 },
   appName: {
-    fontFamily: 'Bangers, cursive',
+    fontFamily: 'var(--font-display)',
     fontSize: 32,
     letterSpacing: 3,
     fontStyle: 'italic',

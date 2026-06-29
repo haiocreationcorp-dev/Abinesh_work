@@ -19,7 +19,7 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 
 // Ensure all upload subdirectories exist on startup
-const UPLOAD_DIRS = ['characters', 'backgrounds', 'expressions', 'props', 'effects', 'costumes', 'bubbles', 'thumbnails', 'body-parts', 'submissions'];
+const UPLOAD_DIRS = ['characters', 'backgrounds', 'expressions', 'props', 'effects', 'costumes', 'bubbles', 'thumbnails', 'body-parts', 'submissions', 'avatars'];
 UPLOAD_DIRS.forEach((dir) => {
   const dirPath = path.join(__dirname, '../uploads', dir);
   if (!fs.existsSync(dirPath)) fs.mkdirSync(dirPath, { recursive: true });

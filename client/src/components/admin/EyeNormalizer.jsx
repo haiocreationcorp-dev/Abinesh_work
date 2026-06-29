@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { getAssets, replaceAssetFile } from '../../api/assets.js';
-import { paintStroke } from '../../utils/paletteNormalizer.js';
+import { paintStroke, removeNearWhiteBackground, floodFillColorMask, applyColorMaskAlpha } from '../../utils/paletteNormalizer.js';
 import { previewEyeMasks, applyEyeMasks, pickDetection } from '../../utils/eyeNormalizer.js';
 import { EYEBROW_REF_COLOR, IRIS_REF_COLOR } from '../../utils/recolorImage.js';
 import { VIEWS } from '../../constants/categories.js';
@@ -13,6 +13,9 @@ const LAYERS = [
   { id: 'eyebrow', label: 'Eyebrow', color: EYEBROW_REF_COLOR },
   { id: 'iris', label: 'Iris', color: IRIS_REF_COLOR },
 ];
+
+// Color match tolerance for "Pick BG Color" — same default Palette Normalizer uses.
+const BG_PICK_TOLERANCE = 30;
 
 // Admin-only authoring tool for EYE FACE_PART assets — paint the eyebrow and iris as two
 // independent regions (own Int8Array override map each, reusing paletteNormalizer.js's
@@ -28,15 +31,25 @@ export default function EyeNormalizer() {
   const irisOverrideRef = useRef(null);
   const paintingRef = useRef(false);
   const lastPaintPointRef = useRef(null);
+  const bgPickOverlayCanvasRef = useRef(null);
+  // Undo/redo stacks of full snapshots (both override arrays + alpha channel), one entry
+  // per *stroke*/action (taken before it happens, not per dab) so a single Ctrl+Z reverts
+  // a whole brush stroke or BG deletion — same design as Palette Normalizer's history.
+  const undoStackRef = useRef([]);
+  const redoStackRef = useRef([]);
+  const MAX_HISTORY = 30;
 
   const [loaded, setLoaded] = useState(false);
   const [fileName, setFileName] = useState('');
   const [activeLayer, setActiveLayer] = useState('eyebrow');
-  const [tool, setTool] = useState('pick'); // 'none' | 'brush' | 'erase' | 'pick'
+  const [tool, setTool] = useState('pick'); // 'none' | 'brush' | 'erase' | 'pick' | 'bg-pick'
   const [brushSize, setBrushSize] = useState(8);
   const [brushCursor, setBrushCursor] = useState(null); // { x, y, diameter } in CSS px, or null
   const [previewMode, setPreviewMode] = useState('both'); // 'eyebrow' | 'iris' | 'both'
   const [overrideTick, setOverrideTick] = useState(0);
+  // Pending "Pick BG Color" selection — set after a click, cleared on Yes/No. Holds the
+  // mask so the highlight overlay and the actual delete use the exact same pixels.
+  const [bgPickPending, setBgPickPending] = useState(null); // { mask, count } | null
   // HSV detection windows, same paradigm as Palette Normalizer's "Pick Base/Shadow
   // Sample" — set by clicking a pixel with the 'pick' tool active, null until then.
   const [eyebrowDetection, setEyebrowDetection] = useState(null);
@@ -50,10 +63,26 @@ export default function EyeNormalizer() {
 
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState('');
+  const [, setHistoryTick] = useState(0); // bump to re-render so undo/redo button disabled-state stays in sync
 
   useEffect(() => {
     setLibraryLoading(true);
     getAssets({ category: 'FACE_PART', partType: 'EYES' }).then(setLibraryAssets).finally(() => setLibraryLoading(false));
+  }, []);
+
+  // Global Ctrl+Z / Ctrl+Y, skipped while typing in a text field so normal text-undo
+  // still works there. Reads undo/redo via refs, so this one-time listener never goes stale.
+  useEffect(() => {
+    const handler = (e) => {
+      const tag = e.target.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+      if (!e.ctrlKey) return;
+      if (e.key === 'z' || e.key === 'Z') { e.preventDefault(); undo(); }
+      else if (e.key === 'y' || e.key === 'Y') { e.preventDefault(); redo(); }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const filteredLibraryAssets = viewFilter ? libraryAssets.filter((a) => a.view === viewFilter) : libraryAssets;
@@ -82,6 +111,25 @@ export default function EyeNormalizer() {
     ctx.putImageData(out, 0, 0);
   }, [loaded, overrideTick, eyebrowDetection, irisDetection]);
 
+  // Draws the red highlight overlay for a pending "Pick BG Color" selection. Cleared
+  // (canvas wiped) whenever there's nothing pending.
+  useEffect(() => {
+    const canvas = bgPickOverlayCanvasRef.current;
+    if (!canvas || !originalImageDataRef.current) return;
+    const { width, height } = originalImageDataRef.current;
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext('2d');
+    ctx.clearRect(0, 0, width, height);
+    if (!bgPickPending) return;
+    const out = ctx.createImageData(width, height);
+    const { mask } = bgPickPending;
+    for (let p = 0; p < mask.length; p++) {
+      if (mask[p]) { out.data[p * 4] = 239; out.data[p * 4 + 1] = 68; out.data[p * 4 + 2] = 68; out.data[p * 4 + 3] = 170; }
+    }
+    ctx.putImageData(out, 0, 0);
+  }, [bgPickPending]);
+
   const handlePickAsset = (asset) => {
     setSelectedAssetId(asset.id);
     setFileName(asset.name);
@@ -102,6 +150,10 @@ export default function EyeNormalizer() {
       irisOverrideRef.current = new Int8Array(img.width * img.height);
       setEyebrowDetection(null);
       setIrisDetection(null);
+      setBgPickPending(null);
+      undoStackRef.current = [];
+      redoStackRef.current = [];
+      setHistoryTick((t) => t + 1);
       setOverrideTick((t) => t + 1);
       setLoaded(true);
     };
@@ -144,9 +196,46 @@ export default function EyeNormalizer() {
     }
   };
 
+  // "Pick BG Color" — magic-wand flood-fill seeded from the clicked pixel (any background
+  // color, not just white), same as Palette Normalizer. Highlights the matched region in
+  // red and waits for an explicit Yes/No before actually deleting it.
+  const doBgPick = (x, y) => {
+    if (!originalImageDataRef.current) return;
+    const { width, height, data } = originalImageDataRef.current;
+    if (x < 0 || x >= width || y < 0 || y >= height) return;
+    const i = (y * width + x) * 4;
+    if (data[i + 3] === 0) {
+      setBgPickPending(null);
+      setMsg('That spot is already transparent — there\'s no background pixel there to pick.');
+      return;
+    }
+    const mask = floodFillColorMask(data, width, height, x, y, BG_PICK_TOLERANCE);
+    let count = 0;
+    for (let p = 0; p < mask.length; p++) if (mask[p]) count++;
+    if (count <= 1) {
+      setBgPickPending(null);
+      setMsg('No connected pixels of a similar color around that spot — try a different click point.');
+      return;
+    }
+    setMsg('');
+    setBgPickPending({ mask, count });
+  };
+
+  const confirmBgPick = () => {
+    if (!bgPickPending || !originalImageDataRef.current) return;
+    pushUndoSnapshot();
+    const erased = applyColorMaskAlpha(originalImageDataRef.current.data, bgPickPending.mask);
+    setBgPickPending(null);
+    setTool('none');
+    setOverrideTick((t) => t + 1);
+    setMsg(`Erased ${erased} background pixels.`);
+  };
+
+  const cancelBgPick = () => setBgPickPending(null);
+
   // Cursor-following brush-size ring, in CSS px relative to the canvas — lets the admin
   // see exactly how big an area the brush/eraser will cover before clicking. Hidden for
-  // the 'pick' tool, since that's a single click, not a spatial radius.
+  // the 'pick'/'bg-pick' tools, since those are single clicks, not a spatial radius.
   const updateBrushCursor = (e) => {
     if (tool !== 'brush' && tool !== 'erase') { setBrushCursor(null); return; }
     const canvas = originalCanvasRef.current;
@@ -162,6 +251,11 @@ export default function EyeNormalizer() {
       doPick(x, y);
       return;
     }
+    if (tool === 'bg-pick') {
+      doBgPick(x, y);
+      return;
+    }
+    pushUndoSnapshot();
     paintingRef.current = true;
     lastPaintPointRef.current = { x, y };
     doPaintStroke(x, y, x, y);
@@ -179,12 +273,79 @@ export default function EyeNormalizer() {
   const stopPainting = () => { paintingRef.current = false; lastPaintPointRef.current = null; };
   const handleMouseLeave = () => { stopPainting(); setBrushCursor(null); };
 
+  const extractAlpha = (data) => {
+    const out = new Uint8ClampedArray(data.length / 4);
+    for (let i = 0; i < out.length; i++) out[i] = data[i * 4 + 3];
+    return out;
+  };
+  const applyAlpha = (data, alpha) => {
+    for (let i = 0; i < alpha.length; i++) data[i * 4 + 3] = alpha[i];
+  };
+
+  // Undo/redo snapshots both override arrays AND the alpha channel together, so a single
+  // history works regardless of which tool (brush/eraser or Remove BG/Pick BG Color) was used.
+  const pushUndoSnapshot = () => {
+    if (!eyebrowOverrideRef.current || !irisOverrideRef.current || !originalImageDataRef.current) return;
+    undoStackRef.current.push({
+      eyebrowOverrides: eyebrowOverrideRef.current.slice(),
+      irisOverrides: irisOverrideRef.current.slice(),
+      alpha: extractAlpha(originalImageDataRef.current.data),
+    });
+    if (undoStackRef.current.length > MAX_HISTORY) undoStackRef.current.shift();
+    redoStackRef.current = [];
+    setHistoryTick((t) => t + 1);
+  };
+
+  const undo = () => {
+    if (undoStackRef.current.length === 0 || !eyebrowOverrideRef.current || !irisOverrideRef.current || !originalImageDataRef.current) return;
+    redoStackRef.current.push({
+      eyebrowOverrides: eyebrowOverrideRef.current.slice(),
+      irisOverrides: irisOverrideRef.current.slice(),
+      alpha: extractAlpha(originalImageDataRef.current.data),
+    });
+    const snap = undoStackRef.current.pop();
+    eyebrowOverrideRef.current = snap.eyebrowOverrides;
+    irisOverrideRef.current = snap.irisOverrides;
+    applyAlpha(originalImageDataRef.current.data, snap.alpha);
+    setOverrideTick((t) => t + 1);
+    setHistoryTick((t) => t + 1);
+  };
+
+  const redo = () => {
+    if (redoStackRef.current.length === 0 || !eyebrowOverrideRef.current || !irisOverrideRef.current || !originalImageDataRef.current) return;
+    undoStackRef.current.push({
+      eyebrowOverrides: eyebrowOverrideRef.current.slice(),
+      irisOverrides: irisOverrideRef.current.slice(),
+      alpha: extractAlpha(originalImageDataRef.current.data),
+    });
+    const snap = redoStackRef.current.pop();
+    eyebrowOverrideRef.current = snap.eyebrowOverrides;
+    irisOverrideRef.current = snap.irisOverrides;
+    applyAlpha(originalImageDataRef.current.data, snap.alpha);
+    setOverrideTick((t) => t + 1);
+    setHistoryTick((t) => t + 1);
+  };
+
   const clearLayer = (layer) => {
+    pushUndoSnapshot();
     const ref = layer === 'eyebrow' ? eyebrowOverrideRef : irisOverrideRef;
     if (ref.current) ref.current.fill(0);
     if (layer === 'eyebrow') setEyebrowDetection(null);
     else setIrisDetection(null);
     setOverrideTick((t) => t + 1);
+  };
+
+  // One-shot auto background removal — BFS flood-fill from the edges, same algorithm as
+  // Palette Normalizer's "Remove BG" and the server's upload-time removeWhiteBackground.
+  // Mutates the source pixel buffer directly (alpha=0 on erased pixels); both the mask
+  // preview and Result canvas redraw from it via the overrideTick bump.
+  const removeBackground = () => {
+    if (!originalImageDataRef.current) return;
+    pushUndoSnapshot();
+    const { data, width, height } = originalImageDataRef.current;
+    const erased = removeNearWhiteBackground(data, width, height);
+    setOverrideTick((t) => t + 1);
+    setMsg(erased > 0 ? `Erased ${erased} background pixels.` : 'No edge-connected white background found.');
   };
 
   const handleApply = () => {
@@ -251,6 +412,33 @@ export default function EyeNormalizer() {
 
           {loaded && (
             <>
+              <p style={s.sectionTitle}>History</p>
+              <div style={{ display: 'flex', gap: 6, marginBottom: 10 }}>
+                <button className="btn btn-sm btn-outline" disabled={undoStackRef.current.length === 0} onClick={undo} title="Ctrl+Z">↶ Undo</button>
+                <button className="btn btn-sm btn-outline" disabled={redoStackRef.current.length === 0} onClick={redo} title="Ctrl+Y">↷ Redo</button>
+              </div>
+
+              <p style={s.sectionTitle}>Background</p>
+              <div style={{ display: 'flex', gap: 6, marginBottom: 10, flexWrap: 'wrap' }}>
+                <button className="btn btn-sm btn-outline" onClick={removeBackground} title="Auto-erase white background connected to the edges">
+                  Remove BG
+                </button>
+                <button className={`btn btn-sm ${tool === 'bg-pick' ? 'btn-primary' : 'btn-outline'}`}
+                  onClick={() => { setTool((t) => (t === 'bg-pick' ? 'none' : 'bg-pick')); setBgPickPending(null); }}
+                  title="Click a pixel to pick the background color — highlights every connected matching pixel around that spot, then asks before deleting">
+                  🎯 Pick BG Color
+                </button>
+              </div>
+              {bgPickPending && (
+                <div style={s.bgPickConfirm}>
+                  <span>Found {bgPickPending.count.toLocaleString()} background-colored pixels (highlighted in red). Delete them?</span>
+                  <div style={{ display: 'flex', gap: 6 }}>
+                    <button className="btn btn-sm btn-primary" onClick={confirmBgPick}>Yes, delete</button>
+                    <button className="btn btn-sm btn-outline" onClick={cancelBgPick}>No, cancel</button>
+                  </div>
+                </div>
+              )}
+
               <p style={s.sectionTitle}>Layer</p>
               <div style={{ display: 'flex', gap: 6, marginBottom: 10 }}>
                 {LAYERS.map((l) => (
@@ -279,6 +467,8 @@ export default function EyeNormalizer() {
                   of it is missed (e.g. a highlight or shadow tone), click again on the
                   missed area — each click expands the selection, it doesn't replace it.
                 </p>
+              ) : tool === 'bg-pick' ? (
+                <p style={s.hint}>Click a background pixel — every connected matching pixel around that spot gets highlighted in red, then asks before deleting.</p>
               ) : (
                 <label style={s.sliderLabel}>
                   Brush size ({brushSize}px)
@@ -323,6 +513,7 @@ export default function EyeNormalizer() {
                   onMouseUp={stopPainting}
                   onMouseLeave={handleMouseLeave}
                 />
+                <canvas ref={bgPickOverlayCanvasRef} style={s.bgPickOverlay} />
                 {brushCursor && (
                   <div style={{
                     ...s.brushRing,
@@ -383,4 +574,12 @@ const s = {
     backgroundSize: '20px 20px', backgroundPosition: '0 0, 0 10px, 10px -10px, -10px 0px', backgroundColor: '#fff',
   },
   canvasCaption: { fontSize: 11, color: 'var(--mid)' },
+  bgPickOverlay: {
+    position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', pointerEvents: 'none',
+  },
+  bgPickConfirm: {
+    display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12,
+    fontSize: 12, background: 'var(--primary-light)', border: '1px solid #c0392b',
+    padding: '8px 12px', borderRadius: 6, marginBottom: 10,
+  },
 };

@@ -16,6 +16,17 @@ On 2026-06-26, running `prisma migrate diff --shadow-database-url <DATABASE_URL>
 6. **Restoring:** `npm run db:restore:test` and `npm run files:restore:test` restore the latest backup into a disposable database / disposable folder, print a comparison against live, then clean up — they never touch the real database or `uploads/`. Run these after any backup-script change to prove the backups are actually valid, not just "created". To do a real restore (destructive — overwrites the live DB or `uploads/`), run `node scripts/restoreDb.js --live --i-understand` / `node scripts/restoreUploads.js --live --i-understand` — both flags are required on purpose, and this should only ever be run with the user's explicit go-ahead.
 7. **Known remaining gap:** all backups live on this one machine/disk (`server/backups/`). A full disk failure, or deleting the whole project folder, takes the backups down too — there's no off-site/cloud copy. Mention this if the user asks "is everything covered now."
 
+## Syncing the asset library across machines (e.g. with a collaborator)
+
+Cloning the GitHub repo gives you the **code** and the **asset image files** (`server/uploads/`), but **not the database** — Postgres is local to each machine and is never pushed. Without the matching DB rows, Browse Assets/Outfit/Pose/Expression pickers would show nothing even though the files exist on disk.
+
+To keep a second machine's asset library (names, tags, gender, view, eyeType/mouthType, costume, poseType, CharacterPresets, Expressions, FacePartAlignments) in sync via git, **without** ever committing secrets:
+
+- `npm run data:export` (from `server/`) writes `server/data/asset-library.json` — just the Asset/CharacterPreset/Expression/FacePartAlignment tables, no User accounts/passwords, no personal Comic/Panel data. This file is **not** gitignored on purpose, so it travels with normal commits/pushes.
+- **Run this before pushing whenever asset metadata changed** (new uploads, renames, alignment edits, new presets/expressions) — same spirit as the existing "ask before pushing about new assets" rule, just for the DB side now.
+- The other machine runs `npm run data:import` (after `git pull`) to upsert that JSON into their own local Postgres — safe to re-run repeatedly, matches by `id` so nothing duplicates.
+- This is a one-way deliberate snapshot, not live replication — if both machines edit assets independently between syncs, the next export/import simply overwrites with whichever was last exported. Fine for a single-admin workflow; would need a real shared/cloud DB if both edit concurrently (worth revisiting once this runs in the cloud, per the user's stated direction — at that point everyone hits the same DB and this whole export/import dance goes away).
+
 ## Stack notes
 
 - Client: React + Vite, dev server on :5173, proxies `/api` and `/uploads` to the server on :3000.

@@ -463,6 +463,20 @@ export default function ComicEditor({ readOnly = false } = {}) {
     };
   }, []);
 
+  // Block the browser's native pinch-to-zoom/Ctrl+scroll page zoom while inside the
+  // canvas — trackpad pinch gestures arrive as wheel events with ctrlKey:true, and a
+  // React onWheel handler isn't reliably able to preventDefault() them (some browsers
+  // treat it as passive), so the whole page would zoom in addition to (or instead of)
+  // the per-character scale handled by each item's own onWheel below. Registered as a
+  // real non-passive listener specifically to make preventDefault() actually take effect.
+  useEffect(() => {
+    const el = canvasAreaRef.current;
+    if (!el) return;
+    const blockPageZoom = (e) => { if (e.ctrlKey) e.preventDefault(); };
+    el.addEventListener('wheel', blockPageZoom, { passive: false });
+    return () => el.removeEventListener('wheel', blockPageZoom);
+  }, []);
+
   useEffect(() => {
     if (!isFullscreen) return;
     const onKey = (e) => {
@@ -1866,8 +1880,8 @@ export default function ComicEditor({ readOnly = false } = {}) {
                 </div>
                 {/* Custom slider — thumb anchored at true 0% and 100% */}
                 <div
-                  style={{ position: 'relative', height: 28, cursor: 'pointer', userSelect: 'none' }}
-                  onMouseDown={(e) => {
+                  style={{ position: 'relative', height: 28, cursor: 'pointer', userSelect: 'none', touchAction: 'none' }}
+                  onPointerDown={(e) => {
                     e.preventDefault();
                     const rect = e.currentTarget.getBoundingClientRect();
                     const update = (ev) => {
@@ -1875,9 +1889,9 @@ export default function ComicEditor({ readOnly = false } = {}) {
                       handleOpacity(val);
                     };
                     update(e.nativeEvent ?? e);
-                    const onUp = () => { window.removeEventListener('mousemove', update); window.removeEventListener('mouseup', onUp); };
-                    window.addEventListener('mousemove', update);
-                    window.addEventListener('mouseup', onUp);
+                    const onUp = () => { window.removeEventListener('pointermove', update); window.removeEventListener('pointerup', onUp); };
+                    window.addEventListener('pointermove', update);
+                    window.addEventListener('pointerup', onUp);
                   }}
                 >
                   {/* Track */}

@@ -6,7 +6,7 @@ import { useAuth } from '../context/AuthContext.jsx';
 import ComicEditor from '../components/comic/ComicEditor.jsx';
 import { renderPage, pageStartIndex, RENDER_SCALE as EX_SCALE, LAYOUT_COUNT as EX_COUNT } from '../utils/comicRenderer.js';
 
-const GRADIENT = 'linear-gradient(90deg, #FF8C00 0%, #FF5722 28%, #C2185B 62%, #7C3AED 100%)';
+const GRADIENT = 'var(--header-gradient)';
 
 export default function ComicEditorPage() {
   const { comicId } = useParams();

@@ -25,6 +25,8 @@
   --surface: #FFFFFF;
   --header-bg: #FFFFFF;
   --sidebar-bg: #FFFFFF;
+  /* The Comic Editor's signature gradient ribbon — reused on other top header bars site-wide. */
+  --header-gradient: linear-gradient(90deg, #FF8C00 0%, #FF5722 28%, #C2185B 62%, #7C3AED 100%);
 }
 
 /* ── Dark mode (general UI chrome only — see UIThemeContext.jsx) ── */

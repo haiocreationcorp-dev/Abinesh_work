@@ -38,6 +38,11 @@ const KIND_KEY = {
 const BASE_W = 120;
 const BASE_H = 200;
 
+// Shared min/max for any character/prop/effect scale-zoom (wheel, corner-drag, or
+// pinch) — lowered from the old 10x ceiling, then halved again per the user's request.
+const SCALE_MIN = 0.15;
+const SCALE_MAX = 3;
+
 // Renders a placed character, applying the exact-pixel skin color swap (if any) to a
 // flat CharacterRig image; DressRig handles its own per-part skin recoloring internally.
 function RenderedCharacter({ char, onDressSize }) {
@@ -313,9 +318,9 @@ function BubblePlacedItem({ bubble, panelIndex, canvasRef, canvasW, isSelected, 
       const dy = (ev.clientY - sy) * scale;
       dispatch({ type: 'UPDATE_PANEL_BUBBLE', panelIndex, instanceId: bubble.instanceId, updates: { position: { x: Math.round(ix + dx), y: Math.round(iy + dy) } } });
     };
-    const onUp = () => { window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp); };
-    window.addEventListener('mousemove', onMove);
-    window.addEventListener('mouseup', onUp);
+    const onUp = () => { window.removeEventListener('pointermove', onMove); window.removeEventListener('pointerup', onUp); };
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
   };
 
   const startResize = (e, corner) => {
@@ -336,9 +341,9 @@ function BubblePlacedItem({ bubble, panelIndex, canvasRef, canvasW, isSelected, 
       if (corner.includes('n')) { nh = Math.max(MIN, ih - dy); ny = iy + (ih - nh); }
       dispatch({ type: 'UPDATE_PANEL_BUBBLE', panelIndex, instanceId: bubble.instanceId, updates: { position: { x: Math.round(nx), y: Math.round(ny) }, width: Math.round(nw), height: Math.round(nh) } });
     };
-    const onUp = () => { window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp); };
-    window.addEventListener('mousemove', onMove);
-    window.addEventListener('mouseup', onUp);
+    const onUp = () => { window.removeEventListener('pointermove', onMove); window.removeEventListener('pointerup', onUp); };
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
   };
 
   const startRotate = (e) => {
@@ -359,9 +364,9 @@ function BubblePlacedItem({ bubble, panelIndex, canvasRef, canvasW, isSelected, 
       lastAngle = newAngle;
       dispatch({ type: 'UPDATE_PANEL_BUBBLE', panelIndex, instanceId: bubble.instanceId, updates: { rotation: Math.round(currentRot) } });
     };
-    const onUp = () => { window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp); };
-    window.addEventListener('mousemove', onMove);
-    window.addEventListener('mouseup', onUp);
+    const onUp = () => { window.removeEventListener('pointermove', onMove); window.removeEventListener('pointerup', onUp); };
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
   };
 
   const HW = 11;
@@ -386,7 +391,7 @@ function BubblePlacedItem({ bubble, panelIndex, canvasRef, canvasW, isSelected, 
         transform: `rotate(${rotation}deg)`,
         opacity: bubble.opacity ?? 1,
         cursor: 'grab', outline: 'none' }}
-      onMouseDown={startMoveDrag}
+      onPointerDown={startMoveDrag}
       onClick={(e) => { e.stopPropagation(); onSelect(); }}
       onWheel={(e) => {
         if (!isSelected) return;
@@ -426,7 +431,7 @@ function BubblePlacedItem({ bubble, panelIndex, canvasRef, canvasW, isSelected, 
               fontStyle: bubble.textStyle?.italic ? 'italic' : 'normal',
               textDecoration: bubble.textStyle?.underline ? 'underline' : 'none',
             }}
-            onMouseDown={(e) => e.stopPropagation()}
+            onPointerDown={(e) => e.stopPropagation()}
             onInput={(e) => {
               const el = e.currentTarget;
               const html = el.innerHTML;
@@ -474,7 +479,7 @@ function BubblePlacedItem({ bubble, panelIndex, canvasRef, canvasW, isSelected, 
         <>
           <div style={{ position: 'absolute', inset: 0, border: '2px solid #7C3AED', borderRadius: 4, pointerEvents: 'none', zIndex: 3 }} />
           <button
-            onMouseDown={(e) => e.stopPropagation()}
+            onPointerDown={(e) => e.stopPropagation()}
             onClick={(e) => { e.stopPropagation(); dispatch({ type: 'UPDATE_PANEL_BUBBLE', panelIndex, instanceId: bubble.instanceId, updates: { showShadow: !bubble.showShadow } }); }}
             title={bubble.showShadow !== false ? 'Remove shadow' : 'Add shadow'}
             style={{
@@ -486,7 +491,7 @@ function BubblePlacedItem({ bubble, panelIndex, canvasRef, canvasW, isSelected, 
             }}
           >{bubble.showShadow !== false ? '▪' : '▫'}</button>
           <button
-            onMouseDown={startRotate}
+            onPointerDown={startRotate}
             title="Drag to rotate"
             style={{
               position: 'absolute', top: 34, right: 4,
@@ -498,7 +503,7 @@ function BubblePlacedItem({ bubble, panelIndex, canvasRef, canvasW, isSelected, 
             }}
           >↻</button>
           {handles.map(({ id, l, t, c }) => (
-            <div key={id} onMouseDown={(e) => startResize(e, id)}
+            <div key={id} onPointerDown={(e) => startResize(e, id)}
               style={{ position: 'absolute', left: l, top: t, width: HW, height: HW, background: '#7C3AED', border: '2px solid #fff', borderRadius: '50%', cursor: c, zIndex: 15 }} />
           ))}
           <AIQuickMenu
@@ -516,6 +521,10 @@ export default function Panel({ panel, panelIndex, canvasW = 800, canvasH = 450,
   const { dragging, startDrag: startDragOverlay, moveOverlay, endDrag: endDragOverlay } = useDrag();
   const lightingOverlays = useLightingOverlays();
   const canvasRef = useRef(null);
+  // Pinch-to-zoom bookkeeping: which pointers are currently down on which item, and
+  // how to cancel a single-finger drag in progress if a second finger lands mid-drag.
+  const activePointersRef = useRef(new Map()); // instanceId -> Map(pointerId -> {x, y})
+  const dragCleanupRef = useRef(new Map()); // instanceId -> cleanup fn for the in-progress single-pointer drag
   const [selected, setSelected] = useState(null);
   const [isDragOver, setIsDragOver] = useState(false);
   const [draggingOut, setDraggingOut] = useState(null); // instanceId hidden while cross-panel dragging
@@ -647,8 +656,64 @@ export default function Panel({ panel, panelIndex, canvasW = 800, canvasH = 450,
   };
 
   // Drag character/item to reposition — supports cross-panel move
-  const startDrag = (e, kind, instanceId, currentPos, previewUrl) => {
+  const dispatchScale = (kind, instanceId, scale, preview = true) => {
+    if (kind === 'CHARACTER') dispatch({ type: 'UPDATE_CHARACTER', panelIndex, instanceId, updates: { scale }, preview });
+    else if (kind === 'FACE') dispatch({ type: 'UPDATE_FACE', panelIndex, instanceId, updates: { scale }, preview });
+    else if (kind === 'CHARACTER_PRESET') dispatch({ type: 'UPDATE_CHARACTER_PRESET', panelIndex, instanceId, updates: { scale }, preview });
+    else dispatch({ type: 'UPDATE_PLACED_ITEM', panelIndex, instanceId, kind: kind.toLowerCase() + 's', updates: { scale }, preview });
+  };
+
+  // Drag character/item to reposition — supports cross-panel move. `currentScale`
+  // is optional (only kinds that have a scale — character/preset/prop/effect — pass
+  // it); when a second finger lands on the same item while the first is still down,
+  // this cancels the in-progress single-finger drag and switches to two-finger
+  // pinch-to-zoom instead, scaling from whatever size the item was at that moment.
+  const startDrag = (e, kind, instanceId, currentPos, previewUrl, currentScale) => {
     e.preventDefault();
+
+    if (currentScale !== undefined) {
+      if (!activePointersRef.current.has(instanceId)) activePointersRef.current.set(instanceId, new Map());
+      const pointers = activePointersRef.current.get(instanceId);
+      pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+
+      if (pointers.size >= 2) {
+        dragCleanupRef.current.get(instanceId)?.();
+        dragCleanupRef.current.delete(instanceId);
+
+        dispatch({ type: 'PUSH_HISTORY' });
+        const startScaleVal = currentScale;
+        const dist = () => {
+          const [a, b] = [...pointers.values()];
+          return Math.hypot(a.x - b.x, a.y - b.y);
+        };
+        const startDist = dist();
+        const onPinchMove = (ev) => {
+          if (!pointers.has(ev.pointerId)) return;
+          pointers.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
+          if (pointers.size < 2 || !startDist) return;
+          const ns = Math.max(SCALE_MIN, Math.min(SCALE_MAX, startScaleVal * (dist() / startDist)));
+          dispatchScale(kind, instanceId, Math.round(ns * 100) / 100);
+        };
+        const onPinchEnd = (ev) => {
+          pointers.delete(ev.pointerId);
+          // Keep listening until BOTH fingers are confirmed up — they virtually never
+          // lift at the exact same instant, so tearing down as soon as the first one
+          // lifts would miss the second finger's own up/cancel event, leaving it stuck
+          // in `pointers` forever and corrupting every single-finger drag after this.
+          if (pointers.size === 0) {
+            window.removeEventListener('pointermove', onPinchMove);
+            window.removeEventListener('pointerup', onPinchEnd);
+            window.removeEventListener('pointercancel', onPinchEnd);
+            activePointersRef.current.delete(instanceId);
+          }
+        };
+        window.addEventListener('pointermove', onPinchMove);
+        window.addEventListener('pointerup', onPinchEnd);
+        window.addEventListener('pointercancel', onPinchEnd);
+        return;
+      }
+    }
+
     dispatch({ type: 'PUSH_HISTORY' }); // save pre-drag state for undo
     const originalPos = { ...currentPos };
     const canvasRect = canvasRef.current.getBoundingClientRect();
@@ -690,8 +755,15 @@ export default function Panel({ panel, panelIndex, canvasW = 800, canvasH = 450,
     };
 
     const onUp = (ev) => {
-      window.removeEventListener('mousemove', onMove);
-      window.removeEventListener('mouseup', onUp);
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+      window.removeEventListener('pointercancel', onUp);
+      dragCleanupRef.current.delete(instanceId);
+      if (currentScale !== undefined) {
+        const pointers = activePointersRef.current.get(instanceId);
+        pointers?.delete(ev.pointerId);
+        if (!pointers || pointers.size === 0) activePointersRef.current.delete(instanceId);
+      }
       setDraggingOut(null);
 
       if (!dragOutside) return;
@@ -729,8 +801,16 @@ export default function Panel({ panel, panelIndex, canvasW = 800, canvasH = 450,
       });
     };
 
-    window.addEventListener('mousemove', onMove);
-    window.addEventListener('mouseup', onUp);
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+    window.addEventListener('pointercancel', onUp);
+    if (currentScale !== undefined) {
+      dragCleanupRef.current.set(instanceId, () => {
+        window.removeEventListener('pointermove', onMove);
+        window.removeEventListener('pointerup', onUp);
+        window.removeEventListener('pointercancel', onUp);
+      });
+    }
   };
 
   // Custom drag-and-drop via assetDrop event (replaces HTML5 drag API)
@@ -790,7 +870,7 @@ export default function Panel({ panel, panelIndex, canvasW = 800, canvasH = 450,
         width: CANVAS_W,
         height: CANVAS_H,
       }}
-      onMouseDown={() => onActivate?.()}
+      onPointerDown={() => onActivate?.()}
     >
       {/* Outer row: left (full height) | center column | right (full height) */}
       <div style={{ display: 'flex', flexDirection: 'row', flex: 1, minHeight: 0 }}>
@@ -808,6 +888,7 @@ export default function Panel({ panel, panelIndex, canvasW = 800, canvasH = 450,
             ...bgStyle,
             flex: '1 1 0',
             minHeight: 0,
+            touchAction: 'none',
           }}
           data-panel-index={panelIndex}
           data-canvas-w={CANVAS_W}
@@ -891,13 +972,13 @@ export default function Panel({ panel, panelIndex, canvasW = 800, canvasH = 450,
                     zIndex: isCharSelected ? 10 : 1,
                     opacity: char.opacity ?? 1,
                   }}
-                  onMouseDown={(e) => {
+                  onPointerDown={(e) => {
                     if (isCropping) {
                       startDrag(e, 'CHARACTER', char.instanceId, char.position, char.filePath);
                       return;
                     }
                     selectItem({ kind: 'CHARACTER', instanceId: char.instanceId });
-                    startDrag(e, 'CHARACTER', char.instanceId, char.position, char.filePath);
+                    startDrag(e, 'CHARACTER', char.instanceId, char.position, char.filePath, char.scale || 1);
                   }}
                   onWheel={(e) => {
                     if (!isCharSelected) return;
@@ -905,7 +986,7 @@ export default function Panel({ panel, panelIndex, canvasW = 800, canvasH = 450,
                     e.stopPropagation();
                     const current = char.scale || 1;
                     const factor = e.deltaY < 0 ? 1.1 : 0.9;
-                    const ns = Math.max(0.15, Math.min(10, current * factor));
+                    const ns = Math.max(SCALE_MIN, Math.min(SCALE_MAX, current * factor));
                     dispatch({ type: 'UPDATE_CHARACTER', preview: true, panelIndex, instanceId: char.instanceId, updates: { scale: Math.round(ns * 100) / 100 } });
                   }}
                 >
@@ -940,7 +1021,7 @@ export default function Panel({ panel, panelIndex, canvasW = 800, canvasH = 450,
                 {/* Done button — floats below character in crop mode */}
                 {isCropping && (
                   <button
-                    onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); dispatch({ type: 'TOGGLE_CROP_MODE' }); }}
+                    onPointerDown={(e) => { e.preventDefault(); e.stopPropagation(); dispatch({ type: 'TOGGLE_CROP_MODE' }); }}
                     style={{
                       position: 'absolute',
                       left: char.position.x + BASE_W / 2 - 36,
@@ -1028,9 +1109,9 @@ export default function Panel({ panel, panelIndex, canvasW = 800, canvasH = 450,
                     cursor: 'grab',
                     zIndex: isFaceSelected ? 10 : 1,
                   }}
-                  onMouseDown={(e) => {
+                  onPointerDown={(e) => {
                     selectItem({ kind: 'FACE', instanceId: face.instanceId });
-                    startDrag(e, 'FACE', face.instanceId, face.position);
+                    startDrag(e, 'FACE', face.instanceId, face.position, undefined, face.scale || 1);
                   }}
                   onWheel={(e) => {
                     if (!isFaceSelected) return;
@@ -1038,7 +1119,7 @@ export default function Panel({ panel, panelIndex, canvasW = 800, canvasH = 450,
                     e.stopPropagation();
                     const current = face.scale || 1;
                     const factor = e.deltaY < 0 ? 1.1 : 0.9;
-                    const ns = Math.max(0.15, Math.min(10, current * factor));
+                    const ns = Math.max(SCALE_MIN, Math.min(SCALE_MAX, current * factor));
                     dispatch({ type: 'UPDATE_FACE', preview: true, panelIndex, instanceId: face.instanceId, updates: { scale: Math.round(ns * 100) / 100 } });
                   }}
                 >
@@ -1088,9 +1169,9 @@ export default function Panel({ panel, panelIndex, canvasW = 800, canvasH = 450,
                     cursor: 'grab',
                     zIndex: isCpSelected ? 10 : 1,
                   }}
-                  onMouseDown={(e) => {
+                  onPointerDown={(e) => {
                     selectItem({ kind: 'CHARACTER_PRESET', instanceId: cp.instanceId });
-                    startDrag(e, 'CHARACTER_PRESET', cp.instanceId, cp.position);
+                    startDrag(e, 'CHARACTER_PRESET', cp.instanceId, cp.position, undefined, cp.scale || 1);
                   }}
                   onWheel={(e) => {
                     if (!isCpSelected) return;
@@ -1098,7 +1179,7 @@ export default function Panel({ panel, panelIndex, canvasW = 800, canvasH = 450,
                     e.stopPropagation();
                     const current = cp.scale || 1;
                     const factor = e.deltaY < 0 ? 1.1 : 0.9;
-                    const ns = Math.max(0.15, Math.min(10, current * factor));
+                    const ns = Math.max(SCALE_MIN, Math.min(SCALE_MAX, current * factor));
                     dispatch({ type: 'UPDATE_CHARACTER_PRESET', preview: true, panelIndex, instanceId: cp.instanceId, updates: { scale: Math.round(ns * 100) / 100 } });
                   }}
                 >
@@ -1136,7 +1217,7 @@ export default function Panel({ panel, panelIndex, canvasW = 800, canvasH = 450,
             <PlacedItem key={item.instanceId} item={item} kind="PROP" panelIndex={panelIndex}
               isSelected={selected?.instanceId === item.instanceId}
               onSelect={() => selectItem({ kind: 'PROP', instanceId: item.instanceId })}
-              onDragStart={(e) => startDrag(e, 'PROP', item.instanceId, item.position, item.filePath)}
+              onDragStart={(e) => startDrag(e, 'PROP', item.instanceId, item.position, item.filePath, item.scale || 1)}
               onRemove={() => dispatch({ type: 'REMOVE_PLACED_ITEM', panelIndex, instanceId: item.instanceId, kind: 'props' })}
               dispatch={dispatch} canvasRef={canvasRef} canvasW={CANVAS_W}
             />
@@ -1147,7 +1228,7 @@ export default function Panel({ panel, panelIndex, canvasW = 800, canvasH = 450,
             <PlacedItem key={item.instanceId} item={item} kind="EFFECT" panelIndex={panelIndex}
               isSelected={selected?.instanceId === item.instanceId}
               onSelect={() => selectItem({ kind: 'EFFECT', instanceId: item.instanceId })}
-              onDragStart={(e) => startDrag(e, 'EFFECT', item.instanceId, item.position, item.filePath)}
+              onDragStart={(e) => startDrag(e, 'EFFECT', item.instanceId, item.position, item.filePath, item.scale || 1)}
               onRemove={() => dispatch({ type: 'REMOVE_PLACED_ITEM', panelIndex, instanceId: item.instanceId, kind: 'effects' })}
               dispatch={dispatch} canvasRef={canvasRef} canvasW={CANVAS_W}
             />
@@ -1158,7 +1239,7 @@ export default function Panel({ panel, panelIndex, canvasW = 800, canvasH = 450,
             <PlacedItem key={item.instanceId} item={item} kind="SOUND" panelIndex={panelIndex}
               isSelected={selected?.instanceId === item.instanceId}
               onSelect={() => selectItem({ kind: 'SOUND', instanceId: item.instanceId })}
-              onDragStart={(e) => startDrag(e, 'SOUND', item.instanceId, item.position, item.filePath)}
+              onDragStart={(e) => startDrag(e, 'SOUND', item.instanceId, item.position, item.filePath, item.scale || 1)}
               onRemove={() => dispatch({ type: 'REMOVE_PLACED_ITEM', panelIndex, instanceId: item.instanceId, kind: 'sounds' })}
               dispatch={dispatch} canvasRef={canvasRef} canvasW={CANVAS_W}
             />
@@ -1169,7 +1250,7 @@ export default function Panel({ panel, panelIndex, canvasW = 800, canvasH = 450,
             <PlacedItem key={item.instanceId} item={item} kind="COSTUME" panelIndex={panelIndex}
               isSelected={selected?.instanceId === item.instanceId}
               onSelect={() => selectItem({ kind: 'COSTUME', instanceId: item.instanceId })}
-              onDragStart={(e) => startDrag(e, 'COSTUME', item.instanceId, item.position, item.filePath)}
+              onDragStart={(e) => startDrag(e, 'COSTUME', item.instanceId, item.position, item.filePath, item.scale || 1)}
               onRemove={() => dispatch({ type: 'REMOVE_PLACED_ITEM', panelIndex, instanceId: item.instanceId, kind: 'costumes' })}
               dispatch={dispatch} canvasRef={canvasRef} canvasW={CANVAS_W}
             />
@@ -1258,9 +1339,9 @@ function CropHandles({ crop, w, h, scale, flipX, canvasRef, canvasW, onCropChang
       if (edges.includes('bottom')) nc.bottom = Math.max(0, Math.min(h - init.top, init.bottom - dy));
       onCropChange(nc); // preview — no history push
     };
-    const onUp = () => { window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp); };
-    window.addEventListener('mousemove', onMove);
-    window.addEventListener('mouseup', onUp);
+    const onUp = () => { window.removeEventListener('pointermove', onMove); window.removeEventListener('pointerup', onUp); };
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
   };
 
   const HW = 10, hh = 5; // natural 10px handles
@@ -1283,7 +1364,7 @@ function CropHandles({ crop, w, h, scale, flipX, canvasRef, canvasW, onCropChang
 
       {/* Handles — always 10px */}
       {handles.map((hnd, i) => (
-        <div key={i} onMouseDown={(e) => startDrag(e, hnd.e)}
+        <div key={i} onPointerDown={(e) => startDrag(e, hnd.e)}
           style={{
             position:'absolute', top:hnd.t, left:hnd.l,
             width:HW, height:HW,
@@ -1344,9 +1425,9 @@ function TransformHandles({ char, panelIndex, dispatch, canvasRef, canvasW, onDe
       lastAngle = newAngle;
       dispatch({ type: 'UPDATE_CHARACTER', preview: true, panelIndex, instanceId: char.instanceId, updates: { rotation: Math.round(currentRot) } });
     };
-    const onUp = () => { window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp); };
-    window.addEventListener('mousemove', onMove);
-    window.addEventListener('mouseup', onUp);
+    const onUp = () => { window.removeEventListener('pointermove', onMove); window.removeEventListener('pointerup', onUp); };
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
   };
 
   const startScale = (e) => {
@@ -1359,12 +1440,12 @@ function TransformHandles({ char, panelIndex, dispatch, canvasRef, canvasW, onDe
     const onMove = (ev) => {
       const dist = Math.hypot(ev.clientX - cx, ev.clientY - cy);
       if (!startDist) return;
-      const ns = Math.max(0.15, Math.min(10, startScaleVal * (dist / startDist)));
+      const ns = Math.max(SCALE_MIN, Math.min(SCALE_MAX, startScaleVal * (dist / startDist)));
       dispatch({ type: 'UPDATE_CHARACTER', preview: true, panelIndex, instanceId: char.instanceId, updates: { scale: Math.round(ns * 100) / 100 } });
     };
-    const onUp = () => { window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp); };
-    window.addEventListener('mousemove', onMove);
-    window.addEventListener('mouseup', onUp);
+    const onUp = () => { window.removeEventListener('pointermove', onMove); window.removeEventListener('pointerup', onUp); };
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
   };
 
   const scaleHandles = [
@@ -1397,7 +1478,7 @@ function TransformHandles({ char, panelIndex, dispatch, canvasRef, canvasW, onDe
       {scaleHandles.map((pos, i) => (
         <div
           key={i}
-          onMouseDown={startScale}
+          onPointerDown={startScale}
           style={{
             position: 'absolute', ...pos,
             width: HW, height: HW,
@@ -1409,7 +1490,7 @@ function TransformHandles({ char, panelIndex, dispatch, canvasRef, canvasW, onDe
 
       {/* Rotation knob — always 26px */}
       <div
-        onMouseDown={startRotate}
+        onPointerDown={startRotate}
         style={{
           position: 'absolute',
           top: visMY, left: bR + 26,
@@ -1466,9 +1547,9 @@ function FaceTransformHandles({ face, panelIndex, dispatch, canvasRef, canvasW, 
       lastAngle = newAngle;
       dispatch({ type: actionType, preview: true, panelIndex, instanceId: face.instanceId, updates: { rotation: Math.round(currentRot) } });
     };
-    const onUp = () => { window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp); };
-    window.addEventListener('mousemove', onMove);
-    window.addEventListener('mouseup', onUp);
+    const onUp = () => { window.removeEventListener('pointermove', onMove); window.removeEventListener('pointerup', onUp); };
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
   };
 
   const startScale = (e) => {
@@ -1481,12 +1562,12 @@ function FaceTransformHandles({ face, panelIndex, dispatch, canvasRef, canvasW, 
     const onMove = (ev) => {
       const dist = Math.hypot(ev.clientX - cx, ev.clientY - cy);
       if (!startDist) return;
-      const ns = Math.max(0.15, Math.min(10, startScaleVal * (dist / startDist)));
+      const ns = Math.max(SCALE_MIN, Math.min(SCALE_MAX, startScaleVal * (dist / startDist)));
       dispatch({ type: actionType, preview: true, panelIndex, instanceId: face.instanceId, updates: { scale: Math.round(ns * 100) / 100 } });
     };
-    const onUp = () => { window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp); };
-    window.addEventListener('mousemove', onMove);
-    window.addEventListener('mouseup', onUp);
+    const onUp = () => { window.removeEventListener('pointermove', onMove); window.removeEventListener('pointerup', onUp); };
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
   };
 
   const scaleHandles = [
@@ -1516,7 +1597,7 @@ function FaceTransformHandles({ face, panelIndex, dispatch, canvasRef, canvasW, 
       {scaleHandles.map((pos, i) => (
         <div
           key={i}
-          onMouseDown={startScale}
+          onPointerDown={startScale}
           style={{
             position: 'absolute', ...pos,
             width: HW, height: HW,
@@ -1527,7 +1608,7 @@ function FaceTransformHandles({ face, panelIndex, dispatch, canvasRef, canvasW, 
       ))}
 
       <div
-        onMouseDown={startRotate}
+        onPointerDown={startRotate}
         style={{
           position: 'absolute',
           top: visMY, left: bR + 26,
@@ -1611,14 +1692,14 @@ function PlacedItem({ item, isSelected, onSelect, onDragStart, onRemove, dispatc
           overflow: trim ? 'hidden' : undefined,
           ...(boxW != null ? { width: boxW, height: boxH } : {}),
         }}
-        onMouseDown={(e) => { onSelect(); onDragStart(e); }}
+        onPointerDown={(e) => { onSelect(); onDragStart(e); }}
         onWheel={(e) => {
           if (!isSelected) return;
           e.preventDefault();
           e.stopPropagation();
           const current = item.scale || 1;
           const factor = e.deltaY < 0 ? 1.1 : 0.9;
-          const ns = Math.max(0.1, Math.min(10, current * factor));
+          const ns = Math.max(0.1, Math.min(SCALE_MAX, current * factor));
           dispatch({ type: 'UPDATE_PLACED_ITEM', preview: true, panelIndex, instanceId: item.instanceId, kind: kind.toLowerCase() + 's', updates: { scale: Math.round(ns * 100) / 100 } });
         }}
       >
@@ -1667,12 +1748,12 @@ function PlacedItemHandles({ item, kind, panelIndex, dispatch, canvasRef, canvas
     const onMove = (ev) => {
       const dist = Math.hypot(ev.clientX - ox, ev.clientY - oy);
       if (!startDist) return;
-      const ns = Math.max(0.1, Math.min(10, startScaleVal * (dist / startDist)));
+      const ns = Math.max(0.1, Math.min(SCALE_MAX, startScaleVal * (dist / startDist)));
       dispatch({ type: 'UPDATE_PLACED_ITEM', preview: true, panelIndex, instanceId: item.instanceId, kind: kind.toLowerCase() + 's', updates: { scale: Math.round(ns * 100) / 100 } });
     };
-    const onUp = () => { window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp); };
-    window.addEventListener('mousemove', onMove);
-    window.addEventListener('mouseup', onUp);
+    const onUp = () => { window.removeEventListener('pointermove', onMove); window.removeEventListener('pointerup', onUp); };
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
   };
 
   const startRotate = (e) => {
@@ -1691,9 +1772,9 @@ function PlacedItemHandles({ item, kind, panelIndex, dispatch, canvasRef, canvas
       lastAngle = newAngle;
       dispatch({ type: 'UPDATE_PLACED_ITEM', preview: true, panelIndex, instanceId: item.instanceId, kind: kind.toLowerCase() + 's', updates: { rotation: Math.round(currentRot) } });
     };
-    const onUp = () => { window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp); };
-    window.addEventListener('mousemove', onMove);
-    window.addEventListener('mouseup', onUp);
+    const onUp = () => { window.removeEventListener('pointermove', onMove); window.removeEventListener('pointerup', onUp); };
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
   };
 
   const scaleHandles = [
@@ -1724,12 +1805,12 @@ function PlacedItemHandles({ item, kind, panelIndex, dispatch, canvasRef, canvas
       {/* Remove button */}
       <button
         style={{ position: 'absolute', top: -10, left: sw - 10, width: 20, height: 20, background: PLACED_SEL, color: '#fff', border: 'none', borderRadius: '50%', cursor: 'pointer', fontSize: 14, lineHeight: 1, zIndex: 13, pointerEvents: 'auto', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-        onMouseDown={(e) => { e.stopPropagation(); onRemove(); }}
+        onPointerDown={(e) => { e.stopPropagation(); onRemove(); }}
       >×</button>
 
       {/* Scale handles */}
       {scaleHandles.map((pos, i) => (
-        <div key={i} onMouseDown={startScale}
+        <div key={i} onPointerDown={startScale}
           style={{ position: 'absolute', ...pos, width: HW, height: HW, background: '#fff', border: `2px solid ${PLACED_SEL}`, borderRadius: '50%', cursor: pos.cursor, pointerEvents: 'auto' }}
         />
       ))}
@@ -1738,7 +1819,7 @@ function PlacedItemHandles({ item, kind, panelIndex, dispatch, canvasRef, canvas
       <div style={{ position: 'absolute', top: sh / 2 - 1, left: sw, width: 26, height: 2, background: PLACED_SEL, pointerEvents: 'none' }} />
 
       {/* Rotation knob */}
-      <div onMouseDown={startRotate}
+      <div onPointerDown={startRotate}
         style={{
           position: 'absolute', top: sh / 2 - 13, left: sw + 13,
           width: 26, height: 26, background: PLACED_SEL, border: '2.5px solid #fff',
@@ -1815,9 +1896,9 @@ function NarrationBoxOverlay({ box, isSelected, onSelect, onChange, onRemove, on
       const newWidth = Math.max(40, Math.min(300, startWidth + delta));
       onChange({ style: { ...ns, width: Math.round(newWidth) } });
     };
-    const onUp = () => { window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp); };
-    window.addEventListener('mousemove', onMove);
-    window.addEventListener('mouseup', onUp);
+    const onUp = () => { window.removeEventListener('pointermove', onMove); window.removeEventListener('pointerup', onUp); };
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
   };
 
   // Drag right edge of left-positioned box to resize width
@@ -1831,9 +1912,9 @@ function NarrationBoxOverlay({ box, isSelected, onSelect, onChange, onRemove, on
       const newWidth = Math.max(40, Math.min(300, startWidth + delta));
       onChange({ style: { ...ns, width: Math.round(newWidth) } });
     };
-    const onUp = () => { window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp); };
-    window.addEventListener('mousemove', onMove);
-    window.addEventListener('mouseup', onUp);
+    const onUp = () => { window.removeEventListener('pointermove', onMove); window.removeEventListener('pointerup', onUp); };
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
   };
 
   const baseTextStyle = {
@@ -1864,7 +1945,7 @@ function NarrationBoxOverlay({ box, isSelected, onSelect, onChange, onRemove, on
         padding: isVertical ? '8px 6px' : '4px 10px',
         boxSizing: 'border-box',
       }}
-      onMouseDown={(e) => { e.stopPropagation(); onSelect(); }}
+      onPointerDown={(e) => { e.stopPropagation(); onSelect(); }}
     >
       {isSelected ? (
         <div
@@ -1874,7 +1955,7 @@ function NarrationBoxOverlay({ box, isSelected, onSelect, onChange, onRemove, on
           onInput={handleInput}
           onBlur={handleBlur}
           onClick={(e) => e.stopPropagation()}
-          onMouseDown={(e) => e.stopPropagation()}
+          onPointerDown={(e) => e.stopPropagation()}
           style={{ ...baseTextStyle, outline: 'none', minHeight: '1em' }}
         />
       ) : (
@@ -1887,7 +1968,7 @@ function NarrationBoxOverlay({ box, isSelected, onSelect, onChange, onRemove, on
       {/* Left-edge resize handle for right-positioned box */}
       {isSelected && position === 'right' && (
         <div
-          onMouseDown={startResizeLeft}
+          onPointerDown={startResizeLeft}
           style={{ position: 'absolute', top: 0, left: 0, bottom: 0, width: 6, cursor: 'ew-resize', background: '#a855f7', opacity: 0.7, zIndex: 1 }}
         />
       )}
@@ -1895,7 +1976,7 @@ function NarrationBoxOverlay({ box, isSelected, onSelect, onChange, onRemove, on
       {/* Right-edge resize handle for left-positioned box */}
       {isSelected && position === 'left' && (
         <div
-          onMouseDown={startResizeRight}
+          onPointerDown={startResizeRight}
           style={{ position: 'absolute', top: 0, right: 0, bottom: 0, width: 6, cursor: 'ew-resize', background: '#a855f7', opacity: 0.7, zIndex: 1 }}
         />
       )}
@@ -1931,7 +2012,7 @@ function BubbleOverlay({ bubble, isSelected, onSelect, onDragStart, onChange, on
   return (
     <div
       style={{ ...styles.placed, left: position.x, top: position.y, width, cursor: 'grab', outline: isSelected ? '2px solid #22c55e' : 'none' }}
-      onMouseDown={(e) => { onSelect(); onDragStart(e); }}
+      onPointerDown={(e) => { onSelect(); onDragStart(e); }}
     >
       <BubbleShape type={type} width={width} height={height} style={bs} />
       {isSelected ? (
@@ -1941,7 +2022,7 @@ function BubbleOverlay({ bubble, isSelected, onSelect, onDragStart, onChange, on
           onChange={(e) => onChange({ text: e.target.value })}
           onBlur={handleBlur}
           onClick={(e) => e.stopPropagation()}
-          onMouseDown={(e) => e.stopPropagation()}
+          onPointerDown={(e) => e.stopPropagation()}
         />
       ) : (
         <div style={{ ...styles.bubbleText, fontFamily: bs.fontFamily, fontSize: bs.fontSize }}>{text}</div>

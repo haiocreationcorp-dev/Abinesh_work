@@ -7,10 +7,10 @@ const prisma = require('../config/prisma');
 const { addMonths } = require('../utils/dates');
 const { PRICE_PER_SYSTEM_PER_MONTH, QUARTERLY_MONTHS, YEARLY_MULTIPLIER } = require('../config/billing');
 
-const razorpay = new Razorpay({
-  key_id: process.env.RAZORPAY_KEY_ID,
-  key_secret: process.env.RAZORPAY_KEY_SECRET,
-});
+let razorpay = null;
+if (process.env.RAZORPAY_KEY_ID && process.env.RAZORPAY_KEY_SECRET) {
+  razorpay = new Razorpay({ key_id: process.env.RAZORPAY_KEY_ID, key_secret: process.env.RAZORPAY_KEY_SECRET });
+}
 
 const PLAN_MONTHS = { QUARTERLY: 3, YEARLY: 12 };
 const PLAN_MULTIPLIER = { QUARTERLY: QUARTERLY_MONTHS, YEARLY: YEARLY_MULTIPLIER };
@@ -58,6 +58,7 @@ router.patch('/system-count', chiefAuth, async (req, res) => {
 
 // POST /api/billing/order
 router.post('/order', chiefAuth, async (req, res) => {
+  if (!razorpay) return res.status(503).json({ error: 'Payment gateway not configured on this server' });
   try {
     const { planType } = req.body;
     if (!['QUARTERLY', 'YEARLY'].includes(planType)) {

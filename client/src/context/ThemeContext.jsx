@@ -45,7 +45,7 @@ const LIGHT = {
 const ThemeContext = createContext(null);
 
 export function ThemeProvider({ children }) {
-  const [mode, setMode] = useState(() => localStorage.getItem('bc-theme') || 'dark');
+  const [mode, setMode] = useState(() => localStorage.getItem('bc-theme') || 'light');
 
   useEffect(() => {
     const vars = mode === 'dark' ? DARK : LIGHT;

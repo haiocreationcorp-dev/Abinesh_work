@@ -5,7 +5,7 @@
 $ErrorActionPreference = "Stop"
 $PG_PASS   = "BharathComic@2024!"   # PostgreSQL superuser password
 $APP_PASS  = "BharathComic@2024!"   # same for simplicity — change if you like
-$JWT       = [System.Convert]::ToBase64String([System.Security.Cryptography.RandomNumberGenerator]::GetBytes(64))
+$rng = [System.Security.Cryptography.RandomNumberGenerator]::Create(); $bytes = New-Object byte[] 64; $rng.GetBytes($bytes); $JWT = [System.Convert]::ToBase64String($bytes)
 $SITE_PASS = "bharath2024"          # password users type to enter the site
 $PORT      = 3000
 $REPO      = "https://github.com/haiocreationcorp-dev/Abinesh_work.git"

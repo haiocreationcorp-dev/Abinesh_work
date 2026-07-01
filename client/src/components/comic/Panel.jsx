@@ -1155,6 +1155,10 @@ export default function Panel({ panel, panelIndex, canvasW = 800, canvasH = 450,
           {(data.characterPresets || []).map((cp) => {
             if (draggingOut === cp.instanceId) return null;
             const isCpSelected = selected?.instanceId === cp.instanceId;
+            const isCpCropping = isCpSelected && comicState.activeSelection?.cropping === true;
+            const cpCropStyle = cp.crop && (cp.crop.top || cp.crop.right || cp.crop.bottom || cp.crop.left)
+              ? `inset(${cp.crop.top || 0}px ${cp.crop.right || 0}px ${cp.crop.bottom || 0}px ${cp.crop.left || 0}px)`
+              : undefined;
             return (
               <Fragment key={cp.instanceId}>
                 <div
@@ -1166,10 +1170,15 @@ export default function Panel({ panel, panelIndex, canvasW = 800, canvasH = 450,
                     height: BASE_H,
                     transform: `rotate(${cp.rotation || 0}deg) scaleX(${cp.flipX ? -1 : 1}) scale(${cp.scale || 1})`,
                     transformOrigin: 'center center',
-                    cursor: 'grab',
+                    cursor: isCpCropping ? 'default' : 'grab',
                     zIndex: isCpSelected ? 10 : 1,
+                    clipPath: cpCropStyle,
                   }}
                   onPointerDown={(e) => {
+                    if (isCpCropping) {
+                      startDrag(e, 'CHARACTER_PRESET', cp.instanceId, cp.position, undefined);
+                      return;
+                    }
                     selectItem({ kind: 'CHARACTER_PRESET', instanceId: cp.instanceId });
                     startDrag(e, 'CHARACTER_PRESET', cp.instanceId, cp.position, undefined, cp.scale || 1);
                   }}
@@ -1186,6 +1195,32 @@ export default function Panel({ panel, panelIndex, canvasW = 800, canvasH = 450,
                   <CharacterPresetRig instance={cp} />
                 </div>
 
+                {/* Done button — floats below preset in crop mode */}
+                {isCpCropping && (
+                  <button
+                    onPointerDown={(e) => { e.preventDefault(); e.stopPropagation(); dispatch({ type: 'TOGGLE_CROP_MODE' }); }}
+                    style={{
+                      position: 'absolute',
+                      left: cp.position.x + BASE_W / 2 - 36,
+                      top: cp.position.y + BASE_H / 2 * (1 + (cp.scale || 1)) + 10,
+                      zIndex: 20,
+                      background: '#F97316',
+                      color: '#fff',
+                      border: 'none',
+                      borderRadius: 16,
+                      padding: '5px 16px',
+                      fontSize: 12,
+                      fontWeight: 700,
+                      cursor: 'pointer',
+                      pointerEvents: 'auto',
+                      boxShadow: '0 2px 8px rgba(0,0,0,0.3)',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    Done
+                  </button>
+                )}
+
                 {isCpSelected && (
                   <div style={{
                     position: 'absolute',
@@ -1198,14 +1233,31 @@ export default function Panel({ panel, panelIndex, canvasW = 800, canvasH = 450,
                     zIndex: 12,
                     pointerEvents: 'none',
                   }}>
-                    <FaceTransformHandles
-                      face={cp}
-                      panelIndex={panelIndex}
-                      dispatch={dispatch}
-                      canvasRef={canvasRef}
-                      canvasW={CANVAS_W}
-                      actionType="UPDATE_CHARACTER_PRESET"
-                    />
+                    {!isCpCropping && (
+                      <FaceTransformHandles
+                        face={cp}
+                        panelIndex={panelIndex}
+                        dispatch={dispatch}
+                        canvasRef={canvasRef}
+                        canvasW={CANVAS_W}
+                        actionType="UPDATE_CHARACTER_PRESET"
+                      />
+                    )}
+                    {isCpCropping && (
+                      <CropHandles
+                        crop={cp.crop || { top: 0, right: 0, bottom: 0, left: 0 }}
+                        w={BASE_W}
+                        h={BASE_H}
+                        scale={cp.scale || 1}
+                        flipX={cp.flipX || false}
+                        canvasRef={canvasRef}
+                        canvasW={CANVAS_W}
+                        onCropChange={(nc, pushHistory = false) => {
+                          if (pushHistory) { dispatch({ type: 'PUSH_HISTORY' }); return; }
+                          dispatch({ type: 'UPDATE_CHARACTER_PRESET', preview: true, panelIndex, instanceId: cp.instanceId, updates: { crop: nc } });
+                        }}
+                      />
+                    )}
                   </div>
                 )}
               </Fragment>

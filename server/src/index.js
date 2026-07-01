@@ -54,6 +54,14 @@ app.use('/api/ai', aiRoutes);
 
 app.get('/api/health', (_req, res) => res.json({ status: 'ok', time: new Date().toISOString() }));
 
+// Serve the React client build in production (client/dist must exist)
+const CLIENT_DIST = path.join(__dirname, '../../client/dist');
+if (fs.existsSync(CLIENT_DIST)) {
+  app.use(express.static(CLIENT_DIST));
+  // Catch-all: send index.html for any non-API route (SPA client-side routing)
+  app.get('*', (req, res) => res.sendFile(path.join(CLIENT_DIST, 'index.html')));
+}
+
 app.use(errorHandler);
 
 app.listen(PORT, () => {

@@ -1815,15 +1815,19 @@ export default function ComicEditor({ readOnly = false } = {}) {
                   </button>
                 );
               })()}
-              {state.activeSelection.kind === 'CHARACTER' && (() => {
+              {(state.activeSelection.kind === 'CHARACTER' || state.activeSelection.kind === 'CHARACTER_PRESET') && (() => {
                 const panel = state.panels[state.activeSelection.panelIndex];
-                const char = panel?.data?.characters?.find((c) => c.instanceId === state.activeSelection.instanceId);
+                const isPreset = state.activeSelection.kind === 'CHARACTER_PRESET';
+                const item = isPreset
+                  ? panel?.data?.characterPresets?.find((c) => c.instanceId === state.activeSelection.instanceId)
+                  : panel?.data?.characters?.find((c) => c.instanceId === state.activeSelection.instanceId);
+                const updateType = isPreset ? 'UPDATE_CHARACTER_PRESET' : 'UPDATE_CHARACTER';
                 return (
                   <>
                     <button
                       style={styles.toolBtn}
                       title="Flip horizontal"
-                      onClick={() => char && dispatch({ type: 'UPDATE_CHARACTER', panelIndex: state.activeSelection.panelIndex, instanceId: state.activeSelection.instanceId, updates: { flipX: !char.flipX } })}
+                      onClick={() => item && dispatch({ type: updateType, panelIndex: state.activeSelection.panelIndex, instanceId: state.activeSelection.instanceId, updates: { flipX: !item.flipX } })}
                     >
                       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
                         <path d="M7 8L2 12l5 4"/>

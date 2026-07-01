@@ -490,7 +490,7 @@ const styles = {
   statIconWrap: { width: 34, height: 34, borderRadius: '50%', background: 'rgba(255,255,255,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center' },
   statValueLg: { fontSize: 26, fontWeight: 800, marginBottom: 2 },
   statLabelLg: { fontSize: 13, fontWeight: 700, marginBottom: 2 },
-  statDesc: { fontSize: 11, opacity: 0.85 },
+  statDesc: { fontSize: 11, opacity: 0.85, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' },
   statSparkline: { marginTop: 8 },
   trendBadgeUp: { fontSize: 12, fontWeight: 700, color: '#bbf7d0', background: 'rgba(255,255,255,0.15)', borderRadius: 99, padding: '3px 8px' },
   trendBadgeDown: { fontSize: 12, fontWeight: 700, color: '#fecaca', background: 'rgba(255,255,255,0.15)', borderRadius: 99, padding: '3px 8px' },

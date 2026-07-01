@@ -121,7 +121,7 @@ function getGreeting() {
 
 function TrendBadge({ trend }) {
   if (!trend) return null;
-  if (trend.isNew) return <span style={styles.trendBadgeNew}>New</span>;
+  if (trend.isNew) return null;
   if (trend.pct === 0) return <span style={styles.trendBadgeFlat}>— 0%</span>;
   const up = trend.pct > 0;
   return <span style={up ? styles.trendBadgeUp : styles.trendBadgeDown}>{up ? '▲' : '▼'} {Math.abs(trend.pct)}%</span>;

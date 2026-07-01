@@ -442,8 +442,8 @@ export default function DashboardPage() {
 }
 
 const styles = {
-  header: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 32 },
-  greeting: { fontSize: 24, fontWeight: 700 },
+  header: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 24, paddingBottom: 16, borderBottom: '1px solid var(--border)' },
+  greeting: { fontSize: 18, fontWeight: 700, marginBottom: 2 },
   empty: { textAlign: 'center', padding: '80px 0', color: 'var(--mid)' },
   grid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 20 },
   comicCard: { cursor: 'pointer', transition: 'transform 0.2s, box-shadow 0.2s' },

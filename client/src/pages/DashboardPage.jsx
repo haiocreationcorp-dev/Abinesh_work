@@ -121,7 +121,7 @@ function getGreeting() {
 
 function TrendBadge({ trend }) {
   if (!trend) return null;
-  if (trend.isNew) return null;
+  if (trend.isNew) return <span style={styles.trendBadgeUp}>▲ New</span>;
   if (trend.pct === 0) return <span style={styles.trendBadgeFlat}>— 0%</span>;
   const up = trend.pct > 0;
   return <span style={up ? styles.trendBadgeUp : styles.trendBadgeDown}>{up ? '▲' : '▼'} {Math.abs(trend.pct)}%</span>;
@@ -479,11 +479,11 @@ const styles = {
   sidebarIcon: { display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
   sidebarLabel: { flex: 1, textAlign: 'left', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' },
   soonBadge: { fontSize: 10, fontWeight: 700, color: 'var(--mid)', background: 'var(--light)', borderRadius: 99, padding: '2px 7px' },
-  sidebarDivider: { height: 1, background: 'var(--border)', margin: '10px 4px' },
+  sidebarDivider: { height: 1, background: 'var(--border)', margin: '16px 4px 8px' },
 
-  welcomeRow: { display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 24, flexWrap: 'wrap', gap: 12 },
+  welcomeRow: { display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 24, flexWrap: 'wrap', gap: 12, paddingRight: 8 },
   welcomeTitle: { fontSize: 26, fontWeight: 800, marginBottom: 4 },
-  todayDate: { fontSize: 14, color: 'var(--mid)', fontWeight: 600, paddingTop: 6 },
+  todayDate: { fontSize: 14, color: 'var(--mid)', fontWeight: 600, paddingTop: 6, whiteSpace: 'nowrap' },
 
   statCard: { borderRadius: 'var(--radius)', padding: '16px 18px', color: '#fff', transition: 'transform 200ms ease, box-shadow 200ms ease' },
   statCardTop: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 },

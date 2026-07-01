@@ -127,7 +127,7 @@ input:focus, textarea:focus, select:focus { border-color: var(--primary); }
 
 /* ── Layout ── */
 .page { min-height: 100vh; padding-top: 72px; }
-.container { max-width: 1440px; margin: 0 auto; padding: 0 24px; }
+.container { max-width: 1440px; margin: 0 auto; padding: 0 36px; }
 .section { padding: 40px 0; }
 @media (max-width: 600px) {
   .container { padding: 0 16px; }

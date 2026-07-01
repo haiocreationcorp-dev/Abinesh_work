@@ -262,10 +262,10 @@ const EFFECT_SUBCATEGORIES = [
 ];
 
 const LAYOUT_CANVAS = {
-  single: { cols: 1, pw: 600, ph: 338 },
-  '2h':   { cols: 2, pw: 296, ph: 338 },
-  '2v':   { cols: 1, pw: 600, ph: 165 },
-  '4':    { cols: 2, pw: 296, ph: 165 },
+  single: { cols: 1, pw: 720, ph: 405 },
+  '2h':   { cols: 2, pw: 357, ph: 405 },
+  '2v':   { cols: 1, pw: 720, ph: 200 },
+  '4':    { cols: 2, pw: 357, ph: 200 },
 };
 
 function LayoutThumb({ layout, active }) {
@@ -415,6 +415,11 @@ export default function ComicEditor({ readOnly = false } = {}) {
   const [showZoomMenu, setShowZoomMenu] = useState(false);
   const [showOpacityPop, setShowOpacityPop] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [showTitle, setShowTitle] = useState(true);
+  const [editingTitle, setEditingTitle] = useState(false);
+  const [titleDraft, setTitleDraft] = useState('');
+  const [titleSaved, setTitleSaved] = useState(false);
+  const titleSavedTimerRef = useRef(null);
   const [textTab, setTextTab] = useState('bubble');
   const thumbScrollRef = useRef(null);
   const canvasAreaRef = useRef(null);
@@ -1781,10 +1786,64 @@ export default function ComicEditor({ readOnly = false } = {}) {
       {/* ── Main: canvas + bottom page strip ── */}
       <div style={styles.main} id="comic-main">
 
-        {/* Canvas toolbar — fixed to main, does not scroll with canvas */}
+        {/* Canvas toolbar — full-width strip: title left, tools right */}
         <div style={styles.canvasToolbar}>
-          {/* Delete + Flip — only shown when an item is selected */}
-          {state.activeSelection && (
+
+          {/* LEFT: T toggle */}
+          <div style={styles.toolbarLeft}>
+            <button
+              style={{ ...styles.toolBtn, color: showTitle ? '#F97316' : 'var(--t-text-muted)' }}
+              title={showTitle ? 'Hide title' : 'Show title'}
+              onClick={() => setShowTitle((v) => !v)}
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M4 7V4h16v3"/><path d="M9 20h6"/><path d="M12 4v16"/>
+              </svg>
+            </button>
+          </div>
+
+          {/* CENTER: Comic title — absolutely centered in the ribbon */}
+          {showTitle && (() => {
+            const doCommit = () => {
+              dispatch({ type: 'SET_TITLE', title: titleDraft.trim() || 'Untitled Comic' });
+              setEditingTitle(false);
+              if (titleSavedTimerRef.current) clearTimeout(titleSavedTimerRef.current);
+              setTitleSaved(true);
+              titleSavedTimerRef.current = setTimeout(() => setTitleSaved(false), 1800);
+            };
+            return (
+              <div style={styles.toolbarCenter}>
+                {editingTitle ? (
+                  <input
+                    autoFocus
+                    style={styles.titleInput}
+                    value={titleDraft}
+                    placeholder="Title of the comic..."
+                    maxLength={120}
+                    onChange={(e) => setTitleDraft(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') doCommit();
+                      if (e.key === 'Escape') setEditingTitle(false);
+                    }}
+                    onBlur={doCommit}
+                  />
+                ) : (
+                  <span
+                    style={styles.titleDisplay}
+                    onClick={() => { setTitleDraft(state.title || ''); setEditingTitle(true); }}
+                    title="Click to edit title"
+                  >
+                    {state.title || 'Untitled Comic'}
+                  </span>
+                )}
+              </div>
+            );
+          })()}
+
+          {/* RIGHT: Tool buttons */}
+          <div style={styles.toolbarRight}>
+            {/* Delete + Flip + Crop — only shown when an item is selected */}
+            {state.activeSelection && (
             <>
               <button
                 style={{ ...styles.toolBtn, color: '#ef4444' }}
@@ -1970,7 +2029,18 @@ export default function ComicEditor({ readOnly = false } = {}) {
               <path d="M20 9H9a5 5 0 0 0 0 10h1"/>
             </svg>
           </button>
-        </div>
+            {titleSaved && (
+              <>
+                <style>{`@keyframes bc-check-pop { 0%{opacity:0;transform:scale(0.6)} 20%{opacity:1;transform:scale(1)} 75%{opacity:1} 100%{opacity:0} }`}</style>
+                <span style={{ display:'inline-flex', alignItems:'center', animation:'bc-check-pop 1.8s ease forwards', pointerEvents:'none' }}>
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#22c55e" strokeWidth="2.8" strokeLinecap="round" strokeLinejoin="round">
+                    <polyline points="20 6 9 17 4 12"/>
+                  </svg>
+                </span>
+              </>
+            )}
+          </div>{/* end toolbarRight */}
+        </div>{/* end canvasToolbar */}
 
         {/* Canvas area */}
         <div
@@ -2312,7 +2382,7 @@ const styles = {
   main: { flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', position: 'relative' },
   canvasArea: {
     flex: 1, display: 'flex',
-    overflow: 'auto', padding: 28, background: 'var(--t-canvas-bg)', position: 'relative',
+    overflow: 'auto', padding: '50px 28px 28px', background: 'var(--t-canvas-bg)', position: 'relative',
   },
   readOnlyBanner: {
     position: 'absolute', top: 0, left: 0, right: 0, zIndex: 50,
@@ -2320,15 +2390,25 @@ const styles = {
     padding: '8px 16px', fontSize: 13, fontWeight: 700,
   },
 
-  // Canvas toolbar (undo/redo/zoom) — top-right of canvas area
+  // Canvas toolbar — full-width strip at top of canvas area
   canvasToolbar: {
-    position: 'absolute', top: 0, right: 0,
-    display: 'flex', alignItems: 'center', gap: 4,
-    background: 'var(--t-surface)', borderRadius: '0 0 0 12px',
-    padding: '6px 10px', boxShadow: '0 2px 10px rgba(0,0,0,0.10)',
-    border: '1px solid var(--t-border)',
-    borderTop: 'none', borderRight: 'none',
+    position: 'absolute', top: 0, left: 0, right: 0,
+    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+    background: 'var(--t-surface)', borderBottom: '1px solid var(--t-border)',
+    padding: '4px 8px',
+    boxShadow: '0 2px 10px rgba(0,0,0,0.08)',
     zIndex: 10,
+  },
+  toolbarLeft: {
+    display: 'flex', alignItems: 'center', flexShrink: 0,
+  },
+  toolbarCenter: {
+    position: 'absolute', left: '50%', transform: 'translateX(-50%)',
+    display: 'flex', alignItems: 'center', gap: 8,
+    pointerEvents: 'none',
+  },
+  toolbarRight: {
+    display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0,
   },
   toolBtn: {
     width: 34, height: 34, borderRadius: 8, border: 'none',
@@ -2549,5 +2629,60 @@ const styles = {
     display: 'flex', alignItems: 'center', justifyContent: 'center',
     fontSize: 12, color: 'rgba(255,255,255,0.35)', fontWeight: 500,
     letterSpacing: 0.3,
+  },
+
+  titleBar: {
+    flexShrink: 0,
+    padding: '5px 16px',
+    background: 'var(--t-bg2)',
+    borderBottom: '1.5px solid var(--t-border)',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+  },
+  titleDisplay: {
+    fontSize: 15,
+    fontWeight: 700,
+    color: 'var(--t-text)',
+    cursor: 'text',
+    display: 'inline-block',
+    padding: '4px 10px',
+    borderRadius: 6,
+    borderBottom: '1.5px solid transparent',
+    transition: 'border-color 0.15s',
+    userSelect: 'none',
+    maxWidth: 440,
+    overflow: 'hidden',
+    whiteSpace: 'nowrap',
+    textOverflow: 'ellipsis',
+    pointerEvents: 'auto',
+    letterSpacing: 0.2,
+  },
+  titleInput: {
+    background: 'transparent',
+    border: 'none',
+    borderBottom: '2px solid #F97316',
+    borderRadius: 0,
+    padding: '4px 10px',
+    fontSize: 15,
+    fontWeight: 700,
+    color: 'var(--t-text)',
+    outline: 'none',
+    minWidth: 200,
+    maxWidth: 440,
+    textAlign: 'center',
+    pointerEvents: 'auto',
+    letterSpacing: 0.2,
+  },
+  titleOkBtn: {
+    background: '#F97316',
+    color: '#fff',
+    border: 'none',
+    borderRadius: 7,
+    padding: '5px 14px',
+    fontSize: 13,
+    fontWeight: 700,
+    cursor: 'pointer',
   },
 };

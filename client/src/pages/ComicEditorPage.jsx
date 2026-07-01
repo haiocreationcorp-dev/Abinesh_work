@@ -18,6 +18,8 @@ export default function ComicEditorPage() {
   const [saveMsg, setSaveMsg] = useState('');
   const [showExportMenu, setShowExportMenu] = useState(false);
   const [exporting, setExporting] = useState(false);
+  const [countdown, setCountdown] = useState(10);
+  const isDirtyRef = useRef(false);
 
   // Export current page as PNG
   const exportPNG = async () => {
@@ -148,6 +150,27 @@ export default function ComicEditorPage() {
   // Keep refs so the stable listener always calls the latest version
   const handleSaveRef = useRef(handleSave);
   useEffect(() => { handleSaveRef.current = handleSave; }, [handleSave]);
+
+  // Track isDirty in a ref so the auto-save interval always sees the latest value
+  useEffect(() => { isDirtyRef.current = state.isDirty; }, [state.isDirty]);
+
+  // Reset countdown whenever new changes come in
+  useEffect(() => {
+    if (state.isDirty) setCountdown(10);
+  }, [state.isDirty]);
+
+  // Countdown tick — saves at 0, resets after save
+  useEffect(() => {
+    if (isViewOnly) return;
+    const id = setInterval(() => {
+      setCountdown((c) => {
+        if (!isDirtyRef.current) return 10;
+        if (c <= 1) { handleSaveRef.current(); return 10; }
+        return c - 1;
+      });
+    }, 1000);
+    return () => clearInterval(id);
+  }, [isViewOnly]);
   const printAllPagesRef = useRef(printAllPages);
   useEffect(() => { printAllPagesRef.current = printAllPages; }, [printAllPages]);
 
@@ -205,16 +228,14 @@ export default function ComicEditorPage() {
         <div style={styles.topRight}>
           {isViewOnly ? (
             <span style={styles.statusText}>🔒 View only</span>
-          ) : saveMsg ? (
-            <span style={styles.statusText}><CheckBadge /> {saveMsg}</span>
-          ) : state.isDirty ? (
-            <span style={styles.statusText}>Unsaved changes</span>
           ) : (
-            <span style={styles.statusText}><CheckBadge /> All changes saved</span>
+            <span style={styles.statusText}>
+              <CloudSyncIcon dirty={state.isDirty} countdown={countdown} />
+            </span>
           )}
           {!isViewOnly && (
-            <button style={styles.saveBtn} onClick={handleSave} disabled={saving}>
-              {saving ? 'Saving…' : 'Save'}
+            <button style={styles.saveBtn} onClick={handleSave}>
+              Save
             </button>
           )}
 
@@ -331,6 +352,41 @@ function HaioLogo() {
         fontFamily="'Helvetica Neue', Arial, sans-serif"
         fontWeight="400" letterSpacing="1">haio</text>
     </svg>
+  );
+}
+
+function CloudSyncIcon({ dirty, countdown }) {
+  const aboutToSave = dirty && countdown <= 2;
+  const spinning = aboutToSave;
+  const saved = !dirty;
+
+  const color = saved ? '#4ade80' : spinning ? '#fff' : 'rgba(255,255,255,0.5)';
+  const speed = '0.9s';
+
+  return (
+    <span style={{ display: 'inline-flex', alignItems: 'center' }}>
+      <style>{`
+        @keyframes bc-spin {
+          from { transform: rotate(0deg); }
+          to   { transform: rotate(360deg); }
+        }
+        .bc-sync-icon {
+          transition: stroke 0.4s ease, opacity 0.4s ease;
+        }
+      `}</style>
+      <svg
+        className="bc-sync-icon"
+        width="22" height="22" viewBox="0 0 24 24" fill="none"
+        stroke={color} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"
+        style={spinning ? { animation: `bc-spin ${speed} linear infinite`, transformOrigin: 'center' } : { transformOrigin: 'center' }}
+      >
+        <path d="M21 12a9 9 0 0 1-9 9 9 9 0 0 1-6.36-2.64L3 16"/>
+        <path d="M3 12a9 9 0 0 1 9-9 9 9 0 0 1 6.36 2.64L21 8"/>
+        <polyline points="3 16 3 21 8 21"/>
+        <polyline points="21 8 21 3 16 3"/>
+        {saved && <polyline points="8 12 11 15 16 9" strokeWidth="2.4" stroke="#4ade80"/>}
+      </svg>
+    </span>
   );
 }
 

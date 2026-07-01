@@ -262,10 +262,10 @@ const EFFECT_SUBCATEGORIES = [
 ];
 
 const LAYOUT_CANVAS = {
-  single: { cols: 1, pw: 720, ph: 405 },
-  '2h':   { cols: 2, pw: 357, ph: 405 },
-  '2v':   { cols: 1, pw: 720, ph: 200 },
-  '4':    { cols: 2, pw: 357, ph: 200 },
+  single: { cols: 1, pw: 600, ph: 338 },
+  '2h':   { cols: 2, pw: 296, ph: 338 },
+  '2v':   { cols: 1, pw: 600, ph: 165 },
+  '4':    { cols: 2, pw: 296, ph: 165 },
 };
 
 function LayoutThumb({ layout, active }) {

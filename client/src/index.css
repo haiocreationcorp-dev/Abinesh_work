@@ -173,6 +173,30 @@ input:focus, textarea:focus, select:focus { border-color: var(--primary); }
 }
 @keyframes spin { to { transform: rotate(360deg); } }
 
+/* Bottom-to-top reveal for character/part swaps in the Comic Editor — a freshly-ready
+   render wipes in from the bottom instead of popping or fading, while clip-path keeps it
+   a pure compositor operation (no pixel filtering, cheap at scale). */
+@keyframes reveal-up { from { clip-path: inset(100% 0 0 0); } to { clip-path: inset(0 0 0 0); } }
+
+/* Grey/ash fade for hairstyle, expression, skin/eye/hair colour swaps (Effect 1, 0.5 s).
+   A greyscale pseudo-overlay sweeps in then out via a ::before-like wrapper filter trick:
+   we animate the element's own filter from grayscale(1) → grayscale(0) so the underlying
+   image fades from ash back to full colour as the new render arrives. */
+@keyframes fade-grey {
+  0%   { filter: grayscale(1) brightness(0.7); opacity: 0.5; }
+  40%  { filter: grayscale(0.8) brightness(0.85); opacity: 0.8; }
+  100% { filter: grayscale(0) brightness(1); opacity: 1; }
+}
+
+/* Vanish-then-reappear for outfit/pose swaps (Effect 3, ~1.6 s total).
+   The character disappears for 1.5 s while the new render is staged behind the scenes,
+   then snaps back at ~1.6 s with the fully-built result — hides any intermediate state. */
+@keyframes vanish-reappear {
+  0%    { opacity: 0; }
+  93.75%{ opacity: 0; }   /* invisible until 1.5 s (1.5/1.6 = 93.75%) */
+  100%  { opacity: 1; }
+}
+
 .skeleton { background: linear-gradient(90deg, var(--border) 25%, var(--light) 50%, var(--border) 75%); background-size: 200% 100%; animation: skeleton-pulse 1.4s ease-in-out infinite; border-radius: var(--radius-sm); }
 @keyframes skeleton-pulse { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
 

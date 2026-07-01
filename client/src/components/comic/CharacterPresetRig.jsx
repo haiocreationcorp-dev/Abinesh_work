@@ -1,9 +1,10 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { getCharacterPresets, getExpressions, getAssetById, getFacePartAlignmentsPublic, getAssets } from '../../api/assets.js';
 import { buildFaceFromLayout, computeFaceContentBounds, resolveLayoutFilePaths, orderFaceParts, FACE_CANVAS_W, FACE_CANVAS_H } from '../../utils/faceLayout.js';
 import { loadTrimRect, trimmedRect } from '../../utils/trimRect.js';
 import { hexToRgb } from '../../lighting/lightingEngine.js';
 import { recolorSkin, recolorEyeAsset } from '../../utils/recolorImage.js';
+import { playReveal, playGreyFade, playVanishReappear } from '../../utils/revealAnimation.js';
 
 const MAX_W = 120;
 const MAX_H = 200;
@@ -11,6 +12,15 @@ const SHARED_ALIGNMENT_KEY = '__ALL__';
 
 const HAIR_BLEND_MODE = 'multiply';
 const HAIR_OPACITY = 0.9;
+
+function loadImage(src) {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => resolve({ w: img.naturalWidth, h: img.naturalHeight });
+    img.onerror = () => resolve(null);
+    img.src = src;
+  });
+}
 
 // Renders one face part, trimmed-to-content — same pattern as FaceRig's FacePart, plus
 // optional hair-color tint / skin-tone recolor / eye-colors recolor. Skin uses the same
@@ -21,26 +31,40 @@ const HAIR_OPACITY = 0.9;
 // via recolorEyeAsset, since that image is normalized to its own two reference colors.
 // The hairstyle part still uses a masked multiply tint since hair is a free-form color
 // choice, not a fixed-palette swap.
-function CPPart({ part, hairColor, skinTone, eyeColors }) {
-  const [trim, setTrim] = useState(null);
-  useEffect(() => {
-    let active = true;
-    loadTrimRect(part.filePath).then((t) => { if (active) setTrim(t); });
-    return () => { active = false; };
-  }, [part.filePath]);
+//
+// Stages the new trim-rect + recolor in the background and only commits them together
+// once both are ready, so a swap never flashes the raw/un-recolored source mid-load — the
+// previous committed frame keeps rendering until the new one is ready, then plays a quick
+// bottom-to-top wipe. CPPart is keyed by part-type (stable across swaps, see render below),
+// so this effect re-runs via prop changes rather than a remount, preserving `committed`.
+// playFn is passed from the parent so CPPart doesn't decide which effect to use —
+// the parent (CharacterPresetRig) already knows whether this commit is a first placement,
+// a colour/expression swap, or an outfit/pose swap, and passes the right helper down.
+function CPPart({ part, hairColor, skinTone, eyeColors, playFn }) {
+  const [committed, setCommitted] = useState(null); // { trim, imgSrc }
+  const elRef = useRef(null);
 
-  const [recoloredSrc, setRecoloredSrc] = useState(null);
   useEffect(() => {
     let active = true;
-    if (skinTone) {
-      recolorSkin(part.filePath, skinTone).then((url) => { if (active) setRecoloredSrc(url); });
-    } else if (eyeColors && (eyeColors.hairColor || eyeColors.irisColor)) {
-      recolorEyeAsset(part.filePath, eyeColors).then((url) => { if (active) setRecoloredSrc(url); });
-    } else {
-      setRecoloredSrc(null);
-    }
+    (async () => {
+      const trim = await loadTrimRect(part.filePath);
+      if (!active) return;
+      let imgSrc = part.filePath;
+      if (skinTone || (eyeColors && (eyeColors.hairColor || eyeColors.irisColor))) {
+        const job = skinTone ? recolorSkin(part.filePath, skinTone) : recolorEyeAsset(part.filePath, eyeColors);
+        imgSrc = await job.catch(() => part.filePath);
+        if (!active) return;
+      }
+      setCommitted({ trim, imgSrc });
+    })();
     return () => { active = false; };
   }, [part.filePath, skinTone, eyeColors?.hairColor, eyeColors?.irisColor]);
+
+  useEffect(() => {
+    if (committed) (playFn || playReveal)(elRef.current);
+  }, [committed]); // eslint-disable-line
+
+  if (!committed) return null; // first paint for this part-slot — nothing to show yet
 
   const transform = [
     part.rotation ? `rotate(${part.rotation}deg)` : '',
@@ -48,12 +72,12 @@ function CPPart({ part, hairColor, skinTone, eyeColors }) {
     part.flipY ? 'scaleY(-1)' : '',
   ].filter(Boolean).join(' ');
 
-  const rect = trimmedRect(trim, 0, 0, part.w, part.h);
+  const rect = trimmedRect(committed.trim, 0, 0, part.w, part.h);
   const hairRgb = hairColor ? hexToRgb(hairColor) : null;
-  const imgSrc = recoloredSrc || part.filePath;
+  const imgSrc = committed.imgSrc;
 
   return (
-    <div style={{
+    <div ref={elRef} style={{
       position: 'absolute', left: part.x, top: part.y, width: part.w, height: part.h,
       transform, transformOrigin: 'center', overflow: 'hidden', pointerEvents: 'none',
     }}>
@@ -86,13 +110,25 @@ function CPPart({ part, hairColor, skinTone, eyeColors }) {
 // `headBoxOverride` lets a caller (Pose Builder) supply a head box that hasn't been saved
 // yet — e.g. while live-dragging the placement box — instead of always fetching the saved
 // FacePartAlignment for instance.bodyPoseId. Takes priority over the fetched one when set.
+//
+// Rendering strategy: the whole pose/face/skin pipeline below is assembled into local
+// variables and only committed to state ONCE, atomically, when everything (body image,
+// face parts, head box alignment, skin recolor, natural size) is fully ready. Until then,
+// the PREVIOUS committed render keeps showing as-is instead of the component blanking to
+// an empty box and rebuilding piece by piece — that blank-then-rebuild was the visible
+// "sudden glitch" on every expression/costume/pose change. The moment the new build
+// commits, it plays a quick bottom-to-top wipe instead of popping in instantly.
 export default function CharacterPresetRig({ instance, presetOverride, headBoxOverride, maxW = MAX_W, maxH = MAX_H }) {
   const [preset, setPreset] = useState(null);
-  const [bodyPose, setBodyPose] = useState(null);
-  const [face, setFace] = useState(null); // { faceShape, parts }
-  const [headBox, setHeadBox] = useState(null);
-  const [naturalSize, setNaturalSize] = useState(null);
-  const [recoloredBodySrc, setRecoloredBodySrc] = useState(null);
+  const [rendered, setRendered] = useState(null); // { bodyPose, face, headBox, naturalSize, bodySrc }
+  const wrapRef = useRef(null);
+  // Effect routing: first commit → Effect 2 (bottom-up reveal); subsequent commits choose
+  // between Effect 1 (grey fade) or Effect 3 (vanish-reappear) based on what changed.
+  const isFirstRender = useRef(true);
+  const prevBodyPoseId = useRef(null);
+  // The animation function chosen for the CURRENT render cycle — set just before
+  // setRendered so the useEffect([rendered]) below can read it synchronously.
+  const pendingPlayFn = useRef(playReveal);
 
   // Looks up the CharacterPreset definition (name/skinTone/hairColor/face ids/etc) —
   // split from the pose/face effect below so that switching only the placement-level
@@ -109,21 +145,18 @@ export default function CharacterPresetRig({ instance, presetOverride, headBoxOv
     return () => { active = false; };
   }, [instance.presetId, presetOverride]);
 
+  const skinTone = instance.skinTone || preset?.skinTone;
+  const hairColor = instance.hairColor || preset?.hairColor;
+  const irisColor = instance.irisColor || preset?.irisColor;
+
   useEffect(() => {
+    if (!preset) return;
     let active = true;
-    // Reset bodyPose too, not just naturalSize/face/headBox — otherwise the still-stale
-    // bodyPose object (from the previous costume) briefly renders the measuring pass
-    // against the OLD image while naturalSize has already been cleared, capturing the
-    // wrong natural pixel dimensions and scaling the new head box against them.
-    setBodyPose(null); setFace(null); setHeadBox(null); setNaturalSize(null);
-    setRecoloredBodySrc(null);
 
     (async () => {
       const p = preset;
-      if (!p) return;
       const pose = await getAssetById(instance.bodyPoseId).catch(() => null);
       if (!active) return;
-      setBodyPose(pose);
       if (!pose) return;
 
       // Prefer the face matching this body pose's own view; if that view has no face
@@ -229,43 +262,47 @@ export default function CharacterPresetRig({ instance, presetOverride, headBoxOv
       }
 
       if (!active) return;
-      setFace(built);
 
       const headAlign = headAlignments.find((a) => a.partType === 'head' && a.partAssetId === SHARED_ALIGNMENT_KEY);
-      if (headAlign) setHeadBox({ x: headAlign.x, y: headAlign.y, w: headAlign.w, h: headAlign.h });
+      const newHeadBox = headAlign ? { x: headAlign.x, y: headAlign.y, w: headAlign.w, h: headAlign.h } : null;
+
+      // Body skin recolor + natural-size measurement, resolved off-screen so neither
+      // requires its own visible placeholder render before this whole build commits.
+      const bodySrc = skinTone ? await recolorSkin(pose.filePath, skinTone).catch(() => pose.filePath) : pose.filePath;
+      if (!active) return;
+      const naturalSize = await loadImage(bodySrc);
+      if (!active || !naturalSize) return;
+
+      // Choose which animation to play when this render commits.
+      if (isFirstRender.current) {
+        pendingPlayFn.current = playReveal; // Effect 2: bottom-up reveal on first placement
+      } else if (instance.bodyPoseId !== prevBodyPoseId.current) {
+        pendingPlayFn.current = playVanishReappear; // Effect 3: outfit/pose change
+      } else {
+        pendingPlayFn.current = playGreyFade; // Effect 1: hairstyle/expression/colour change
+      }
+      prevBodyPoseId.current = instance.bodyPoseId;
+
+      setRendered({ bodyPose: pose, face: built, headBox: newHeadBox, naturalSize, bodySrc });
     })();
 
     return () => { active = false; };
-  }, [preset, instance.bodyPoseId, instance.hairstyleAssetId, instance.expressionId]);
-
-  // Per-placement overrides (set via the Comic UI's Skin Tone/Hair Color controls) win
-  // over the preset's own defaults, without mutating the underlying CharacterPreset.
-  const skinTone = instance.skinTone || preset?.skinTone;
-  const hairColor = instance.hairColor || preset?.hairColor;
-  const irisColor = instance.irisColor || preset?.irisColor;
+  }, [preset, instance.bodyPoseId, instance.hairstyleAssetId, instance.expressionId, skinTone]); // eslint-disable-line
 
   useEffect(() => {
-    if (!skinTone || !bodyPose) return;
-    let active = true;
-    recolorSkin(bodyPose.filePath, skinTone).then((url) => { if (active) setRecoloredBodySrc(url); });
-    return () => { active = false; };
-  }, [skinTone, bodyPose]);
+    if (!rendered) return;
+    pendingPlayFn.current(wrapRef.current);
+    isFirstRender.current = false;
+  }, [rendered]);
 
-  if (!bodyPose) return <div style={{ width: maxW, height: maxH }} />;
-
-  const bodySrc = recoloredBodySrc || bodyPose.filePath;
-  const effectiveHeadBox = headBoxOverride || headBox;
-
-  if (!naturalSize) {
-    // Measuring pass — load invisibly just to get natural width/height before drawing.
-    return (
-      <div style={{ width: maxW, height: maxH, position: 'relative', overflow: 'hidden' }}>
-        <img src={bodySrc} alt="" draggable={false}
-          onLoad={(e) => setNaturalSize({ w: e.target.naturalWidth, h: e.target.naturalHeight })}
-          style={{ position: 'absolute', opacity: 0, width: 1, height: 1 }} />
-      </div>
-    );
+  if (!rendered) {
+    // True first paint for this instance — nothing committed yet, so there's no previous
+    // render to keep showing.
+    return <div style={{ width: maxW, height: maxH }} />;
   }
+
+  const { bodyPose, face, headBox, naturalSize, bodySrc } = rendered;
+  const effectiveHeadBox = headBoxOverride || headBox;
 
   // Anchor the head box to the FACE SHAPE alone, not the full face+hair+eyes+mouth union
   // — hair length/volume varies wildly between characters, and fitting the whole union
@@ -317,7 +354,7 @@ export default function CharacterPresetRig({ instance, presetOverride, headBoxOv
   const originTop = (maxH - (unionMaxY - unionMinY) * drawScale) / 2 - unionMinY * drawScale;
 
   return (
-    <div style={{ width: maxW, height: maxH, position: 'relative', overflow: 'hidden' }}>
+    <div ref={wrapRef} style={{ width: maxW, height: maxH, position: 'relative', overflow: 'hidden' }}>
       <div style={{ position: 'absolute', left: originLeft, top: originTop, width: drawW, height: drawH }}>
         <img src={bodySrc} alt={bodyPose.name} draggable={false} style={{ width: drawW, height: drawH, display: 'block' }} />
         {face && faceGeom && (() => {
@@ -335,6 +372,7 @@ export default function CharacterPresetRig({ instance, presetOverride, headBoxOv
                   hairColor={pt === 'hairstyle' ? hairColor : null}
                   skinTone={(pt === 'nose' || pt === 'faceShape') ? skinTone : null}
                   eyeColors={pt === 'eye' ? { hairColor, irisColor } : null}
+                  playFn={playGreyFade}
                 />
               ))}
             </div>

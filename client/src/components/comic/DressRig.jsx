@@ -1,8 +1,9 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { loadTrimRect, trimmedRect } from '../../utils/trimRect.js';
 import { hexToRgb } from '../../lighting/lightingEngine.js';
 import { classifyFacePart, resolveLayoutFilePaths } from '../../utils/faceLayout.js';
 import { recolorSkin } from '../../utils/recolorImage.js';
+import { playReveal, playGreyFade, playVanishReappear } from '../../utils/revealAnimation.js';
 
 const DRESS_CANVAS_W = 400;
 const DRESS_CANVAS_H = 600;
@@ -84,22 +85,48 @@ function overlayDiv(rgb, overlay, rect, filePath) {
   );
 }
 
-function DressPart({ part, charSkinPreset, charHairOverlay }) {
-  const [trim, setTrim] = useState(null);
-  useEffect(() => {
-    let active = true;
-    loadTrimRect(part.filePath).then((t) => { if (active) setTrim(t); });
-    return () => { active = false; };
-  }, [part.filePath]);
+const OUTFIT_DRESS_KEYS = new Set(['cloth', 'neck', 'hands']);
 
-  // Exact pixel-color skin swap (Comic UI "Skin Color" tool) — only for skin-category parts.
-  const [recoloredSrc, setRecoloredSrc] = useState(null);
+// Stages the new trim-rect + (if skin) recolor for this slot in the background and only
+// commits them together once both are ready — so a part swap never shows the raw,
+// untrimmed/un-recolored source mid-load. The previous committed frame keeps rendering
+// the whole time; the moment the new one commits, it plays the appropriate animation:
+//   First placement  → Effect 2: bottom-up reveal (playReveal)
+//   Outfit part swap → Effect 3: vanish-reappear (playVanishReappear)
+//   Other part swap  → Effect 1: grey fade (playGreyFade)
+function DressPart({ part, charSkinPreset, charHairOverlay }) {
+  const [committed, setCommitted] = useState(null); // { trim, imgSrc }
+  const elRef = useRef(null);
+  const isFirstCommit = useRef(true);
+
   useEffect(() => {
-    if (part.partCategory !== 'skin' || !charSkinPreset) { setRecoloredSrc(null); return; }
     let active = true;
-    recolorSkin(part.filePath, charSkinPreset).then((url) => { if (active) setRecoloredSrc(url); });
+    (async () => {
+      const trim = await loadTrimRect(part.filePath);
+      if (!active) return;
+      let imgSrc = part.filePath;
+      if (part.partCategory === 'skin' && charSkinPreset) {
+        imgSrc = await recolorSkin(part.filePath, charSkinPreset).catch(() => part.filePath);
+        if (!active) return;
+      }
+      setCommitted({ trim, imgSrc });
+    })();
     return () => { active = false; };
   }, [part.filePath, part.partCategory, charSkinPreset]);
+
+  useEffect(() => {
+    if (!committed) return;
+    if (isFirstCommit.current) {
+      playReveal(elRef.current); // Effect 2: first placement
+      isFirstCommit.current = false;
+    } else if (OUTFIT_DRESS_KEYS.has(getDressKey(part))) {
+      playVanishReappear(elRef.current); // Effect 3: outfit/cloth/neck/hands swap
+    } else {
+      playGreyFade(elRef.current); // Effect 1: hair/expression/colour swap
+    }
+  }, [committed]); // eslint-disable-line
+
+  if (!committed) return null; // first paint for this slot — nothing to show yet
 
   const transform = [
     part.rotation ? `rotate(${part.rotation}deg)` : '',
@@ -107,8 +134,8 @@ function DressPart({ part, charSkinPreset, charHairOverlay }) {
     part.flipY ? 'scaleY(-1)' : '',
   ].filter(Boolean).join(' ');
 
-  const rect = trimmedRect(trim, 0, 0, part.w, part.h);
-  const imgSrc = recoloredSrc || part.filePath;
+  const rect = trimmedRect(committed.trim, 0, 0, part.w, part.h);
+  const imgSrc = committed.imgSrc;
 
   // Part-level assembly overlays (baked in DressBuilder)
   const skinRgb = part.skinOverlay ? hexToRgb(part.skinOverlay.color) : null;
@@ -117,7 +144,7 @@ function DressPart({ part, charSkinPreset, charHairOverlay }) {
   const charHairRgb = charHairOverlay ? hexToRgb(charHairOverlay.color) : null;
 
   return (
-    <div style={{
+    <div ref={elRef} style={{
       position: 'absolute', left: part.x, top: part.y, width: part.w, height: part.h,
       transform, transformOrigin: 'center', overflow: 'hidden', pointerEvents: 'none',
     }}>
@@ -189,15 +216,20 @@ export default function DressRig({ character, onSize }) {
     .sort((a, b) => a.zIndex - b.zIndex);
 
   return (
-    <div style={{ width: drawW, height: drawH, position: 'relative', overflow: 'hidden' }}>
+    <div style={{
+      width: drawW, height: drawH, position: 'relative', overflow: 'hidden',
+    }}>
       <div style={{
         position: 'absolute', left: drawLeft, top: drawTop,
         width: DRESS_CANVAS_W, height: DRESS_CANVAS_H,
         transform: `scale(${drawScale})`, transformOrigin: 'top left',
       }}>
         {activeParts.map((part, i) => (
+          // Keyed by slot position, not assetId — a swap must NOT remount this, otherwise
+          // the staged-commit logic in DressPart (keep showing the old image while the new
+          // one loads in the background) would lose its previous frame on every swap.
           <DressPart
-            key={`${part.assetId}-${i}`}
+            key={i}
             part={part}
             charSkinPreset={character.skinPreset}
             charHairOverlay={part.partCategory === 'hair' ? character.hairOverlay : null}

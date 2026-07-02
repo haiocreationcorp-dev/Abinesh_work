@@ -132,7 +132,7 @@ function StatCard({ icon, label, value, trend, description, gradient, sparklineD
   const [hover, setHover] = useState(false);
   return (
     <div
-      style={{ ...styles.statCard, background: gradient, transform: hover ? 'translateY(-4px)' : 'translateY(0)', boxShadow: hover ? 'var(--shadow-lg)' : 'var(--shadow)' }}
+      style={{ ...styles.statCard, background: gradient, transform: hover ? 'translateY(-4px)' : 'translateY(0)', boxShadow: hover ? '0 16px 32px rgba(0,0,0,0.18)' : '0 8px 24px rgba(0,0,0,0.08)' }}
       onMouseEnter={() => setHover(true)}
       onMouseLeave={() => setHover(false)}
     >
@@ -457,7 +457,7 @@ const styles = {
     gap: 6,
     background: 'var(--surface)',
     borderRight: '1px solid var(--border)',
-    padding: '20px 12px',
+    padding: '16px',
     minHeight: 'calc(100vh - 72px)',
     transition: 'width 220ms ease',
   },
@@ -467,10 +467,10 @@ const styles = {
     display: 'flex', alignItems: 'center', justifyContent: 'center',
     color: 'var(--mid)', background: 'transparent', marginBottom: 8,
   },
-  sidebarNav: { display: 'flex', flexDirection: 'column', gap: 4 },
+  sidebarNav: { display: 'flex', flexDirection: 'column', gap: 8 },
   sidebarItem: {
-    display: 'flex', alignItems: 'center', gap: 10, width: '100%',
-    padding: '10px 12px', borderRadius: 'var(--radius-sm)',
+    display: 'flex', alignItems: 'center', gap: 12, width: '100%',
+    height: 48, padding: '0 16px', borderRadius: 12,
     background: 'transparent', color: 'var(--mid)', fontSize: 14, fontWeight: 600,
     transition: 'background 0.18s ease, color 0.18s ease',
   },
@@ -479,27 +479,27 @@ const styles = {
   sidebarIcon: { display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
   sidebarLabel: { flex: 1, textAlign: 'left', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' },
   soonBadge: { fontSize: 10, fontWeight: 700, color: 'var(--mid)', background: 'var(--light)', borderRadius: 99, padding: '2px 7px' },
-  sidebarDivider: { height: 1, background: 'var(--border)', margin: '16px 4px 8px' },
+  sidebarDivider: { height: 1, background: 'var(--border)', margin: '16px 0 12px' },
 
-  welcomeRow: { display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 24, flexWrap: 'wrap', gap: 12, paddingRight: 8 },
-  welcomeTitle: { fontSize: 26, fontWeight: 800, marginBottom: 4 },
-  todayDate: { fontSize: 14, color: 'var(--mid)', fontWeight: 600, paddingTop: 6, whiteSpace: 'nowrap' },
+  welcomeRow: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 24, flexWrap: 'wrap', gap: 12, paddingRight: 8 },
+  welcomeTitle: { fontSize: 24, fontWeight: 600, marginBottom: 8 },
+  todayDate: { fontSize: 14, color: 'var(--mid)', fontWeight: 600, whiteSpace: 'nowrap' },
 
-  statCard: { borderRadius: 'var(--radius)', padding: '16px 18px', color: '#fff', transition: 'transform 200ms ease, box-shadow 200ms ease' },
-  statCardTop: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 },
-  statIconWrap: { width: 34, height: 34, borderRadius: '50%', background: 'rgba(255,255,255,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center' },
-  statValueLg: { fontSize: 26, fontWeight: 800, marginBottom: 2 },
-  statLabelLg: { fontSize: 13, fontWeight: 700, marginBottom: 2 },
+  statCard: { borderRadius: 16, padding: 24, color: '#fff', transition: 'transform 200ms ease, box-shadow 200ms ease' },
+  statCardTop: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 },
+  statIconWrap: { width: 36, height: 36, borderRadius: '50%', background: 'rgba(255,255,255,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center' },
+  statValueLg: { fontSize: 28, fontWeight: 800, marginBottom: 8 },
+  statLabelLg: { fontSize: 13, fontWeight: 600, marginBottom: 6 },
   statDesc: { fontSize: 11, opacity: 0.85, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' },
-  statSparkline: { marginTop: 8 },
+  statSparkline: { marginTop: 12 },
   trendBadgeUp: { fontSize: 12, fontWeight: 700, color: '#bbf7d0', background: 'rgba(255,255,255,0.15)', borderRadius: 99, padding: '3px 8px' },
   trendBadgeDown: { fontSize: 12, fontWeight: 700, color: '#fecaca', background: 'rgba(255,255,255,0.15)', borderRadius: 99, padding: '3px 8px' },
   trendBadgeFlat: { fontSize: 12, fontWeight: 700, color: '#fff', opacity: 0.8, background: 'rgba(255,255,255,0.15)', borderRadius: 99, padding: '3px 8px' },
   trendBadgeNew: { fontSize: 12, fontWeight: 700, color: '#fff', background: 'rgba(255,255,255,0.25)', borderRadius: 99, padding: '3px 8px' },
 
-  chartCard: { padding: 20 },
-  panelCard: { padding: 20 },
-  panelTitle: { fontSize: 16, fontWeight: 700, marginBottom: 16 },
+  chartCard: { padding: 24, borderRadius: 16, boxShadow: '0 8px 24px rgba(0,0,0,0.08)' },
+  panelCard: { padding: 24, borderRadius: 16, boxShadow: '0 8px 24px rgba(0,0,0,0.08)' },
+  panelTitle: { fontSize: 16, fontWeight: 600, marginBottom: 20 },
   sectionLabel: { fontSize: 18, fontWeight: 700, margin: '8px 0 16px' },
 
   quickActionsGrid: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 },

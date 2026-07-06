@@ -5,6 +5,9 @@ export const login = (data) => api.post('/auth/login', data).then((r) => r.data)
 export const me = () => api.get('/auth/me').then((r) => r.data);
 export const lookupInstitution = (code) => api.get(`/auth/institution-lookup/${encodeURIComponent(code)}`).then((r) => r.data);
 export const updateProfile = (data) => api.patch('/auth/me', data).then((r) => r.data);
+export const heartbeat = () => api.post('/auth/heartbeat').then((r) => r.data);
+export const getActiveUsers = () => api.get('/auth/active-users').then((r) => r.data);
+export const getActiveIPs = () => api.get('/auth/active-ips').then((r) => r.data);
 export const uploadAvatar = (formData) =>
   api.post('/auth/me/avatar', formData, {
     headers: { 'Content-Type': 'multipart/form-data' },

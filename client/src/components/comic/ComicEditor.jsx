@@ -384,7 +384,7 @@ function ChangeLayoutPicker({ current, onPick, onClose }) {
   );
 }
 
-export default function ComicEditor({ readOnly = false } = {}) {
+export default function ComicEditor({ readOnly = false, aiEnabled = true } = {}) {
   const { state, dispatch, activePage, activePagePanels, pageStart } = useComic();
   const { mode, toggle } = useTheme();
   const [activeSidebar, setActiveSidebar] = useState('CHARACTER');
@@ -961,7 +961,7 @@ export default function ComicEditor({ readOnly = false } = {}) {
             })}
           </>
         ) : (
-          SIDEBAR_ITEMS.map((item) => (
+          SIDEBAR_ITEMS.filter((item) => item.id !== 'AI' || aiEnabled).map((item) => (
             <button
               key={item.id}
               style={{
@@ -2312,7 +2312,7 @@ const styles = {
   root: { display: 'flex', flex: 1, overflow: 'hidden', background: 'var(--t-bg)' },
 
   iconBar: {
-    width: 100, background: 'var(--t-icon-bar)', display: 'flex', flexDirection: 'column',
+    width: 'var(--editor-icon-bar-w)', background: 'var(--t-icon-bar)', display: 'flex', flexDirection: 'column',
     alignItems: 'stretch', paddingTop: 12, paddingBottom: 8, gap: 0,
     overflowY: 'auto', flexShrink: 0,
     borderRight: '1px solid var(--t-border2)',
@@ -2346,7 +2346,7 @@ const styles = {
   },
 
   expandPanel: {
-    width: 360, background: 'var(--t-surface)', display: 'flex', flexDirection: 'column',
+    width: 'var(--editor-panel-w)', background: 'var(--t-surface)', display: 'flex', flexDirection: 'column',
     flexShrink: 0, borderRight: '1px solid var(--t-border)',
     boxShadow: '2px 0 12px rgba(0,0,0,0.06)',
   },
@@ -2397,7 +2397,7 @@ const styles = {
     background: 'var(--t-surface)', borderBottom: '1px solid var(--t-border)',
     padding: '4px 8px',
     boxShadow: '0 2px 10px rgba(0,0,0,0.08)',
-    zIndex: 10,
+    zIndex: 500,
   },
   toolbarLeft: {
     display: 'flex', alignItems: 'center', flexShrink: 0,

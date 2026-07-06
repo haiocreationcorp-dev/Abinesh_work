@@ -4,7 +4,7 @@ import { buildFaceFromLayout, computeFaceContentBounds, resolveLayoutFilePaths, 
 import { loadTrimRect, trimmedRect } from '../../utils/trimRect.js';
 import { hexToRgb } from '../../lighting/lightingEngine.js';
 import { recolorSkin, recolorEyeAsset } from '../../utils/recolorImage.js';
-import { playReveal, playGreyFade, playVanishReappear } from '../../utils/revealAnimation.js';
+import { playReveal } from '../../utils/revealAnimation.js';
 
 const MAX_W = 120;
 const MAX_H = 200;
@@ -33,16 +33,12 @@ function loadImage(src) {
 // choice, not a fixed-palette swap.
 //
 // Stages the new trim-rect + recolor in the background and only commits them together
-// once both are ready, so a swap never flashes the raw/un-recolored source mid-load — the
-// previous committed frame keeps rendering until the new one is ready, then plays a quick
-// bottom-to-top wipe. CPPart is keyed by part-type (stable across swaps, see render below),
-// so this effect re-runs via prop changes rather than a remount, preserving `committed`.
-// playFn is passed from the parent so CPPart doesn't decide which effect to use —
-// the parent (CharacterPresetRig) already knows whether this commit is a first placement,
-// a colour/expression swap, or an outfit/pose swap, and passes the right helper down.
-function CPPart({ part, hairColor, skinTone, eyeColors, playFn }) {
+// once both are ready, so a swap never flashes the raw/un-recolored source mid-load —
+// the previous committed frame keeps rendering until the new one is ready, then swaps
+// instantly. CPPart is keyed by part-type (stable across swaps) so this effect re-runs
+// via prop changes rather than a remount, preserving `committed`.
+function CPPart({ part, hairColor, skinTone, eyeColors }) {
   const [committed, setCommitted] = useState(null); // { trim, imgSrc }
-  const elRef = useRef(null);
 
   useEffect(() => {
     let active = true;
@@ -60,10 +56,6 @@ function CPPart({ part, hairColor, skinTone, eyeColors, playFn }) {
     return () => { active = false; };
   }, [part.filePath, skinTone, eyeColors?.hairColor, eyeColors?.irisColor]);
 
-  useEffect(() => {
-    if (committed) (playFn || playReveal)(elRef.current);
-  }, [committed]); // eslint-disable-line
-
   if (!committed) return null; // first paint for this part-slot — nothing to show yet
 
   const transform = [
@@ -77,7 +69,7 @@ function CPPart({ part, hairColor, skinTone, eyeColors, playFn }) {
   const imgSrc = committed.imgSrc;
 
   return (
-    <div ref={elRef} style={{
+    <div style={{
       position: 'absolute', left: part.x, top: part.y, width: part.w, height: part.h,
       transform, transformOrigin: 'center', overflow: 'hidden', pointerEvents: 'none',
     }}>
@@ -273,14 +265,9 @@ export default function CharacterPresetRig({ instance, presetOverride, headBoxOv
       const naturalSize = await loadImage(bodySrc);
       if (!active || !naturalSize) return;
 
-      // Choose which animation to play when this render commits.
-      if (isFirstRender.current) {
-        pendingPlayFn.current = playReveal; // Effect 2: bottom-up reveal on first placement
-      } else if (instance.bodyPoseId !== prevBodyPoseId.current) {
-        pendingPlayFn.current = playVanishReappear; // Effect 3: outfit/pose change
-      } else {
-        pendingPlayFn.current = playGreyFade; // Effect 1: hairstyle/expression/colour change
-      }
+      // Bottom-up reveal on first placement / first open only; all subsequent changes
+      // (expression, colour, outfit) commit instantly without any animation.
+      pendingPlayFn.current = isFirstRender.current ? playReveal : null;
       prevBodyPoseId.current = instance.bodyPoseId;
 
       setRendered({ bodyPose: pose, face: built, headBox: newHeadBox, naturalSize, bodySrc });
@@ -291,7 +278,7 @@ export default function CharacterPresetRig({ instance, presetOverride, headBoxOv
 
   useEffect(() => {
     if (!rendered) return;
-    pendingPlayFn.current(wrapRef.current);
+    if (pendingPlayFn.current) pendingPlayFn.current(wrapRef.current);
     isFirstRender.current = false;
   }, [rendered]);
 
@@ -372,7 +359,6 @@ export default function CharacterPresetRig({ instance, presetOverride, headBoxOv
                   hairColor={pt === 'hairstyle' ? hairColor : null}
                   skinTone={(pt === 'nose' || pt === 'faceShape') ? skinTone : null}
                   eyeColors={pt === 'eye' ? { hairColor, irisColor } : null}
-                  playFn={playGreyFade}
                 />
               ))}
             </div>

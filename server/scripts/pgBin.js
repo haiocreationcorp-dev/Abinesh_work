@@ -3,17 +3,17 @@
 const fs = require('fs');
 
 function findBin(name) {
-  const candidates = [
-    name,
+  const hardcoded = [
+    `C:\\Program Files\\PostgreSQL\\17\\bin\\${name}.exe`,
     `C:\\Program Files\\PostgreSQL\\16\\bin\\${name}.exe`,
     `C:\\Program Files\\PostgreSQL\\15\\bin\\${name}.exe`,
     `C:\\Program Files\\PostgreSQL\\14\\bin\\${name}.exe`,
+    `C:\\Program Files\\PostgreSQL\\13\\bin\\${name}.exe`,
   ];
-  for (const c of candidates) {
-    if (c === name) return name; // let PATH resolve it; spawnSync fails clearly if missing
+  for (const c of hardcoded) {
     if (fs.existsSync(c)) return c;
   }
-  return name;
+  return name; // fall back to PATH
 }
 
 function parseDatabaseUrl(url) {

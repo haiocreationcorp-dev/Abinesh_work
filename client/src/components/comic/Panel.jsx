@@ -732,17 +732,22 @@ export default function Panel({ panel, panelIndex, canvasW = 800, canvasH = 450,
     const onMove = (ev) => {
       const rect = canvasRef.current?.getBoundingClientRect();
       if (!rect) return;
-      const inside = ev.clientX >= rect.left && ev.clientX <= rect.right
-                  && ev.clientY >= rect.top  && ev.clientY <= rect.bottom;
+      // Cross-panel drag only fires when mouse is >120px outside the canvas.
+      // Inside that zone the item moves freely — overflow:hidden clips it naturally
+      // at the canvas edge, so the image never "vanishes", it just slides out of view.
+      const CROSS_THRESHOLD = 120;
+      const farOutside = ev.clientX < rect.left - CROSS_THRESHOLD || ev.clientX > rect.right + CROSS_THRESHOLD
+                      || ev.clientY < rect.top  - CROSS_THRESHOLD || ev.clientY > rect.bottom + CROSS_THRESHOLD;
 
-      if (inside) {
+      if (!farOutside) {
         if (dragOutside) {
           dragOutside = false;
           setDraggingOut(null);
           endDragOverlay();
         }
-        const x = Math.max(-BASE_W + 20, Math.min(CANVAS_W - 20, ev.clientX - rect.left - offsetX));
-        const y = Math.max(-BASE_H + 20, Math.min(CANVAS_H - 20, ev.clientY - rect.top - offsetY));
+        // Free movement — no clamping within the canvas+buffer zone
+        const x = ev.clientX - rect.left - offsetX;
+        const y = ev.clientY - rect.top  - offsetY;
         dispatchPos({ x, y }); // preview — no history push
       } else {
         if (!dragOutside) {

@@ -45,8 +45,20 @@ export default function ProfileMenu() {
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
   const [error, setError] = useState('');
   const [avatarFailed, setAvatarFailed] = useState(false);
+  const [editingAcademic, setEditingAcademic] = useState(false);
+  const [academicDraft, setAcademicDraft] = useState({
+    gradeLevel: user?.gradeLevel || '',
+    section: user?.section || '',
+    rollNo: user?.rollNo || '',
+    department: user?.department || '',
+    year: user?.year || '',
+    gender: user?.gender || '',
+  });
+  const [savingAcademic, setSavingAcademic] = useState(false);
 
   if (!user) return null;
+  const isStudent = user.role === 'STUDENT';
+  const isSchool = user.institutionType === 'SCHOOL';
 
   const initial = (user.name || user.email || 'A')[0].toUpperCase();
   const showAvatarImg = user.avatarPath && !avatarFailed;
@@ -69,6 +81,19 @@ export default function ProfileMenu() {
       setError(err.response?.data?.error || 'Could not update name');
     } finally {
       setSavingName(false);
+    }
+  };
+
+  const handleSaveAcademic = async () => {
+    setSavingAcademic(true); setError('');
+    try {
+      const updated = await updateProfile(academicDraft);
+      updateUser(updated);
+      setEditingAcademic(false);
+    } catch (err) {
+      setError(err.response?.data?.error || 'Could not update');
+    } finally {
+      setSavingAcademic(false);
     }
   };
 
@@ -142,6 +167,58 @@ export default function ProfileMenu() {
           )}
           {error && <p className="form-error" style={{ margin: '6px 0 0', textAlign: 'center' }}>{error}</p>}
 
+          {isStudent && (
+            <>
+              <div style={styles.divider} />
+              <div style={{ textAlign: 'left' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                  <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--mid)', textTransform: 'uppercase', letterSpacing: 0.5 }}>Academic Info</span>
+                  <button style={{ ...styles.iconBtn, fontSize: 11 }} onClick={() => { setEditingAcademic(e => !e); setAcademicDraft({ gradeLevel: user.gradeLevel||'', section: user.section||'', rollNo: user.rollNo||'', department: user.department||'', year: user.year||'', gender: user.gender||'' }); }}>
+                    {editingAcademic ? <IconX /> : <IconPencil />}
+                  </button>
+                </div>
+                {!editingAcademic ? (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                    {user.rollNo && <div style={styles.infoRow}><span>Roll No</span><strong>{user.rollNo}</strong></div>}
+                    {user.gradeLevel && <div style={styles.infoRow}><span>Grade</span><strong>{user.gradeLevel}</strong></div>}
+                    {user.section && <div style={styles.infoRow}><span>Section</span><strong>{user.section}</strong></div>}
+                    {user.department && <div style={styles.infoRow}><span>Dept</span><strong>{user.department}</strong></div>}
+                    {user.year && <div style={styles.infoRow}><span>Year</span><strong>{user.year}</strong></div>}
+                    {user.gender && <div style={styles.infoRow}><span>Gender</span><strong>{{ MALE: isSchool ? 'Boy' : 'Male', FEMALE: isSchool ? 'Girl' : 'Female', OTHER: 'Other' }[user.gender]}</strong></div>}
+                    {!user.rollNo && !user.gradeLevel && !user.section && !user.department && !user.year && !user.gender && (
+                      <p style={{ fontSize: 12, color: 'var(--mid)', margin: 0 }}>No academic info set — click ✏️ to add</p>
+                    )}
+                  </div>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                    <input style={styles.nameInput} placeholder="Roll / Register No" value={academicDraft.rollNo} onChange={e => setAcademicDraft(d => ({ ...d, rollNo: e.target.value }))} />
+                    {isSchool ? (
+                      <>
+                        <input style={styles.nameInput} placeholder="Grade / Class (e.g. 10th)" value={academicDraft.gradeLevel} onChange={e => setAcademicDraft(d => ({ ...d, gradeLevel: e.target.value }))} />
+                        <input style={styles.nameInput} placeholder="Section (e.g. A)" value={academicDraft.section} onChange={e => setAcademicDraft(d => ({ ...d, section: e.target.value }))} />
+                      </>
+                    ) : (
+                      <>
+                        <input style={styles.nameInput} placeholder="Department (e.g. Computer Science)" value={academicDraft.department} onChange={e => setAcademicDraft(d => ({ ...d, department: e.target.value }))} />
+                        <input style={styles.nameInput} placeholder="Year (e.g. 2nd Year)" value={academicDraft.year} onChange={e => setAcademicDraft(d => ({ ...d, year: e.target.value }))} />
+                      </>
+                    )}
+                    <select style={{ ...styles.nameInput, color: 'var(--dark)' }} value={academicDraft.gender} onChange={e => setAcademicDraft(d => ({ ...d, gender: e.target.value }))}>
+                      <option value="">Gender (optional)</option>
+                      <option value="MALE">{isSchool ? 'Boy' : 'Male'}</option>
+                      <option value="FEMALE">{isSchool ? 'Girl' : 'Female'}</option>
+                      <option value="OTHER">Other</option>
+                    </select>
+                    <div style={{ display: 'flex', gap: 6, marginTop: 2 }}>
+                      <button className="btn btn-primary btn-sm" style={{ flex: 1 }} onClick={handleSaveAcademic} disabled={savingAcademic}>{savingAcademic ? 'Saving…' : 'Save'}</button>
+                      <button className="btn btn-outline btn-sm" onClick={() => setEditingAcademic(false)}>Cancel</button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </>
+          )}
+
           <div style={styles.divider} />
 
           <button className="btn btn-outline btn-sm w-full" onClick={logout}>
@@ -157,17 +234,20 @@ const styles = {
   wrap: { position: 'relative' },
   overlay: { position: 'fixed', inset: 0, zIndex: 99 },
   trigger: {
-    width: 38,
-    height: 38,
+    width: 42,
+    height: 42,
     borderRadius: '50%',
-    background: 'var(--primary)',
+    background: 'rgba(255,255,255,0.15)',
+    border: '1px solid rgba(255,255,255,0.25)',
     color: '#fff',
     fontSize: 15,
-    fontWeight: 700,
+    fontWeight: 600,
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
     overflow: 'hidden',
+    cursor: 'pointer',
+    transition: 'background 200ms ease',
     position: 'relative',
     zIndex: 100,
   },
@@ -213,6 +293,7 @@ const styles = {
   greeting: { fontSize: 16, fontWeight: 700, color: 'var(--dark)' },
   iconBtn: { display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--mid)', padding: 4 },
   editRow: { display: 'flex', alignItems: 'center', gap: 4, marginTop: 14 },
-  nameInput: { flex: 1, fontSize: 13 },
+  nameInput: { flex: 1, fontSize: 13, width: '100%', boxSizing: 'border-box' },
+  infoRow: { display: 'flex', justifyContent: 'space-between', fontSize: 12, color: 'var(--mid)', padding: '2px 0' },
   divider: { height: 1, background: 'var(--border)', margin: '16px 0 12px' },
 };

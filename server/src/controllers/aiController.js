@@ -16,12 +16,13 @@ function cleanOutput(text) {
   return t.trim();
 }
 
-async function callOllama(prompt, { model = OLLAMA_MODEL, system, temperature = 0.3, numPredict } = {}) {
+async function callOllama(prompt, { model = OLLAMA_MODEL, system, temperature = 0.3, numPredict, timeoutMs = 60_000 } = {}) {
   let res;
   try {
     res = await fetch(`${OLLAMA_URL}/api/generate`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
+      signal: AbortSignal.timeout(timeoutMs),
       body: JSON.stringify({
         model,
         prompt,
@@ -33,8 +34,13 @@ async function callOllama(prompt, { model = OLLAMA_MODEL, system, temperature = 
         },
       }),
     });
-  } catch {
-    const err = new Error('Could not reach Ollama. Make sure it is running locally (ollama serve) and the model is pulled.');
+  } catch (fetchErr) {
+    const isTimeout = fetchErr.name === 'TimeoutError' || fetchErr.name === 'AbortError';
+    const err = new Error(
+      isTimeout
+        ? `Ollama timed out after ${timeoutMs / 1000}s — the model may still be loading. Try again in a moment.`
+        : 'Could not reach Ollama. Make sure it is running locally (ollama serve) and the model is pulled.'
+    );
     err.status = 502;
     throw err;
   }

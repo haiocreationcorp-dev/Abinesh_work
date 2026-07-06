@@ -14,3 +14,4 @@ export const listClasses = () => api.get('/teacher/classes').then((r) => r.data)
 export const deleteClass = (id) => api.delete(`/teacher/classes/${id}`).then((r) => r.data);
 export const updateEnrollment = (classId, enrollmentId, status) =>
   api.patch(`/teacher/classes/${classId}/enrollments/${enrollmentId}`, { status }).then((r) => r.data);
+export const toggleClassAI = (classId) => api.patch(`/teacher/classes/${classId}/ai`).then((r) => r.data);

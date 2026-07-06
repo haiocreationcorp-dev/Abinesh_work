@@ -29,6 +29,29 @@
   --header-gradient: linear-gradient(90deg, #FF8C00 0%, #FF5722 28%, #C2185B 62%, #7C3AED 100%);
 }
 
+/* ── Comic Editor layout tokens — shrink on laptop screens ── */
+:root {
+  --editor-icon-bar-w: 100px;
+  --editor-panel-w: 360px;
+  --editor-app-name-size: 32px;
+  --editor-top-bar-h: 64px;
+}
+@media (max-width: 1400px) {
+  :root {
+    --editor-icon-bar-w: 96px;
+    --editor-panel-w: 320px;
+    --editor-app-name-size: 28px;
+  }
+}
+@media (max-width: 1280px) {
+  :root {
+    --editor-icon-bar-w: 90px;
+    --editor-panel-w: 290px;
+    --editor-app-name-size: 24px;
+    --editor-top-bar-h: 58px;
+  }
+}
+
 /* ── Dark mode (general UI chrome only — see UIThemeContext.jsx) ── */
 [data-theme="dark"] {
   --primary: #A78BFA;
@@ -126,7 +149,7 @@ input:focus, textarea:focus, select:focus { border-color: var(--primary); }
 .btn-lg { padding: 12px 28px; font-size: 16px; }
 
 /* ── Layout ── */
-.page { min-height: 100vh; padding-top: 72px; }
+.page { min-height: 100vh; padding-top: 58px; }
 .container { max-width: 1440px; margin: 0 auto; padding: 0 36px; }
 .section { padding: 40px 0; }
 @media (max-width: 600px) {
@@ -208,8 +231,12 @@ input:focus, textarea:focus, select:focus { border-color: var(--primary); }
   .users-card-list { display: flex; flex-direction: column; gap: 10px; }
 }
 
+/* ── Navbar search placeholder ── */
+.navbar-search input::placeholder { color: rgba(255,255,255,0.6); opacity: 1; }
+.navbar-search input:disabled::placeholder { color: rgba(255,255,255,0.5); }
+
 /* ── Navbar: role-action buttons collapse into a "More" menu on narrow screens ── */
-.navbar-actions { display: flex; align-items: center; gap: 10px; }
+.navbar-actions { display: flex; align-items: center; gap: 12px; }
 .navbar-more-btn { display: none; }
 .navbar-welcome, .navbar-search { display: flex; }
 @media (max-width: 860px) {
@@ -218,6 +245,33 @@ input:focus, textarea:focus, select:focus { border-color: var(--primary); }
 }
 @media (max-width: 600px) {
   .navbar-welcome, .navbar-search { display: none; }
+}
+
+/* ── Navbar glass buttons ── */
+.nav-glass-btn {
+  display: inline-flex; align-items: center; gap: 8px;
+  height: 40px; padding: 0 20px; border-radius: 12px;
+  background: rgba(255,255,255,0.12); border: 1px solid rgba(255,255,255,0.25);
+  color: #ffffff; font-size: 14px; font-weight: 600; white-space: nowrap;
+  cursor: pointer; transition: background 200ms ease, border-color 200ms ease, transform 200ms ease, box-shadow 200ms ease;
+}
+.nav-glass-btn:hover {
+  background: rgba(255,255,255,0.20); border-color: rgba(255,255,255,0.35);
+  transform: translateY(-1px); box-shadow: 0 8px 20px rgba(0,0,0,0.15);
+}
+.nav-glass-btn.active {
+  background: #ffffff; color: #7C3AED; border: none;
+  box-shadow: 0 8px 20px rgba(0,0,0,0.15);
+}
+.nav-glass-icon {
+  width: 42px; height: 42px; border-radius: 50%;
+  background: rgba(255,255,255,0.12); border: 1px solid rgba(255,255,255,0.25);
+  color: #ffffff; display: flex; align-items: center; justify-content: center;
+  cursor: pointer; transition: background 200ms ease, transform 200ms ease;
+  flex-shrink: 0;
+}
+.nav-glass-icon:hover {
+  background: rgba(255,255,255,0.20); transform: translateY(-1px);
 }
 
 /* ── Admin Panel header: hide decorative/placeholder elements on narrow screens ── */
@@ -231,13 +285,13 @@ input:focus, textarea:focus, select:focus { border-color: var(--primary); }
 .dash-sidebar-overlay { display: none; }
 @media (max-width: 768px) {
   .dash-sidebar {
-    position: fixed; top: 72px; bottom: 0; left: 0; z-index: 50;
+    position: fixed; top: 58px; bottom: 0; left: 0; z-index: 50;
     transition: transform 220ms ease, width 220ms ease;
     transform: translateX(-100%);
   }
   .dash-sidebar-open { transform: translateX(0); }
   .dash-sidebar-overlay.dash-sidebar-overlay-active {
-    display: block; position: fixed; inset: 72px 0 0 0; background: rgba(0,0,0,0.35); z-index: 49;
+    display: block; position: fixed; inset: 58px 0 0 0; background: rgba(0,0,0,0.35); z-index: 49;
   }
 }
 
@@ -270,9 +324,10 @@ input:focus, textarea:focus, select:focus { border-color: var(--primary); }
 .text-muted { color: var(--mid); }
 
 /* ── Admin Dashboard responsive grids ── */
-.dash-stats-grid, .dash-analytics-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 24px; margin-bottom: 24px; }
+.dash-stats-grid, .dash-analytics-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 24px; }
 .dash-stats-grid-5 { grid-template-columns: repeat(5, 1fr); }
-.dash-charts-row, .dash-two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-bottom: 24px; }
+.dash-charts-row, .dash-two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 24px; }
+
 @media (max-width: 1024px) {
   .dash-stats-grid, .dash-analytics-grid { grid-template-columns: repeat(2, 1fr); }
   .dash-stats-grid-5 { grid-template-columns: repeat(3, 1fr); }

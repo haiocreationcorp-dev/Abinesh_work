@@ -1,4 +1,8 @@
 import { processBubbleSvg, tightenSvgViewBoxString } from '../components/comic/Panel.jsx';
+import {
+  buildFaceFromLayout, computeFaceContentBounds, resolveLayoutFilePaths,
+  orderFaceParts, FACE_CANVAS_W, FACE_CANVAS_H,
+} from './faceLayout.js';
 
 // ── Pure canvas-based comic page renderer (no html2canvas — avoids SVG/transform issues) ──
 // Used by both the export feature (ComicEditorPage) and the teacher's read-only comic viewer.
@@ -8,8 +12,22 @@ const RENDER_GAP = 6;
 export const LAYOUTS = { single:{cols:1,pw:600,ph:338}, '2h':{cols:2,pw:296,ph:338}, '2v':{cols:1,pw:600,ph:165}, '4':{cols:2,pw:296,ph:165} };
 export const LAYOUT_COUNT = { single:1, '2h':2, '2v':2, '4':4 };
 const BASE_W = 120, BASE_H = 200;
+const SHARED_ALIGN_KEY = '__ALL__';
 
 const svgRawCache = {};
+
+// Lightweight fetch cache used during a single export session — avoids redundant API calls
+// when multiple panels share the same character presets or body poses.
+// Includes the JWT token so auth-gated routes (/api/assets/...) are accessible.
+const _apiCache = {};
+const apiGet = (path) => {
+  if (_apiCache[path]) return _apiCache[path];
+  const token = typeof window !== 'undefined' ? localStorage.getItem('bc_token') : null;
+  const headers = token ? { Authorization: `Bearer ${token}` } : {};
+  const p = fetch(path, { headers }).then((r) => r.ok ? r.json() : null).catch(() => null);
+  _apiCache[path] = p;
+  return p;
+};
 
 const loadImg = (src) => new Promise((resolve) => {
   const img = new Image(); img.crossOrigin = 'anonymous';
@@ -131,6 +149,126 @@ const drawBubble = (ctx, bx, by, bubble) => {
   ctx.restore();
 };
 
+// Renders one CharacterPreset instance onto ctx — mirrors CharacterPresetRig's geometry.
+// Draws body pose + assembled face (best-effort; if any API call fails, falls back to body only).
+const drawCharacterPreset = async (ctx, px, py, pw, ph, cp) => {
+  if (!cp.bodyPoseId) return;
+
+  const pose = await apiGet(`/api/assets/${cp.bodyPoseId}`);
+  if (!pose?.filePath) return;
+
+  const bodyImg = await loadImg(pose.filePath);
+  if (!bodyImg) return;
+  const naturalW = bodyImg.naturalWidth || bodyImg.width;
+  const naturalH = bodyImg.naturalHeight || bodyImg.height;
+
+  let faceData = null, faceGeom = null;
+
+  if (cp.presetId) {
+    try {
+      const presets = await apiGet('/api/assets/character-presets');
+      const preset = Array.isArray(presets) ? presets.find((p) => p.id === cp.presetId) : null;
+      if (preset) {
+        const faceId = (pose.view === 'THREE_QUARTER' && preset.threeQuarterFaceId)
+          ? preset.threeQuarterFaceId
+          : (preset.frontFaceId || preset.threeQuarterFaceId);
+
+        if (faceId) {
+          const [faceAsset, headAligns] = await Promise.all([
+            apiGet(`/api/assets/${faceId}`),
+            apiGet(`/api/assets/faces/${cp.bodyPoseId}/part-alignments`),
+          ]);
+          if (faceAsset) {
+            let layout = null;
+            if (faceAsset.layoutPath) {
+              layout = await fetch(faceAsset.layoutPath).then((r) => r.json()).catch(() => null);
+              if (layout) layout = await resolveLayoutFilePaths(layout);
+            }
+            const built = buildFaceFromLayout(layout, faceAsset);
+            const headAlign = Array.isArray(headAligns)
+              ? headAligns.find((a) => a.partType === 'head' && a.partAssetId === SHARED_ALIGN_KEY)
+              : null;
+            const headBox = headAlign ? { x: headAlign.x, y: headAlign.y, w: headAlign.w, h: headAlign.h } : null;
+            if (headBox) {
+              const fs = built.faceShape;
+              const fsB = fs
+                ? { minX: fs.x, minY: fs.y, maxX: fs.x + fs.w, maxY: fs.y + fs.h }
+                : computeFaceContentBounds(built);
+              const fsW = (fsB.maxX - fsB.minX) || FACE_CANVAS_W;
+              const fsH = (fsB.maxY - fsB.minY) || FACE_CANVAS_H;
+              const R = Math.min(headBox.w / fsW, headBox.h / fsH);
+              const nox = headBox.x + (headBox.w - fsW * R) / 2 - fsB.minX * R;
+              const noy = headBox.y + (headBox.h - fsH * R) / 2 - fsB.minY * R;
+              const cb = computeFaceContentBounds(built);
+              faceData = built;
+              faceGeom = {
+                R, nox, noy,
+                fullMinX: nox + cb.minX * R, fullMaxX: nox + cb.maxX * R,
+                fullMinY: noy + cb.minY * R, fullMaxY: noy + cb.maxY * R,
+              };
+            }
+          }
+        }
+      }
+    } catch { /* draw body only if face assembly fails */ }
+  }
+
+  // Compute draw geometry — same as CharacterPresetRig(maxW=BASE_W, maxH=BASE_H)
+  let uMinX = 0, uMinY = 0, uMaxX = naturalW, uMaxY = naturalH;
+  if (faceGeom) {
+    uMinX = Math.min(0, faceGeom.fullMinX);
+    uMinY = Math.min(0, faceGeom.fullMinY);
+    uMaxX = Math.max(naturalW, faceGeom.fullMaxX);
+    uMaxY = Math.max(naturalH, faceGeom.fullMaxY);
+  }
+  const ds = Math.min(BASE_W / (uMaxX - uMinX), BASE_H / (uMaxY - uMinY));
+  const drawW = Math.round(naturalW * ds);
+  const drawH = Math.round(naturalH * ds);
+  const ox = (BASE_W - (uMaxX - uMinX) * ds) / 2 - uMinX * ds;
+  const oy = (BASE_H - (uMaxY - uMinY) * ds) / 2 - uMinY * ds;
+
+  // Render to offscreen canvas then blit — avoids taint from mixing crossOrigin and non-crossOrigin draws
+  const off = document.createElement('canvas');
+  off.width = BASE_W; off.height = BASE_H;
+  const octx = off.getContext('2d');
+  octx.drawImage(bodyImg, ox, oy, drawW, drawH);
+
+  if (faceData && faceGeom) {
+    const faceScale = faceGeom.R * ds;
+    for (const { part } of orderFaceParts(faceData)) {
+      if (!part.filePath) continue;
+      const pImg = await loadImg(part.filePath);
+      if (!pImg) continue;
+      const partX = faceGeom.nox * ds + part.x * faceScale;
+      const partY = faceGeom.noy * ds + part.y * faceScale;
+      const partW = part.w * faceScale;
+      const partH = part.h * faceScale;
+      octx.save();
+      octx.translate(partX + partW / 2, partY + partH / 2);
+      if (part.rotation) octx.rotate(part.rotation * Math.PI / 180);
+      if (part.flipX) octx.scale(-1, 1);
+      if (part.flipY) octx.scale(1, -1);
+      octx.translate(-partW / 2, -partH / 2);
+      octx.drawImage(pImg, 0, 0, partW, partH);
+      octx.restore();
+    }
+  }
+
+  // Blit onto the main canvas at the preset's position/scale/rotation
+  const scale = cp.scale || 1;
+  const rot = (cp.rotation || 0) * Math.PI / 180;
+  const flipX = cp.flipX ? -1 : 1;
+  const { left: cl = 0, right: cr = 0, top: ct = 0, bottom: cb = 0 } = cp.crop || {};
+  ctx.save();
+  ctx.beginPath(); ctx.rect(px, py, pw, ph); ctx.clip();
+  ctx.translate(px + cp.position.x + BASE_W / 2, py + cp.position.y + BASE_H / 2);
+  ctx.rotate(rot); ctx.scale(flipX * scale, scale);
+  ctx.translate(-BASE_W / 2, -BASE_H / 2);
+  if (cl || cr || ct || cb) { ctx.beginPath(); ctx.rect(cl, ct, BASE_W - cl - cr, BASE_H - ct - cb); ctx.clip(); }
+  ctx.drawImage(off, 0, 0, BASE_W, BASE_H);
+  ctx.restore();
+};
+
 const drawPanel = async (ctx, data, x, y, w, h) => {
   // Background (clipped to panel)
   ctx.save(); ctx.beginPath(); ctx.rect(x,y,w,h); ctx.clip();
@@ -140,8 +278,8 @@ const drawPanel = async (ctx, data, x, y, w, h) => {
     else { ctx.fillStyle='#fff'; ctx.fillRect(x,y,w,h); }
   } else { ctx.fillStyle='#fff'; ctx.fillRect(x,y,w,h); }
   ctx.restore();
-  // Items: props, effects, costumes, characters (characters rendered on top)
-  const items = [...(data.props||[]),...(data.effects||[]),...(data.costumes||[]),...(data.characters||[])];
+  // Items: props, effects, costumes, characters, faces (characters/faces on top)
+  const items = [...(data.props||[]),...(data.effects||[]),...(data.costumes||[]),...(data.characters||[]),...(data.faces||[])];
   for (const item of items) {
     if (!item.filePath) continue;
     const img = await loadImg(item.filePath);
@@ -158,6 +296,10 @@ const drawPanel = async (ctx, data, x, y, w, h) => {
     if (cl||cr||ct||cb) { ctx.beginPath(); ctx.rect(cl,ct,BASE_W-cl-cr,BASE_H-ct-cb); ctx.clip(); }
     ctx.drawImage(img, 0, 0, BASE_W, BASE_H);
     ctx.restore();
+  }
+  // Character presets (assembled body pose + face — drawn above other items)
+  for (const cp of (data.characterPresets || [])) {
+    await drawCharacterPreset(ctx, x, y, w, h, cp);
   }
   // Speech bubbles (legacy code-drawn)
   for (const b of (data.speechBubbles||[])) drawBubble(ctx, x+b.position.x, y+b.position.y, b);

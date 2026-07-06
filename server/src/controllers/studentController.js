@@ -24,19 +24,47 @@ const listTasks = async (req, res) => {
 };
 
 const listInstructors = async (req, res) => {
-  const teachers = await prisma.user.findMany({
-    where: { institutionId: req.user.institutionId, role: 'TEACHER' },
-    select: {
-      id: true, name: true, email: true,
-      classesCreated: {
-        select: {
-          id: true, name: true,
-          enrollments: { where: { studentId: req.user.id }, select: { status: true } },
+  // Only return teachers of classes this student has an enrollment in (any status).
+  // This scopes the instructor list to classes the student actually interacts with
+  // rather than exposing every teacher in the institution.
+  const enrollments = await prisma.classEnrollment.findMany({
+    where: { studentId: req.user.id },
+    include: {
+      class: {
+        include: {
+          teacher: { select: { id: true, name: true, email: true } },
         },
       },
     },
   });
-  res.json(teachers);
+
+  const teacherMap = new Map();
+  enrollments.forEach((e) => {
+    const t = e.class.teacher;
+    if (!teacherMap.has(t.id)) teacherMap.set(t.id, { ...t, classesCreated: [] });
+    teacherMap.get(t.id).classesCreated.push({
+      id: e.class.id,
+      name: e.class.name,
+      enrollments: [{ status: e.status }],
+    });
+  });
+
+  // If student has no enrollments yet, fall back to listing all institution teachers
+  // so they can discover classes to join.
+  if (teacherMap.size === 0) {
+    const allTeachers = await prisma.user.findMany({
+      where: { institutionId: req.user.institutionId, role: 'TEACHER' },
+      select: {
+        id: true, name: true, email: true,
+        classesCreated: {
+          select: { id: true, name: true, enrollments: { where: { studentId: req.user.id }, select: { status: true } } },
+        },
+      },
+    });
+    return res.json(allTeachers);
+  }
+
+  res.json([...teacherMap.values()]);
 };
 
 const joinClass = async (req, res) => {
@@ -81,4 +109,13 @@ const submitTask = async (req, res) => {
   res.status(201).json(submission);
 };
 
-module.exports = { listTasks, submitTask, listInstructors, joinClass };
+const getAIStatus = async (req, res) => {
+  const approved = await prisma.classEnrollment.findMany({
+    where: { studentId: req.user.id, status: 'APPROVED' },
+    include: { class: { select: { aiEnabled: true } } },
+  });
+  const aiEnabled = approved.some((e) => e.class.aiEnabled);
+  res.json({ aiEnabled });
+};
+
+module.exports = { listTasks, submitTask, listInstructors, joinClass, getAIStatus };

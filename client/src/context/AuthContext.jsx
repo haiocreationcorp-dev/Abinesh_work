@@ -1,5 +1,5 @@
 import { createContext, useContext, useState, useEffect, useCallback } from 'react';
-import { me as fetchMe } from '../api/auth.js';
+import { me as fetchMe, heartbeat } from '../api/auth.js';
 
 const AuthContext = createContext(null);
 
@@ -17,6 +17,14 @@ export function AuthProvider({ children }) {
       .catch(() => { localStorage.removeItem('bc_token'); localStorage.removeItem('bc_user'); })
       .finally(() => setLoading(false));
   }, []);
+
+  // Send heartbeat every 30s while logged in so admin can see who's active
+  useEffect(() => {
+    if (!user) return;
+    heartbeat().catch(() => {}); // immediate ping on login
+    const id = setInterval(() => heartbeat().catch(() => {}), 30_000);
+    return () => clearInterval(id);
+  }, [user?.id]);
 
   const saveSession = useCallback((token, userData) => {
     localStorage.setItem('bc_token', token);

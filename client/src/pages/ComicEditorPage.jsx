@@ -3,6 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { getComic, updateComic } from '../api/comics.js';
 import { useComic } from '../context/ComicContext.jsx';
 import { useAuth } from '../context/AuthContext.jsx';
+import { getAIStatus } from '../api/student.js';
 import ComicEditor from '../components/comic/ComicEditor.jsx';
 import { renderPage, pageStartIndex, RENDER_SCALE as EX_SCALE, LAYOUT_COUNT as EX_COUNT } from '../utils/comicRenderer.js';
 
@@ -11,10 +12,11 @@ const GRADIENT = 'var(--header-gradient)';
 export default function ComicEditorPage() {
   const { comicId } = useParams();
   const { loadComic, state, dispatch } = useComic();
-  const { isViewOnly } = useAuth();
+  const { isViewOnly, user } = useAuth();
   const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [aiEnabled, setAiEnabled] = useState(true);
   const [saveMsg, setSaveMsg] = useState('');
   const [showExportMenu, setShowExportMenu] = useState(false);
   const [exporting, setExporting] = useState(false);
@@ -122,6 +124,12 @@ export default function ComicEditorPage() {
       .catch(() => navigate('/dashboard'))
       .finally(() => setLoading(false));
   }, [comicId]);
+
+  useEffect(() => {
+    if (user?.role === 'STUDENT') {
+      getAIStatus().then((d) => setAiEnabled(d.aiEnabled)).catch(() => setAiEnabled(false));
+    }
+  }, [user?.role]);
 
   const doSave = useCallback(async () => {
     setSaving(true);
@@ -274,7 +282,7 @@ export default function ComicEditorPage() {
         </div>
       </header>
 
-      <ComicEditor onSave={handleSave} readOnly={isViewOnly} />
+      <ComicEditor onSave={handleSave} readOnly={isViewOnly} aiEnabled={user?.role === 'STUDENT' ? aiEnabled : true} />
 
       {/* Haio logo — fixed bottom-right */}
       <div style={styles.haioWrap}>
@@ -409,7 +417,7 @@ const styles = {
   root: { height: '100vh', display: 'flex', flexDirection: 'column', background: 'var(--t-bg)' },
 
   topBar: {
-    height: 64,
+    height: 'var(--editor-top-bar-h)',
     background: GRADIENT,
     display: 'flex',
     alignItems: 'center',
@@ -452,7 +460,7 @@ const styles = {
   star: { fontSize: 14, color: 'rgba(255,255,255,0.8)', userSelect: 'none', flexShrink: 0 },
   appName: {
     fontFamily: 'var(--font-display)',
-    fontSize: 32,
+    fontSize: 'var(--editor-app-name-size)',
     letterSpacing: 3,
     fontStyle: 'italic',
     color: '#ffffff',

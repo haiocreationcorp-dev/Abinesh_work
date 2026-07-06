@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext.jsx';
 import { useUITheme } from '../../context/UIThemeContext.jsx';
 import ProfileMenu from './ProfileMenu.jsx';
@@ -57,17 +57,15 @@ function IconMenu() {
 export default function Navbar() {
   const { user, isAdmin, isTeacher, isStudent, isChief } = useAuth();
   const { mode, toggle } = useUITheme();
+  const location = useLocation();
   const [notifOpen, setNotifOpen] = useState(false);
   const [moreOpen, setMoreOpen] = useState(false);
 
-  // Role-specific quick links — rendered inline (desktop) or collapsed into the
-  // "More" menu below 860px (see .navbar-actions/.navbar-more-btn in index.css).
   const roleLinks = [
     isChief && { to: '/chief/billing', label: 'Billing' },
-    isTeacher && { to: '/teacher/students', label: 'My Students' },
-    isTeacher && { to: '/teacher/classes', label: 'My Classes' },
+    isTeacher && { to: '/teacher/classes', label: 'My Classroom' },
     isTeacher && { to: '/teacher/tasks', label: 'Assign Task' },
-    isStudent && { to: '/student/instructors', label: 'Instructors' },
+    isStudent && { to: '/student/instructors', label: 'My Classroom' },
     isStudent && { to: '/student/tasks', label: 'My Assignments' },
   ].filter(Boolean);
 
@@ -75,16 +73,14 @@ export default function Navbar() {
     <nav style={styles.nav}>
       <span className="navbar-welcome" style={styles.welcome}>Welcome back, {user?.name || 'Boss'}!</span>
 
-      <Link to="/dashboard" style={styles.brand}>
-        BharathComic
-      </Link>
+      <Link to="/dashboard" style={styles.brand}>BharathComic</Link>
 
       <div style={styles.right}>
         {user && (
           <>
             {isAdmin && (
               <div className="navbar-search" style={styles.searchWrap} title="Coming soon">
-                <IconSearch />
+                <span style={{ color: 'rgba(255,255,255,0.7)', display: 'flex' }}><IconSearch /></span>
                 <input style={styles.searchInput} placeholder="Search comics, users, institutions…" disabled />
               </div>
             )}
@@ -92,24 +88,26 @@ export default function Navbar() {
             {roleLinks.length > 0 && (
               <div className="navbar-actions">
                 {roleLinks.map((l) => (
-                  <Link key={l.to} to={l.to}>
-                    <button className="btn btn-outline btn-sm">{l.label}</button>
+                  <Link key={l.to} to={l.to} style={{ textDecoration: 'none' }}>
+                    <button className={`nav-glass-btn${location.pathname === l.to ? ' active' : ''}`}>
+                      {l.label}
+                    </button>
                   </Link>
                 ))}
               </div>
             )}
 
             {roleLinks.length > 0 && (
-              <div className="navbar-more-btn" style={styles.iconWrap}>
+              <div className="navbar-more-btn" style={{ position: 'relative' }}>
                 {moreOpen && <div style={styles.overlay} onClick={() => setMoreOpen(false)} />}
-                <button style={styles.iconBtn} onClick={() => setMoreOpen((o) => !o)} aria-label="More" title="More">
+                <button className="nav-glass-icon" onClick={() => setMoreOpen((o) => !o)} aria-label="More">
                   <IconMenu />
                 </button>
                 {moreOpen && (
-                  <div style={styles.notifMenu}>
+                  <div style={styles.dropdown}>
                     {roleLinks.map((l) => (
-                      <Link key={l.to} to={l.to} onClick={() => setMoreOpen(false)}>
-                        <button className="btn btn-outline btn-sm w-full" style={{ marginBottom: 6 }}>{l.label}</button>
+                      <Link key={l.to} to={l.to} onClick={() => setMoreOpen(false)} style={{ textDecoration: 'none' }}>
+                        <div style={styles.dropdownItem}>{l.label}</div>
                       </Link>
                     ))}
                   </div>
@@ -118,14 +116,14 @@ export default function Navbar() {
             )}
 
             {isAdmin && (
-              <div style={styles.iconWrap}>
+              <div style={{ position: 'relative' }}>
                 {notifOpen && <div style={styles.overlay} onClick={() => setNotifOpen(false)} />}
-                <button style={styles.iconBtn} onClick={() => setNotifOpen((o) => !o)} aria-label="Notifications" title="Notifications">
+                <button className="nav-glass-icon" onClick={() => setNotifOpen((o) => !o)} aria-label="Notifications">
                   <IconBell />
                 </button>
                 {notifOpen && (
-                  <div style={styles.notifMenu}>
-                    <div style={styles.notifTitle}>Notifications</div>
+                  <div style={styles.dropdown}>
+                    <div style={styles.dropdownTitle}>Notifications</div>
                     <p className="text-muted text-sm" style={{ textAlign: 'center', padding: '12px 0' }}>No notifications yet.</p>
                   </div>
                 )}
@@ -133,14 +131,14 @@ export default function Navbar() {
             )}
 
             {isAdmin && (
-              <Link to="/admin">
-                <button style={styles.iconBtn} aria-label="Configure" title="Configure">
+              <Link to="/admin" style={{ textDecoration: 'none' }}>
+                <button className="nav-glass-icon" aria-label="Admin Panel" title="Admin Panel">
                   <IconSettings />
                 </button>
               </Link>
             )}
 
-            <button style={styles.iconBtn} onClick={toggle} aria-label="Toggle dark mode" title="Toggle dark mode">
+            <button className="nav-glass-icon" onClick={toggle} aria-label="Toggle dark mode" title="Toggle dark mode">
               {mode === 'dark' ? <IconSun /> : <IconMoon />}
             </button>
 
@@ -154,48 +152,37 @@ export default function Navbar() {
 
 const styles = {
   nav: {
-    position: 'fixed',
-    top: 0,
-    left: 0,
-    right: 0,
-    height: 72,
+    position: 'fixed', top: 0, left: 0, right: 0, height: 58,
     background: 'var(--header-gradient)',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    padding: '0 24px',
-    zIndex: 100,
+    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+    padding: '0 24px', zIndex: 100,
     boxShadow: '0 4px 20px rgba(0,0,0,0.25)',
   },
   welcome: { fontSize: 14, fontWeight: 600, color: 'rgba(255,255,255,0.85)', flex: '0 0 auto' },
   brand: {
-    position: 'absolute',
-    left: '50%',
-    top: '50%',
-    transform: 'translate(-50%, -50%)',
-    fontFamily: 'var(--font-display)',
-    fontSize: 26,
-    color: '#fff',
-    letterSpacing: 1,
+    position: 'absolute', left: '50%', top: '50%', transform: 'translate(-50%, -50%)',
+    fontFamily: 'var(--font-display)', fontSize: 26, color: '#fff', letterSpacing: 1,
+    textDecoration: 'none',
   },
   right: { display: 'flex', alignItems: 'center', gap: 12 },
   searchWrap: {
     display: 'flex', alignItems: 'center', gap: 8,
-    background: 'rgba(255,255,255,0.08)', borderRadius: 'var(--radius-sm)',
-    padding: '7px 12px', color: '#94a3b8', width: 220,
+    background: 'rgba(255,255,255,0.12)', border: '1px solid rgba(255,255,255,0.25)',
+    borderRadius: 12, padding: '0 14px', height: 42, color: 'rgba(255,255,255,0.7)', width: 220,
   },
-  searchInput: { background: 'transparent', border: 'none', color: '#fff', fontSize: 13, width: '100%', padding: 0 },
-  iconWrap: { position: 'relative' },
+  searchInput: {
+    background: 'transparent', border: 'none', color: '#fff', fontSize: 13,
+    width: '100%', padding: 0, outline: 'none', opacity: 1,
+  },
   overlay: { position: 'fixed', inset: 0, zIndex: 99 },
-  iconBtn: {
-    width: 36, height: 36, borderRadius: '50%', background: 'rgba(255,255,255,0.08)',
-    color: '#cbd5e1', display: 'flex', alignItems: 'center', justifyContent: 'center',
-    position: 'relative', zIndex: 100,
+  dropdown: {
+    position: 'absolute', right: 0, top: 50, background: 'var(--surface)',
+    border: '1px solid var(--border)', borderRadius: 12, boxShadow: '0 8px 24px rgba(0,0,0,0.12)',
+    padding: 8, minWidth: 180, zIndex: 100,
   },
-  notifMenu: {
-    position: 'absolute', right: 0, top: 46, background: 'var(--surface)',
-    border: '1px solid var(--border)', borderRadius: 'var(--radius)', boxShadow: 'var(--shadow-lg)',
-    padding: 14, width: 240, zIndex: 100,
+  dropdownTitle: { fontSize: 13, fontWeight: 700, color: 'var(--dark)', padding: '4px 8px 8px' },
+  dropdownItem: {
+    padding: '9px 12px', borderRadius: 8, fontSize: 14, fontWeight: 500,
+    color: 'var(--dark)', cursor: 'pointer', transition: 'background 150ms',
   },
-  notifTitle: { fontSize: 13, fontWeight: 700, color: 'var(--dark)' },
 };

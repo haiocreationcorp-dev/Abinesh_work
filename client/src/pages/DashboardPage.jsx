@@ -206,6 +206,8 @@ export default function DashboardPage() {
   const [collapsed, setCollapsed] = useState(() => typeof window !== 'undefined' && window.innerWidth <= 768);
   const [stats, setStats] = useState(null);
   const [statsError, setStatsError] = useState('');
+  const [createError, setCreateError] = useState('');
+  const [creating, setCreating] = useState(false);
 
   useEffect(() => {
     listComics().then(setComics).finally(() => setLoading(false));
@@ -217,9 +219,18 @@ export default function DashboardPage() {
     getAdminStats().then(setStats).catch((err) => setStatsError(err.response?.data?.error || 'Could not load dashboard stats'));
   }, [isAdmin]);
 
+
   const handleCreate = async () => {
-    const comic = await createComic({ title: 'Untitled Comic' });
-    navigate(`/editor/${comic.id}`);
+    if (creating) return;
+    setCreateError('');
+    setCreating(true);
+    try {
+      const comic = await createComic({ title: 'Untitled Comic' });
+      navigate(`/editor/${comic.id}`);
+    } catch (err) {
+      setCreateError(err.response?.data?.error || 'Could not create comic. Please try again.');
+      setCreating(false);
+    }
   };
 
   const handleDelete = async (id, e) => {
@@ -233,12 +244,19 @@ export default function DashboardPage() {
     <div className="container section">
       <div style={styles.header}>
         <div>
-          <h2 style={styles.greeting}>Hello, {user?.name || user?.email} 👋</h2>
+          <h2 style={styles.greeting}>Hello, {user?.name || user?.email}</h2>
           <p className="text-muted text-sm">
             {isViewOnly ? '🔒 View only — your institution\'s subscription has expired' : 'Your comic strips'}
           </p>
         </div>
-        {!isViewOnly && <button className="btn btn-primary" onClick={handleCreate}>+ New Comic</button>}
+        {!isViewOnly && (
+          <div style={{ textAlign: 'right' }}>
+            <button className="btn btn-primary" onClick={handleCreate} disabled={creating}>
+              {creating ? 'Creating…' : '+ New Comic'}
+            </button>
+            {createError && <p style={{ color: 'var(--danger)', fontSize: 13, marginTop: 6 }}>{createError}</p>}
+          </div>
+        )}
       </div>
 
       {loading && <div className="spinner" />}
@@ -297,7 +315,7 @@ export default function DashboardPage() {
   })();
 
   return (
-    <div className="page" style={{ display: 'flex', alignItems: 'flex-start' }}>
+    <div className="page" style={{ display: 'flex', alignItems: 'flex-start', gap: 20, padding: '40px 24px 40px', background: 'var(--light)', minHeight: 'calc(100vh - 72px)' }}>
       <div
         className={`dash-sidebar-overlay ${!collapsed ? 'dash-sidebar-overlay-active' : ''}`}
         onClick={() => setCollapsed(true)}
@@ -324,12 +342,12 @@ export default function DashboardPage() {
         </nav>
       </aside>
 
-      <div style={{ flex: 1, minWidth: 0 }}>
+      <div style={{ flex: 1, minWidth: 0, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 16, boxShadow: '0 2px 12px rgba(0,0,0,0.06)', overflow: 'hidden', padding: '40px 36px 48px' }}>
         {section === 'comic' ? comicSection : (
-          <div className="container section">
+          <div>
             <div style={styles.welcomeRow}>
               <div>
-                <h2 style={styles.welcomeTitle}>👋 {getGreeting()}, {user?.name || 'Admin'}</h2>
+                <h2 style={styles.welcomeTitle}>{getGreeting()}, {user?.name || 'Admin'}</h2>
                 <p className="text-muted text-sm">Welcome back to BharathComic. Here's what's happening today.</p>
               </div>
               <div style={styles.todayDate}>
@@ -347,7 +365,7 @@ export default function DashboardPage() {
 
             {stats && (
               <>
-                <div className="dash-stats-grid dash-stats-grid-5">
+                <div className="dash-stats-grid">
                   <StatCard
                     icon={<IconUsers />} label="Total Users" value={stats.institutionUsers + stats.individualUsers} trend={totalTrend}
                     description="All users on the platform" gradient="linear-gradient(135deg, #EF4444 0%, #DC2626 100%)"
@@ -367,11 +385,6 @@ export default function DashboardPage() {
                     icon={<IconGraduationCap />} label="Teachers" value={stats.teachers} trend={stats.trends.teachers}
                     description="Active across all institutions" gradient="linear-gradient(135deg, #22C55E 0%, #16A34A 100%)"
                     sparklineData={stats.monthly} sparklineKey="cumulativeTeachers"
-                  />
-                  <StatCard
-                    icon={<IconBook />} label="Total Comics" value={stats.totalComics} trend={stats.trends.totalComics}
-                    description="Created across the platform" gradient="linear-gradient(135deg, #3B82F6 0%, #2563EB 100%)"
-                    sparklineData={stats.monthly} sparklineKey="cumulativeComics"
                   />
                 </div>
 
@@ -396,19 +409,13 @@ export default function DashboardPage() {
                   <BarChart data={stats.monthly} valueKey="newUsers" labelKey="label" />
                 </div>
 
-                <div className="dash-two-col">
-                  <div className="card" style={styles.panelCard}>
-                    <h3 style={styles.panelTitle}>Quick Actions</h3>
-                    <div style={styles.quickActionsGrid}>
-                      <button className="btn btn-primary" onClick={handleCreate}>+ Add Comic</button>
-                      <button className="btn btn-outline" onClick={() => navigate('/admin?tab=10')}>+ Add Institution</button>
-                      <button className="btn btn-outline" disabled title="Coming soon">+ Invite User</button>
-                      <button className="btn btn-outline" disabled title="Coming soon">Generate Report</button>
-                    </div>
-                  </div>
-                  <div className="card" style={styles.panelCard}>
-                    <h3 style={styles.panelTitle}>Recent Activity</h3>
-                    <EmptyState text="No data available yet. Data will appear as users begin using the platform." />
+                <div className="card" style={{ ...styles.panelCard, marginBottom: 24 }}>
+                  <h3 style={styles.panelTitle}>Quick Actions</h3>
+                  <div style={styles.quickActionsGrid}>
+                    <button className="btn btn-primary" onClick={handleCreate}>+ Add Comic</button>
+                    <button className="btn btn-outline" onClick={() => navigate('/admin?tab=10')}>+ Add Institution</button>
+                    <button className="btn btn-outline" disabled title="Coming soon">+ Invite User</button>
+                    <button className="btn btn-outline" disabled title="Coming soon">Generate Report</button>
                   </div>
                 </div>
 
@@ -456,9 +463,14 @@ const styles = {
     flexDirection: 'column',
     gap: 6,
     background: 'var(--surface)',
-    borderRight: '1px solid var(--border)',
+    border: '1px solid var(--border)',
+    borderRadius: 16,
+    boxShadow: '0 2px 12px rgba(0,0,0,0.06)',
     padding: '16px',
-    minHeight: 'calc(100vh - 72px)',
+    minHeight: 'calc(100vh - 112px)',
+    alignSelf: 'flex-start',
+    position: 'sticky',
+    top: 20,
     transition: 'width 220ms ease',
   },
   collapseBtn: {
@@ -485,13 +497,13 @@ const styles = {
   welcomeTitle: { fontSize: 24, fontWeight: 600, marginBottom: 8 },
   todayDate: { fontSize: 14, color: 'var(--mid)', fontWeight: 600, whiteSpace: 'nowrap' },
 
-  statCard: { borderRadius: 16, padding: 24, color: '#fff', transition: 'transform 200ms ease, box-shadow 200ms ease' },
-  statCardTop: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 },
-  statIconWrap: { width: 36, height: 36, borderRadius: '50%', background: 'rgba(255,255,255,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center' },
-  statValueLg: { fontSize: 28, fontWeight: 800, marginBottom: 8 },
-  statLabelLg: { fontSize: 13, fontWeight: 600, marginBottom: 6 },
-  statDesc: { fontSize: 11, opacity: 0.85, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' },
-  statSparkline: { marginTop: 12 },
+  statCard: { borderRadius: 14, padding: '20px 22px', color: '#fff', transition: 'transform 200ms ease, box-shadow 200ms ease' },
+  statCardTop: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 },
+  statIconWrap: { width: 34, height: 34, borderRadius: '50%', background: 'rgba(255,255,255,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center' },
+  statValueLg: { fontSize: 30, fontWeight: 800, marginBottom: 4, lineHeight: 1 },
+  statLabelLg: { fontSize: 13, fontWeight: 600, marginBottom: 4 },
+  statDesc: { fontSize: 11, opacity: 0.8, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' },
+  statSparkline: { marginTop: 14 },
   trendBadgeUp: { fontSize: 12, fontWeight: 700, color: '#bbf7d0', background: 'rgba(255,255,255,0.15)', borderRadius: 99, padding: '3px 8px' },
   trendBadgeDown: { fontSize: 12, fontWeight: 700, color: '#fecaca', background: 'rgba(255,255,255,0.15)', borderRadius: 99, padding: '3px 8px' },
   trendBadgeFlat: { fontSize: 12, fontWeight: 700, color: '#fff', opacity: 0.8, background: 'rgba(255,255,255,0.15)', borderRadius: 99, padding: '3px 8px' },

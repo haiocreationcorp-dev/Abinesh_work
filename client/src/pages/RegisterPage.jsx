@@ -15,18 +15,31 @@ function ChoiceButton({ icon, title, hint, onClick }) {
   );
 }
 
+function checkPasswordStrength(pw) {
+  const checks = {
+    length: pw.length >= 8,
+    upper: /[A-Z]/.test(pw),
+    lower: /[a-z]/.test(pw),
+    number: /[0-9]/.test(pw),
+    symbol: /[^A-Za-z0-9]/.test(pw),
+  };
+  const passed = Object.values(checks).filter(Boolean).length;
+  return { checks, passed };
+}
+
 export default function RegisterPage() {
   const { saveSession } = useAuth();
   const navigate = useNavigate();
   const [step, setStep] = useState('choice'); // choice | institution-choice | teacher | student | individual
   const [form, setForm] = useState({
     name: '', email: '', password: '', institutionCode: '',
-    gradeLevel: '', section: '', rollNo: '', department: '', year: '',
+    gradeLevel: '', section: '', rollNo: '', department: '', year: '', gender: '',
   });
   const [institutionType, setInstitutionType] = useState(null); // 'SCHOOL' | 'COLLEGE' | null (not yet resolved)
   const [codeChecking, setCodeChecking] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [showPass, setShowPass] = useState(false);
 
   const handleCodeChange = (value) => {
     setForm({ ...form, institutionCode: value });
@@ -58,7 +71,12 @@ export default function RegisterPage() {
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
-    if (form.password.length < 6) { setError('Password must be at least 6 characters'); return; }
+    const { checks } = checkPasswordStrength(form.password);
+    if (!checks.length) { setError('Password must be at least 8 characters'); return; }
+    if (!checks.upper) { setError('Password must contain at least one uppercase letter'); return; }
+    if (!checks.lower) { setError('Password must contain at least one lowercase letter'); return; }
+    if (!checks.number) { setError('Password must contain at least one number'); return; }
+    if (!checks.symbol) { setError('Password must contain at least one special character'); return; }
     const isInstitution = step === 'teacher' || step === 'student';
     if (isInstitution && !form.institutionCode.trim()) { setError('Institution code is required'); return; }
     if (step === 'student' && !institutionType) { setError('Enter a valid institution code first'); return; }
@@ -122,7 +140,58 @@ export default function RegisterPage() {
               </div>
               <div className="form-group">
                 <label>Password</label>
-                <input type="password" required autoComplete="new-password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} placeholder="Min. 6 characters" />
+                <div style={{ position: 'relative' }}>
+                  <input
+                    type={showPass ? 'text' : 'password'}
+                    required
+                    autoComplete="new-password"
+                    value={form.password}
+                    onChange={(e) => setForm({ ...form, password: e.target.value })}
+                    placeholder="Min. 8 characters"
+                    style={{ paddingRight: 40, width: '100%', boxSizing: 'border-box' }}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPass((v) => !v)}
+                    style={styles.eyeBtn}
+                    tabIndex={-1}
+                    aria-label={showPass ? 'Hide password' : 'Show password'}
+                  >
+                    {showPass ? (
+                      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#ef4444" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/>
+                        <path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/>
+                        <line x1="1" y1="1" x2="23" y2="23"/>
+                      </svg>
+                    ) : (
+                      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#22c55e" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+                        <circle cx="12" cy="12" r="3"/>
+                      </svg>
+                    )}
+                  </button>
+                </div>
+                {form.password.length > 0 && (() => {
+                  const { checks, passed } = checkPasswordStrength(form.password);
+                  const color = passed <= 2 ? '#ef4444' : passed <= 3 ? '#f59e0b' : passed === 4 ? '#3b82f6' : '#22c55e';
+                  const label = passed <= 2 ? 'Weak' : passed === 3 ? 'Fair' : passed === 4 ? 'Good' : 'Strong';
+                  return (
+                    <div style={{ marginTop: 8 }}>
+                      <div style={{ display: 'flex', gap: 4, marginBottom: 4 }}>
+                        {[1,2,3,4,5].map((i) => (
+                          <div key={i} style={{ flex: 1, height: 4, borderRadius: 2, background: i <= passed ? color : 'var(--border)', transition: 'background 0.2s' }} />
+                        ))}
+                      </div>
+                      <div style={{ fontSize: 11, color, fontWeight: 600 }}>{label} — {[
+                        !checks.length && '8+ chars',
+                        !checks.upper && 'uppercase',
+                        !checks.lower && 'lowercase',
+                        !checks.number && 'number',
+                        !checks.symbol && 'symbol',
+                      ].filter(Boolean).join(', ') || 'All requirements met'}</div>
+                    </div>
+                  );
+                })()}
               </div>
               {isInstitution && (
                 <div className="form-group">
@@ -155,6 +224,15 @@ export default function RegisterPage() {
                     <label>Roll No</label>
                     <input type="text" required autoComplete="off" value={form.rollNo} onChange={(e) => setForm({ ...form, rollNo: e.target.value })} />
                   </div>
+                  <div className="form-group">
+                    <label>Gender</label>
+                    <select value={form.gender} onChange={(e) => setForm({ ...form, gender: e.target.value })} style={{ width: '100%' }}>
+                      <option value="">Prefer not to say</option>
+                      <option value="MALE">Boy</option>
+                      <option value="FEMALE">Girl</option>
+                      <option value="OTHER">Other</option>
+                    </select>
+                  </div>
                 </>
               )}
 
@@ -171,6 +249,15 @@ export default function RegisterPage() {
                   <div className="form-group">
                     <label>Roll No</label>
                     <input type="text" required autoComplete="off" value={form.rollNo} onChange={(e) => setForm({ ...form, rollNo: e.target.value })} />
+                  </div>
+                  <div className="form-group">
+                    <label>Gender</label>
+                    <select value={form.gender} onChange={(e) => setForm({ ...form, gender: e.target.value })} style={{ width: '100%' }}>
+                      <option value="">Prefer not to say</option>
+                      <option value="MALE">Male</option>
+                      <option value="FEMALE">Female</option>
+                      <option value="OTHER">Other</option>
+                    </select>
                   </div>
                 </>
               )}
@@ -212,5 +299,10 @@ const styles = {
   backLink: {
     display: 'block', margin: '16px auto 0', background: 'none', border: 'none',
     color: 'var(--mid)', fontSize: 13, cursor: 'pointer', textAlign: 'center', width: '100%',
+  },
+  eyeBtn: {
+    position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)',
+    background: 'none', border: 'none', cursor: 'pointer', fontSize: 16, padding: 0,
+    lineHeight: 1, color: 'var(--mid)',
   },
 };

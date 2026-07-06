@@ -2,25 +2,27 @@ const express = require('express');
 const router = express.Router();
 const {
   listStudents, listStudentComics, getStudentComic,
-  createClass, listClasses, deleteClass, updateEnrollment,
+  createClass, listClasses, deleteClass, updateEnrollment, toggleClassAI,
   createTask, listTasks, listTaskSubmissions, gradeSubmission,
 } = require('../controllers/teacherController');
 const teacherAuth = require('../middleware/teacherAuth');
 const requireActiveSubscription = require('../middleware/subscriptionAuth');
+const { asyncHandler } = require('../middleware/errorHandler');
 
 router.use(teacherAuth);
-router.get('/students', listStudents);
-router.get('/students/:studentId/comics', listStudentComics);
-router.get('/students/:studentId/comics/:comicId', getStudentComic);
+router.get('/students', asyncHandler(listStudents));
+router.get('/students/:studentId/comics', asyncHandler(listStudentComics));
+router.get('/students/:studentId/comics/:comicId', asyncHandler(getStudentComic));
 
-router.post('/classes', requireActiveSubscription, createClass);
-router.get('/classes', listClasses);
-router.delete('/classes/:id', requireActiveSubscription, deleteClass);
-router.patch('/classes/:classId/enrollments/:enrollmentId', requireActiveSubscription, updateEnrollment);
+router.post('/classes', asyncHandler(requireActiveSubscription), asyncHandler(createClass));
+router.get('/classes', asyncHandler(listClasses));
+router.delete('/classes/:id', asyncHandler(requireActiveSubscription), asyncHandler(deleteClass));
+router.patch('/classes/:classId/enrollments/:enrollmentId', asyncHandler(requireActiveSubscription), asyncHandler(updateEnrollment));
+router.patch('/classes/:classId/ai', asyncHandler(requireActiveSubscription), asyncHandler(toggleClassAI));
 
-router.post('/tasks', requireActiveSubscription, createTask);
-router.get('/tasks', listTasks);
-router.get('/tasks/:taskId/submissions', listTaskSubmissions);
-router.patch('/submissions/:submissionId/grade', requireActiveSubscription, gradeSubmission);
+router.post('/tasks', asyncHandler(requireActiveSubscription), asyncHandler(createTask));
+router.get('/tasks', asyncHandler(listTasks));
+router.get('/tasks/:taskId/submissions', asyncHandler(listTaskSubmissions));
+router.patch('/submissions/:submissionId/grade', asyncHandler(requireActiveSubscription), asyncHandler(gradeSubmission));
 
 module.exports = router;

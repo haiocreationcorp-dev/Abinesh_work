@@ -54,7 +54,20 @@ const createClass = async (req, res) => {
 const listClasses = async (req, res) => {
   const classes = await prisma.class.findMany({
     where: { teacherId: req.user.id },
-    include: { enrollments: { include: { student: { select: { id: true, name: true, email: true } } } } },
+    include: {
+      enrollments: {
+        include: {
+          student: {
+            select: {
+              id: true, name: true, email: true,
+              gradeLevel: true, section: true, rollNo: true,
+              department: true, year: true, gender: true,
+            },
+          },
+        },
+        orderBy: { createdAt: 'asc' },
+      },
+    },
     orderBy: { createdAt: 'desc' },
   });
   res.json(classes);
@@ -122,6 +135,13 @@ const listTaskSubmissions = async (req, res) => {
   res.json({ task, submissions });
 };
 
+const toggleClassAI = async (req, res) => {
+  const cls = await prisma.class.findFirst({ where: { id: req.params.classId, teacherId: req.user.id } });
+  if (!cls) return res.status(404).json({ error: 'Class not found' });
+  const updated = await prisma.class.update({ where: { id: cls.id }, data: { aiEnabled: !cls.aiEnabled } });
+  res.json(updated);
+};
+
 const gradeSubmission = async (req, res) => {
   const { score, feedback } = req.body;
   if (score !== undefined && score !== null && (typeof score !== 'number' || score < 0 || score > 100)) {
@@ -142,6 +162,6 @@ const gradeSubmission = async (req, res) => {
 
 module.exports = {
   listStudents, listStudentComics, getStudentComic,
-  createClass, listClasses, deleteClass, updateEnrollment,
+  createClass, listClasses, deleteClass, updateEnrollment, toggleClassAI,
   createTask, listTasks, listTaskSubmissions, gradeSubmission,
 };

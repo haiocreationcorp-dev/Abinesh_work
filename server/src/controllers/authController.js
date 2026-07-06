@@ -18,10 +18,14 @@ const sign = (user) =>
 const safeUser = (u) => ({
   id: u.id, email: u.email, name: u.name, role: u.role, institutionId: u.institutionId,
   institutionName: u.institution?.name,
+  institutionType: u.institution?.type,
   avatarPath: u.avatarPath,
   disabled: u.disabled,
   subscriptionActive: !u.institutionId || (!u.institution?.suspended && u.institution?.subscriptionExpiresAt && u.institution.subscriptionExpiresAt > new Date()),
   createdAt: u.createdAt,
+  // student academic fields
+  gradeLevel: u.gradeLevel, section: u.section, rollNo: u.rollNo,
+  department: u.department, year: u.year, gender: u.gender,
 });
 
 // Public — lets the registration form know whether to render School or College fields
@@ -50,7 +54,7 @@ const register = async (req, res) => {
     data = { ...data, role, institutionId: institution.id };
 
     if (role === 'STUDENT') {
-      const { gradeLevel, section, rollNo, department, year } = req.body;
+      const { gradeLevel, section, rollNo, department, year, gender } = req.body;
       if (institution.type === 'COLLEGE') {
         if (!department || !year || !rollNo) return res.status(400).json({ error: 'Department, year, and roll number are required' });
         data = { ...data, department, year, rollNo };
@@ -58,6 +62,7 @@ const register = async (req, res) => {
         if (!gradeLevel || !section || !rollNo) return res.status(400).json({ error: 'Class/grade, section, and roll number are required' });
         data = { ...data, gradeLevel, section, rollNo };
       }
+      if (gender && ['MALE', 'FEMALE', 'OTHER'].includes(gender)) data.gender = gender;
     }
   }
   // Any other loginType (or none) falls back to today's behavior: role defaults to USER, no institution.
@@ -86,16 +91,22 @@ const me = async (req, res) => {
   res.json(safeUser(user));
 };
 
-// PATCH /api/auth/me — self-service rename, any logged-in role
+// PATCH /api/auth/me — self-service profile update (name + student academic fields)
 const updateProfile = async (req, res) => {
-  const { name } = req.body;
+  const { name, gradeLevel, section, rollNo, department, year, gender } = req.body;
   if (name !== undefined && !name.trim()) return res.status(400).json({ error: 'Name cannot be empty' });
 
-  const user = await prisma.user.update({
-    where: { id: req.user.id },
-    data: { ...(name !== undefined ? { name: name.trim() } : {}) },
-    include: { institution: true },
-  });
+  const data = {};
+  if (name !== undefined) data.name = name.trim();
+  // Student-only academic fields — only write if explicitly provided
+  if (gradeLevel !== undefined) data.gradeLevel = gradeLevel || null;
+  if (section !== undefined) data.section = section || null;
+  if (rollNo !== undefined) data.rollNo = rollNo || null;
+  if (department !== undefined) data.department = department || null;
+  if (year !== undefined) data.year = year || null;
+  if (gender !== undefined) data.gender = ['MALE', 'FEMALE', 'OTHER'].includes(gender) ? gender : null;
+
+  const user = await prisma.user.update({ where: { id: req.user.id }, data, include: { institution: true } });
   res.json(safeUser(user));
 };
 

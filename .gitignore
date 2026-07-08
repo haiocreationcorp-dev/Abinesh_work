@@ -8,3 +8,4 @@ build/
 npm-debug.log*
 tmp_parts/
 server/backups/
+Details from the old devices/

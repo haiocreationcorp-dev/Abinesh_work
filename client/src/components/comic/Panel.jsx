@@ -413,7 +413,14 @@ function BubblePlacedItem({ bubble, panelIndex, canvasRef, canvasW, isSelected, 
       )}
 
       {/* Text layer — editable when selected, read-only div otherwise (html2canvas captures the div) */}
-      <div style={{ position: 'absolute', top: '6%', left: '10%', width: '80%', height: '75%', zIndex: 2, display: 'flex', alignItems: 'center', justifyContent: 'center', pointerEvents: 'none', overflow: 'hidden' }}>
+      <div
+        // Inscribed within the bubble's oval body (not its bounding box) — a rectangle
+        // centered in an ellipse that fills the old 80%x75% box must shrink by ~1/√2 on
+        // each axis to stay inside the curve instead of poking out past it at the corners.
+        style={{ position: 'absolute', top: '17%', left: '22%', width: '56%', height: '53%', zIndex: 2, display: 'flex', alignItems: 'center', justifyContent: 'center', pointerEvents: isSelected ? 'auto' : 'none', overflow: 'hidden' }}
+        onPointerDown={(e) => { if (isSelected) e.stopPropagation(); }}
+        onClick={(e) => { if (isSelected) { e.stopPropagation(); textRef.current?.focus(); } }}
+      >
         {isSelected ? (
           <div
             ref={textRef}

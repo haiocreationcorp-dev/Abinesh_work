@@ -13,6 +13,7 @@ const studentRoutes = require('./routes/student');
 const billingRoutes = require('./routes/billing');
 const lightingPresetRoutes = require('./routes/lightingPresets');
 const aiRoutes = require('./routes/ai');
+const { warmupModels } = require('./controllers/aiController');
 const { errorHandler } = require('./middleware/errorHandler');
 const { trackIP } = require('./middleware/presence');
 
@@ -68,4 +69,5 @@ app.use(errorHandler);
 
 app.listen(PORT, () => {
   console.log(`BharathComic server running → http://localhost:${PORT}`);
+  warmupModels();
 });

@@ -5,6 +5,19 @@ const OLLAMA_PUNCT_MODEL = process.env.OLLAMA_PUNCT_MODEL || 'llama3.2:1b';
 // Larger model, custom-tuned for comic-themed alternative phrasing / sentence structure
 const OLLAMA_REWRITE_MODEL = process.env.OLLAMA_REWRITE_MODEL || 'comic-rewrite';
 
+// Loads OLLAMA_REWRITE_MODEL into RAM at server startup instead of waiting for the first
+// user request to pay the cold-load cost (can exceed a minute on a memory-constrained
+// host). Fire-and-forget from index.js — Ollama may not be up yet on boot, so failures
+// are only logged, never thrown.
+async function warmupModels() {
+  try {
+    await callOllama('Hi', { model: OLLAMA_REWRITE_MODEL, numPredict: 1, timeoutMs: 180_000 });
+    console.log(`[AI] Warmed up Ollama model "${OLLAMA_REWRITE_MODEL}"`);
+  } catch (err) {
+    console.warn(`[AI] Could not warm up Ollama model "${OLLAMA_REWRITE_MODEL}": ${err.message}`);
+  }
+}
+
 // Strip surrounding quotes, code fences, and label prefixes the model sometimes adds
 function cleanOutput(text) {
   let t = text.trim();
@@ -95,6 +108,8 @@ const SUGGEST_SYSTEM = `You are "Comic Scribe", an editor for dialogue and narra
   `Reply with exactly 3 lines, each starting with "1. ", "2. ", "3. " followed by one version, and nothing else - no extra commentary.`;
 
 // POST /api/ai/grammar  { text }
+exports.warmupModels = warmupModels;
+
 exports.checkGrammar = async (req, res, next) => {
   try {
     const { text } = req.body;

@@ -16,7 +16,7 @@ function cleanOutput(text) {
   return t.trim();
 }
 
-async function callOllama(prompt, { model = OLLAMA_MODEL, system, temperature = 0.3, numPredict, timeoutMs = 60_000 } = {}) {
+async function callOllama(prompt, { model = OLLAMA_MODEL, system, temperature = 0.3, numPredict, timeoutMs = 120_000 } = {}) {
   let res;
   try {
     res = await fetch(`${OLLAMA_URL}/api/generate`, {
@@ -28,6 +28,9 @@ async function callOllama(prompt, { model = OLLAMA_MODEL, system, temperature = 
         prompt,
         ...(system ? { system } : {}),
         stream: false,
+        // Keep the model resident in RAM well past Ollama's 5-minute default so
+        // low-traffic periods don't force a slow cold reload (~50s+) on the next request.
+        keep_alive: '30m',
         options: {
           temperature,
           ...(numPredict ? { num_predict: numPredict } : {}),

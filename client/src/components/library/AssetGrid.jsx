@@ -7,7 +7,7 @@ import Modal from '../ui/Modal.jsx';
 // mirrors BULK_DELETE_PASSWORD_THRESHOLD in server/src/controllers/assetController.js.
 const BULK_DELETE_PASSWORD_THRESHOLD = 9;
 
-export default function AssetGrid({ category, tags, search = '', partType, gender, view, poseType, eyeType, mouthType, onSelect, adminMode = false }) {
+export default function AssetGrid({ category, tags, search = '', partType, gender, view, poseType, eyeType, mouthType, costume, onSelect, adminMode = false }) {
   const [assets, setAssets] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -32,6 +32,7 @@ export default function AssetGrid({ category, tags, search = '', partType, gende
       poseType: poseType || undefined,
       eyeType: eyeType || undefined,
       mouthType: mouthType || undefined,
+      costume: costume || undefined,
     })
       .then((data) => { setAssets(data); })
       .catch((err) => {
@@ -39,7 +40,7 @@ export default function AssetGrid({ category, tags, search = '', partType, gende
         setAssets([]);
       })
       .finally(() => setLoading(false));
-  }, [category, tags, search, partType, gender, view, poseType, eyeType, mouthType]);
+  }, [category, tags, search, partType, gender, view, poseType, eyeType, mouthType, costume]);
 
   useEffect(() => { load(); }, [load]);
 

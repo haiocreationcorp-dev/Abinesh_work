@@ -15,7 +15,6 @@ import AssetGrid from '../components/library/AssetGrid.jsx';
 import ManageUsersPanel from '../components/admin/ManageUsersPanel.jsx';
 import InstitutionsPanel from '../components/admin/InstitutionsPanel.jsx';
 import AdminNavDrawer from '../components/admin/AdminNavDrawer.jsx';
-import { triggerBackup } from '../api/assets.js';
 import { CATEGORY_IDS, FACE_PART_TYPES, GENDERS, VIEWS, POSE_TYPES, EYE_TYPES, MOUTH_TYPES } from '../constants/categories.js';
 
 function IconSun() {
@@ -118,31 +117,11 @@ export default function AdminPage() {
   const [poseType, setPoseType] = useState('');
   const [eyeType, setEyeType] = useState('');
   const [mouthType, setMouthType] = useState('');
+  const [costumeFilter, setCostumeFilter] = useState('');
   const [fbMode, setFbMode] = useState('face');
-  const [backupStatus, setBackupStatus] = useState('idle'); // idle | running | done | error
-  const [backupMsg, setBackupMsg] = useState('');
 
   const toggleNav = (key) => setNavOpen((cur) => (cur === key ? null : key));
   const activeGroup = navOpen ? NAV_GROUPS[navOpen] : NAV_GROUPS.content;
-
-  const handleBackup = async () => {
-    setBackupStatus('running');
-    setBackupMsg('');
-    try {
-      const result = await triggerBackup();
-      if (result.ok) {
-        setBackupStatus('done');
-        setBackupMsg('Backup complete');
-      } else {
-        setBackupStatus('error');
-        setBackupMsg(result.dbResult?.output || result.dataResult?.output || result.filesResult?.output || result.envResult?.output || 'Backup failed');
-      }
-    } catch (err) {
-      setBackupStatus('error');
-      setBackupMsg(err.response?.data?.error || 'Backup failed');
-    }
-    setTimeout(() => setBackupStatus('idle'), 4000);
-  };
 
   return (
     <div style={{ minHeight: '100vh', background: 'var(--light)' }}>
@@ -160,16 +139,6 @@ export default function AdminPage() {
         <Link to="/dashboard" style={styles.brandCenter}>BharathComic</Link>
 
         <div style={styles.rightGroup}>
-          {backupMsg && <span style={{ fontSize: 12, color: backupStatus === 'error' ? 'var(--danger)' : 'var(--success)' }}>{backupMsg}</span>}
-          <button
-            onClick={handleBackup}
-            disabled={backupStatus === 'running'}
-            title="Back up the database now (pg_dump + JSON export)"
-            style={styles.backupBtn(backupStatus === 'running')}
-          >
-            💾 {backupStatus === 'running' ? 'Backing up…' : 'Backup Now'}
-          </button>
-
           <div className="admin-search" style={styles.searchWrap} title="Coming soon">
             <IconSearch />
             <input style={styles.searchInput} placeholder="Search comics, users, institutions…" disabled />
@@ -242,7 +211,7 @@ export default function AdminPage() {
                   <button
                     key={c}
                     className={`btn btn-sm ${category === c ? 'btn-primary' : 'btn-outline'}`}
-                    onClick={() => { setCategory(c); setPartType(''); setGender(''); setView(''); setPoseType(''); setEyeType(''); setMouthType(''); }}
+                    onClick={() => { setCategory(c); setPartType(''); setGender(''); setView(''); setPoseType(''); setEyeType(''); setMouthType(''); setCostumeFilter(''); }}
                   >
                     {c}
                   </button>
@@ -266,6 +235,14 @@ export default function AdminPage() {
               )}
               {category === 'BODY_POSE' && (
                 <>
+                  <div className="form-group" style={{ maxWidth: 220, marginBottom: 10 }}>
+                    <label style={{ fontSize: 12 }}>Costume</label>
+                    <input
+                      value={costumeFilter}
+                      onChange={(e) => setCostumeFilter(e.target.value)}
+                      placeholder="e.g. C1"
+                    />
+                  </div>
                   <FilterChipRow value={poseType} onChange={setPoseType} options={POSE_TYPES} />
                   <FilterChipRow value={view} onChange={setView} options={VIEWS} />
                 </>
@@ -278,6 +255,7 @@ export default function AdminPage() {
                 poseType={category === 'BODY_POSE' ? poseType : ''}
                 eyeType={category === 'FACE_PART' && partType === 'EYES' ? eyeType : ''}
                 mouthType={category === 'FACE_PART' && partType === 'MOUTH' ? mouthType : ''}
+                costume={category === 'BODY_POSE' ? costumeFilter : ''}
                 adminMode
               />
             </div>
@@ -339,10 +317,5 @@ const styles = {
   content: { padding: '32px 40px' },
   contentInner: { maxWidth: 1400, margin: '0 auto' },
   tabs: { display: 'flex', gap: 8, flexWrap: 'wrap' },
-  backupBtn: (disabled) => ({
-    background: disabled ? '#FCA5A5' : '#DC2626', color: '#fff', border: 'none',
-    borderRadius: 8, padding: '8px 16px', fontSize: 13, fontWeight: 700,
-    cursor: disabled ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', gap: 6,
-  }),
   categoryRow: { display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 20 },
 };

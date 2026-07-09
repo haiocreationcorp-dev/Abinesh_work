@@ -41,6 +41,10 @@ const CATEGORY_TO_DIR = {
 
 const ALLOWED_EXTS = ['.svg', '.png', '.jpg', '.jpeg', '.gif', '.webp', '.mp3', '.wav', '.ogg', '.m4a'];
 
+// Filesystem-safe version of an asset name, for use as the actual on-disk filename
+// instead of a random UUID — keeps uploads/<category>/ readable (e.g. "C3P1.webp").
+const sanitizeFilename = (name) => name.trim().replace(/[^a-zA-Z0-9-]+/g, '_');
+
 // Remove white/near-white background via BFS flood-fill from all 4 image edges.
 // Only edge-connected near-white regions are erased — white inside the character is preserved.
 async function removeWhiteBackground(buffer, originalExt) {
@@ -307,13 +311,20 @@ router.post(
 // POST /api/admin/assets/upload-folder — folder-sync upload (upsert per asset name+category)
 router.post('/assets/upload-folder', adminAuth, uploadBatch.array('files', 500), async (req, res) => {
   try {
-    const { category, tags, folderName, removeWhiteBg, normalizeSkin, skinThresholds, view, partType, gender, eyeType, mouthType, faceFamily, costume, poseType } = req.body;
+    const { category, tags, folderName, removeWhiteBg, normalizeSkin, skinThresholds, view, partType, gender, eyeType, mouthType, faceFamily, costume, poseType, fileMeta } = req.body;
     const categoryUpper = (category || '').toUpperCase();
     const tagArray = tags ? tags.split(',').map((t) => t.trim()).filter(Boolean) : [];
     const stripBg = removeWhiteBg === 'true';
     const normalizeSkinTone = normalizeSkin === 'true';
     const resolvedSkinThresholds = normalizeSkinTone ? parseSkinThresholds(skinThresholds) : null;
     const folderPretty = folderName ? folderName.replace(/[-_]+/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()).trim() : '';
+    // Optional per-file overrides — { name, view }[] in the same order as the uploaded
+    // `files`. Used by the Folder Upload form's costume/pose auto-detect (each file gets
+    // its own unique asset name + view instead of one flat name/view for the whole batch).
+    let fileMetaArr = null;
+    if (fileMeta) {
+      try { fileMetaArr = JSON.parse(fileMeta); } catch (_) { fileMetaArr = null; }
+    }
     if (!CATEGORY_TO_DIR[categoryUpper]) {
       return res.status(400).json({ error: `Invalid category: ${category}` });
     }
@@ -321,7 +332,12 @@ router.post('/assets/upload-folder', adminAuth, uploadBatch.array('files', 500),
       return res.status(400).json({ error: 'No valid files found in folder' });
     }
 
-    const dir = path.join(UPLOADS_ROOT, CATEGORY_TO_DIR[categoryUpper]);
+    // BODY_POSE assets with a costume get their own subfolder (e.g. uploads/body-poses/C3/)
+    // instead of dumping every costume's poses into one flat folder.
+    const subdirRel = (categoryUpper === 'BODY_POSE' && costume)
+      ? `${CATEGORY_TO_DIR[categoryUpper]}/${sanitizeFilename(costume)}`
+      : CATEGORY_TO_DIR[categoryUpper];
+    const dir = path.join(UPLOADS_ROOT, subdirRel);
     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
 
     const prettify = (str) => {
@@ -356,10 +372,14 @@ router.post('/assets/upload-folder', adminAuth, uploadBatch.array('files', 500),
     let updated = 0;
     const errors = [];
 
-    for (const file of req.files) {
+    for (let i = 0; i < req.files.length; i++) {
+      const file = req.files[i];
       try {
-        const baseName = prettify(stripViewSuffix(file.originalname));
-        const assetName = (categoryUpper === 'BODY_POSE' && folderPretty)
+        const meta = fileMetaArr?.[i];
+        const fileView = meta?.view ?? view;
+        const filePoseType = meta?.poseType ?? poseType;
+        const baseName = meta?.name || prettify(stripViewSuffix(file.originalname));
+        const assetName = (!meta && categoryUpper === 'BODY_POSE' && folderPretty)
           ? `${folderPretty} ${baseName}`
           : baseName;
         const assetTags = (categoryUpper === 'BODY_POSE' && folderPretty)
@@ -368,11 +388,13 @@ router.post('/assets/upload-folder', adminAuth, uploadBatch.array('files', 500),
         let { buffer: fileBuf, ext } = await maybeToWebP(file.buffer, file.originalname, categoryUpper);
         if (stripBg) ({ buffer: fileBuf, ext } = await removeWhiteBackground(fileBuf, ext));
         if (normalizeSkinTone) ({ buffer: fileBuf, ext } = await normalizeSkinTones(fileBuf, ext, resolvedSkinThresholds));
-        const newFilename = `${uuidv4()}${ext}`;
-        const newFilePath = `/uploads/${CATEGORY_TO_DIR[categoryUpper]}/${newFilename}`;
+        // fileMeta-driven uploads (e.g. C1P1) get a readable on-disk filename matching
+        // the asset name; everything else keeps the random UUID as before.
+        const newFilename = meta ? `${sanitizeFilename(assetName)}${ext}` : `${uuidv4()}${ext}`;
+        const newFilePath = `/uploads/${subdirRel}/${newFilename}`;
 
         const existing = await prisma.asset.findFirst({
-          where: { name: assetName, category: categoryUpper, view: view || null },
+          where: { name: assetName, category: categoryUpper, view: fileView || null },
         });
 
         if (existing) {
@@ -384,14 +406,14 @@ router.post('/assets/upload-folder', adminAuth, uploadBatch.array('files', 500),
               filePath: newFilePath,
               filename: file.originalname,
               skinThresholds: resolvedSkinThresholds ?? undefined,
-              view: view || undefined,
+              view: fileView || undefined,
               partType: partType || undefined,
               gender: gender || undefined,
               eyeType: partType === 'EYES' ? (eyeType || undefined) : undefined,
               mouthType: partType === 'MOUTH' ? (mouthType || undefined) : undefined,
               faceFamily: faceFamily || undefined,
               costume: costume || undefined,
-              poseType: poseType || undefined,
+              poseType: filePoseType || undefined,
             },
           });
           updated++;
@@ -406,14 +428,14 @@ router.post('/assets/upload-folder', adminAuth, uploadBatch.array('files', 500),
               filePath: newFilePath,
               thumbnailPath: null,
               skinThresholds: resolvedSkinThresholds ?? undefined,
-              view: view || undefined,
+              view: fileView || undefined,
               partType: partType || undefined,
               gender: gender || undefined,
               eyeType: partType === 'EYES' ? (eyeType || undefined) : undefined,
               mouthType: partType === 'MOUTH' ? (mouthType || undefined) : undefined,
               faceFamily: faceFamily || undefined,
               costume: costume || undefined,
-              poseType: poseType || undefined,
+              poseType: filePoseType || undefined,
             },
           });
           added++;
@@ -1014,17 +1036,25 @@ router.put(
       // Re-encode as lossless webp (see reencodeLosslessWebp) instead of storing the
       // incoming PNG as-is — same bytes, much smaller file.
       const { buffer: finalBuf, ext } = await reencodeLosslessWebp(assetFile.buffer);
-      const subdir = CATEGORY_TO_DIR[existing.category];
+      // Preserve the per-costume subfolder (e.g. uploads/body-poses/C3/) BODY_POSE assets
+      // are organized into, same convention as the folder-upload route.
+      const subdir = (existing.category === 'BODY_POSE' && existing.costume)
+        ? `${CATEGORY_TO_DIR[existing.category]}/${sanitizeFilename(existing.costume)}`
+        : CATEGORY_TO_DIR[existing.category];
       const dir = path.join(UPLOADS_ROOT, subdir);
       if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
 
-      const filename = `${uuidv4()}${ext}`;
-      fs.writeFileSync(path.join(dir, filename), finalBuf);
+      const filename = `${sanitizeFilename(existing.name)}${ext}`;
+      const oldAbs = path.join(UPLOADS_ROOT, existing.filePath.replace(/^\/uploads\//, ''));
+      const newAbs = path.join(dir, filename);
+      fs.writeFileSync(newAbs, finalBuf);
 
-      try {
-        const oldAbs = path.join(UPLOADS_ROOT, existing.filePath.replace(/^\/uploads\//, ''));
-        if (fs.existsSync(oldAbs)) fs.unlinkSync(oldAbs);
-      } catch (_) { /* best-effort */ }
+      // Only remove the old file if it's a different path — the readable filename can
+      // now collide with the old one (both derived from the same asset name), and
+      // deleting after already overwriting would wipe out the file we just wrote.
+      if (oldAbs !== newAbs) {
+        try { if (fs.existsSync(oldAbs)) fs.unlinkSync(oldAbs); } catch (_) { /* best-effort */ }
+      }
 
       const asset = await prisma.asset.update({
         where: { id: existing.id },

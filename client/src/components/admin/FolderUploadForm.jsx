@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useMemo } from 'react';
 import { uploadFolder } from '../../api/assets.js';
 import { CATEGORY_IDS as CATEGORIES, BG_SUBCATEGORIES, VIEWS, FACE_PART_TYPES, GENDERS, POSE_TYPES, EYE_TYPES, MOUTH_TYPES } from '../../constants/categories.js';
 
@@ -37,6 +37,43 @@ const prettify = (orig) => {
   return base.replace(/[-_]+/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
 };
 
+// Matches a "C<n>P<n>" costume+pose tag anywhere in a filename, e.g. "C1P1", "c1p1_03.webp".
+const COSTUME_POSE_RE = /C(\d+)P(\d+)/i;
+
+// Pose numbers 1-4 are the front-view shots; everything from 5 up is 3/4-view.
+const FRONT_POSE_MAX = 4;
+
+// BODY_POSE bulk-upload naming convention: every file in the folder shares the same
+// costume, but each carries its OWN distinct pose number (e.g. "C3P1".."C3P18") — view
+// isn't picked separately, it's implied by the pose number itself (P1-P4 = Front, P5+ =
+// 3/4). Since every pose number is already unique within the folder, the asset name
+// (e.g. "C3P1") is naturally unique too — no index suffix needed, and re-uploading the
+// same folder later cleanly updates the matching assets instead of duplicating them.
+function buildCostumePosePlan(files) {
+  const parsed = files.map((f) => ({ file: f, match: f.name.match(COSTUME_POSE_RE) }));
+  if (parsed.some((p) => !p.match)) return null;
+
+  const firstCostume = parsed[0].match[1];
+  const sameCostume = parsed.every((p) => p.match[1] === firstCostume);
+  if (!sameCostume) return null;
+
+  const costume = `C${firstCostume}`;
+  const items = parsed
+    .map((p) => {
+      const poseNum = Number(p.match[2]);
+      return {
+        file: p.file,
+        poseNum,
+        name: `${costume}P${poseNum}`,
+        poseType: `P${poseNum}`,
+        view: poseNum <= FRONT_POSE_MAX ? 'FRONT' : 'THREE_QUARTER',
+      };
+    })
+    .sort((a, b) => a.poseNum - b.poseNum);
+
+  return { costume, items };
+}
+
 export default function FolderUploadForm() {
   const [files, setFiles] = useState([]);
   const [skippedCount, setSkippedCount] = useState(0);
@@ -54,10 +91,18 @@ export default function FolderUploadForm() {
   const [costume, setCostume] = useState('');
   const [poseType, setPoseType] = useState('');
   const [autoDetected, setAutoDetected] = useState(false);
+  const [useCostumePosePlan, setUseCostumePosePlan] = useState(true);
   const [progress, setProgress] = useState(null);
   const [result, setResult] = useState(null);
   const [error, setError] = useState('');
   const inputRef = useRef(null);
+
+  // Only offered for BODY_POSE, and only when every selected file's name carries a
+  // consistent "C<n>P<n>" tag (see buildCostumePosePlan above).
+  const costumePosePlan = useMemo(
+    () => (category === 'BODY_POSE' ? buildCostumePosePlan(files) : null),
+    [files, category]
+  );
 
   const resetMetadataFields = () => {
     setPartType(''); setView(''); setGender(''); setEyeType(''); setMouthType(''); setFaceFamily(''); setCostume(''); setPoseType('');
@@ -116,12 +161,19 @@ export default function FolderUploadForm() {
       if (faceFamily) fd.append('faceFamily', faceFamily);
       if (view) fd.append('view', view);
     }
+    const activePlan = category === 'BODY_POSE' && useCostumePosePlan ? costumePosePlan : null;
+
     if (category === 'BODY_POSE') {
-      if (costume) fd.append('costume', costume);
-      if (poseType) fd.append('poseType', poseType);
-      if (view) fd.append('view', view);
+      if (activePlan) {
+        fd.append('costume', activePlan.costume);
+        fd.append('fileMeta', JSON.stringify(activePlan.items.map((it) => ({ name: it.name, view: it.view, poseType: it.poseType }))));
+      } else {
+        if (costume) fd.append('costume', costume);
+        if (poseType) fd.append('poseType', poseType);
+        if (view) fd.append('view', view);
+      }
     }
-    files.forEach((f) => fd.append('files', f));
+    (activePlan ? activePlan.items.map((it) => it.file) : files).forEach((f) => fd.append('files', f));
 
     try {
       const data = await uploadFolder(fd, (evt) => {
@@ -275,7 +327,32 @@ export default function FolderUploadForm() {
         </>
       )}
 
-      {category === 'BODY_POSE' && (
+      {category === 'BODY_POSE' && costumePosePlan && (
+        <div style={s.planBox}>
+          <label style={s.checkboxLabel}>
+            <input
+              type="checkbox"
+              checked={useCostumePosePlan}
+              onChange={(e) => setUseCostumePosePlan(e.target.checked)}
+              style={{ marginRight: 8 }}
+            />
+            Auto-detected: costume <strong>{costumePosePlan.costume}</strong> from filenames — each file's own pose
+            number sets its Pose Type, and P1-P4 = Front, P5+ = 3/4
+          </label>
+          {useCostumePosePlan && (
+            <div style={s.planList}>
+              {costumePosePlan.items.map((it) => (
+                <div key={it.name} style={s.planRow}>
+                  <span style={s.fileName}>{it.file.name}</span>
+                  <span>→ <strong>{it.name}</strong> ({it.view === 'FRONT' ? 'Front' : '3/4'})</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {category === 'BODY_POSE' && !(costumePosePlan && useCostumePosePlan) && (
         <>
           <div className="form-group">
             <label>Costume (all files in this folder will be tagged)</label>
@@ -318,8 +395,8 @@ export default function FolderUploadForm() {
         </div>
       )}
 
-      {/* File preview */}
-      {files.length > 0 && !result && (
+      {/* File preview — skipped when the costume/pose plan is active since that section above already shows per-file names */}
+      {files.length > 0 && !result && !(costumePosePlan && useCostumePosePlan) && (
         <div style={s.previewBox}>
           <div style={s.previewHeader}>
             {files.length} file{files.length !== 1 ? 's' : ''} ready to upload
@@ -459,4 +536,8 @@ const s = {
   errFile: { color: '#374151', fontWeight: 500, fontFamily: 'monospace', minWidth: 140 },
   errMsg: { color: '#dc2626' },
   checkboxHint: { fontSize: 12, color: 'var(--mid)', marginTop: 6, lineHeight: 1.5 },
+  checkboxLabel: { display: 'flex', alignItems: 'center', fontSize: 13, fontWeight: 500, cursor: 'pointer' },
+  planBox: { background: 'var(--primary-light)', border: '1px solid var(--border)', borderRadius: 8, padding: '10px 14px', marginBottom: 16 },
+  planList: { display: 'flex', flexDirection: 'column', gap: 3, marginTop: 10, maxHeight: 220, overflowY: 'auto' },
+  planRow: { display: 'flex', gap: 10, fontSize: 12 },
 };

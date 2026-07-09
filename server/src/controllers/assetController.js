@@ -20,7 +20,7 @@ const VALID_CATEGORIES = ['FACE_PART', 'FACE_TEMPLATE', 'BODY_POSE', 'BACKGROUND
 
 const getAssets = async (req, res) => {
   try {
-    const { category, tags, search, partType, gender, view, poseType, eyeType, mouthType } = req.query;
+    const { category, tags, search, partType, gender, view, poseType, eyeType, mouthType, costume } = req.query;
     const where = {};
 
     if (category) {
@@ -38,6 +38,7 @@ const getAssets = async (req, res) => {
     if (poseType) where.poseType = poseType.toUpperCase();
     if (eyeType) where.eyeType = eyeType.toUpperCase();
     if (mouthType) where.mouthType = mouthType.toUpperCase();
+    if (costume) where.costume = { contains: costume, mode: 'insensitive' };
 
     const assets = await prisma.asset.findMany({ where, orderBy: { createdAt: 'desc' } });
     res.json(assets);

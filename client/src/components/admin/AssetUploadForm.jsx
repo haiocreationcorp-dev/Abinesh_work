@@ -1,12 +1,9 @@
 import { useState, useRef, useEffect } from 'react';
 import { uploadAsset } from '../../api/assets.js';
 import { CATEGORY_IDS as CATEGORIES, BG_SUBCATEGORIES, VIEWS, FACE_PART_TYPES, GENDERS, POSE_TYPES, EYE_TYPES, MOUTH_TYPES } from '../../constants/categories.js';
-import SkinMaskTuner from './SkinMaskTuner.jsx';
-import { DEFAULT_SKIN_THRESHOLDS } from '../../utils/skinMaskPreview.js';
 import { useToast } from '../../context/ToastContext.jsx';
 import AssetCategoryPicker from './AssetCategoryPicker.jsx';
 
-const SKIN_NORMALIZABLE_CATEGORIES = ['FACE_PART', 'BODY_POSE'];
 const DRAFT_KEY = 'bc_asset_upload_draft';
 const IMAGE_EXT_RE = /\.(svg|png|jpe?g|gif|webp)$/i;
 
@@ -44,9 +41,6 @@ export default function AssetUploadForm() {
   const [faceFamily, setFaceFamily] = useState('');
   const [costume, setCostume] = useState('');
   const [poseType, setPoseType] = useState('');
-  const [removeWhiteBg, setRemoveWhiteBg] = useState(false);
-  const [normalizeSkin, setNormalizeSkin] = useState(false);
-  const [skinThresholds, setSkinThresholds] = useState(DEFAULT_SKIN_THRESHOLDS);
   const [file, setFile] = useState(null);
   const [thumbnail, setThumbnail] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -76,8 +70,6 @@ export default function AssetUploadForm() {
       setFaceFamily(draft.faceFamily || '');
       setCostume(draft.costume || '');
       setPoseType(draft.poseType || '');
-      setRemoveWhiteBg(!!draft.removeWhiteBg);
-      setNormalizeSkin(!!draft.normalizeSkin);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -88,12 +80,12 @@ export default function AssetUploadForm() {
     setDraftStatus('saving');
     const t = setTimeout(() => {
       localStorage.setItem(DRAFT_KEY, JSON.stringify({
-        form, bgSubcategory, partType, view, gender, faceFamily, costume, poseType, removeWhiteBg, normalizeSkin,
+        form, bgSubcategory, partType, view, gender, faceFamily, costume, poseType,
       }));
       setDraftStatus('saved');
     }, 500);
     return () => clearTimeout(t);
-  }, [form, bgSubcategory, partType, view, gender, faceFamily, costume, poseType, removeWhiteBg, normalizeSkin]);
+  }, [form, bgSubcategory, partType, view, gender, faceFamily, costume, poseType]);
 
   // Live preview (image dimensions/thumbnail) for the selected asset file.
   useEffect(() => {
@@ -140,11 +132,6 @@ export default function AssetUploadForm() {
       if (costume) fd.append('costume', costume);
       if (poseType) fd.append('poseType', poseType);
       if (view) fd.append('view', view);
-    }
-    if (removeWhiteBg) fd.append('removeWhiteBg', 'true');
-    if (normalizeSkin) {
-      fd.append('normalizeSkin', 'true');
-      fd.append('skinThresholds', JSON.stringify(skinThresholds));
     }
     fd.append('file', file);
     if (thumbnail) fd.append('thumbnail', thumbnail);
@@ -367,49 +354,6 @@ export default function AssetUploadForm() {
             style={{ display: 'none' }}
           />
         </div>
-
-        {SKIN_NORMALIZABLE_CATEGORIES.includes(form.category) && (
-          <div className="form-group" style={{ marginTop: 18 }}>
-            <label style={styles.checkboxLabel}>
-              <input
-                type="checkbox"
-                checked={removeWhiteBg}
-                onChange={(e) => setRemoveWhiteBg(e.target.checked)}
-                style={{ marginRight: 8 }}
-              />
-              Remove white background
-            </label>
-            {removeWhiteBg && (
-              <p style={styles.checkboxHint}>
-                White/near-white pixels connected to the image edges will be made transparent. White areas inside (eyes, clothing) are preserved. Output saved as PNG.
-              </p>
-            )}
-          </div>
-        )}
-
-        {SKIN_NORMALIZABLE_CATEGORIES.includes(form.category) && (
-          <div className="form-group">
-            <label style={styles.checkboxLabel}>
-              <input
-                type="checkbox"
-                checked={normalizeSkin}
-                onChange={(e) => setNormalizeSkin(e.target.checked)}
-                style={{ marginRight: 8 }}
-              />
-              Normalize skin tones
-            </label>
-            {normalizeSkin && (
-              <>
-                <p style={styles.checkboxHint}>
-                  Detected skin-toned pixels (face, neck, hands) will be quantized down to 3 flat
-                  reference tones so the Comic UI's Skin Color tool can recolor them. Required for
-                  art with gradient/anti-aliased shading — flat cel-shaded art is unaffected.
-                </p>
-                <SkinMaskTuner file={file} thresholds={skinThresholds} onChange={setSkinThresholds} />
-              </>
-            )}
-          </div>
-        )}
 
         <div className="form-group" style={{ marginTop: 18 }}>
           <label>Thumbnail (optional — shown in library grid)</label>

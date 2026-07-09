@@ -1341,16 +1341,20 @@ export default function ComicEditor({ readOnly = false, aiEnabled = true } = {})
                           // the pose's view doesn't match what was originally picked, so the
                           // active highlight here should reflect what's actually rendered.
                           const activeName = savedExpressions.find((e) => e.id === selectedCharacterPreset.expressionId)?.name;
-                          return expressionOptions.map((expr) => {
-                            const eyeAsset = faceParts.find((a) => a.id === expr.eyeAssetId);
-                            const active = !!activeName && activeName === expr.name;
-                            return (
-                              <button key={expr.id} title={expr.name} onClick={() => handleSetPresetExpression(expr.id)}
-                                style={{ ...styles.faceLibThumb, ...(active ? { borderColor: '#8B5CF6', borderWidth: 2 } : {}) }}>
-                                {eyeAsset && <img src={eyeAsset.filePath} alt={expr.name} draggable={false} style={{ width: '100%', height: '100%', objectFit: 'contain', display: 'block' }} />}
-                              </button>
-                            );
-                          });
+                          // Skip expressions whose eye asset no longer exists (e.g. deleted from
+                          // the Asset Library) instead of rendering an empty placeholder box.
+                          return expressionOptions
+                            .map((expr) => ({ expr, eyeAsset: faceParts.find((a) => a.id === expr.eyeAssetId) }))
+                            .filter(({ eyeAsset }) => !!eyeAsset)
+                            .map(({ expr, eyeAsset }) => {
+                              const active = !!activeName && activeName === expr.name;
+                              return (
+                                <button key={expr.id} title={expr.name} onClick={() => handleSetPresetExpression(expr.id)}
+                                  style={{ ...styles.faceLibThumb, ...(active ? { borderColor: '#8B5CF6', borderWidth: 2 } : {}) }}>
+                                  <img src={eyeAsset.filePath} alt={expr.name} draggable={false} style={{ width: '100%', height: '100%', objectFit: 'contain', display: 'block' }} />
+                                </button>
+                              );
+                            });
                         })()}
                       </div>
                       {expressionOptions.length === 0 && (

@@ -1,4 +1,5 @@
 const prisma = require('../config/prisma');
+const { generateJoinCode } = require('../utils/generateCode');
 
 const listStudents = async (req, res) => {
   const students = await prisma.user.findMany({
@@ -45,9 +46,17 @@ const createClass = async (req, res) => {
   const { name } = req.body;
   if (!name || !name.trim()) return res.status(400).json({ error: 'Class name is required' });
 
-  const cls = await prisma.class.create({
-    data: { name: name.trim(), teacherId: req.user.id, institutionId: req.user.institutionId },
-  });
+  let cls;
+  for (let attempt = 0; attempt < 5 && !cls; attempt++) {
+    try {
+      cls = await prisma.class.create({
+        data: { name: name.trim(), code: generateJoinCode(), teacherId: req.user.id, institutionId: req.user.institutionId },
+      });
+    } catch (err) {
+      if (err.code !== 'P2002') throw err; // unique constraint clash on code — retry
+    }
+  }
+  if (!cls) return res.status(500).json({ error: 'Could not generate a unique class code, try again' });
   res.status(201).json(cls);
 };
 

@@ -4,6 +4,7 @@ export const getAIStatus = () => api.get('/student/ai-status').then((r) => r.dat
 export const listStudentTasks = () => api.get('/student/tasks').then((r) => r.data);
 export const listInstructors = () => api.get('/student/instructors').then((r) => r.data);
 export const joinClass = (classId) => api.post(`/student/classes/${classId}/join`).then((r) => r.data);
+export const joinClassByCode = (code) => api.post('/student/classes/join-by-code', { code }).then((r) => r.data);
 
 export const submitTask = (taskId, comicId, pdfBlob) => {
   const formData = new FormData();

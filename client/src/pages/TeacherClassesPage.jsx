@@ -29,57 +29,57 @@ function Avatar({ label, bg, size = 36 }) {
   );
 }
 
-// ── Class List Card ────────────────────────────────────────────────────────────
-function ClassCard({ cls, taskCount, onClick }) {
+// ── Class List Row ─────────────────────────────────────────────────────────────
+function ClassRow({ cls, taskCount, onClick }) {
   const theme = getTheme(cls.id);
   const [hov, setHov] = useState(false);
   const approved = cls.enrollments.filter(e => e.status === 'APPROVED').length;
   const pending  = cls.enrollments.filter(e => e.status === 'PENDING').length;
 
   return (
-    <div
+    <tr
       onClick={onClick}
       onMouseEnter={() => setHov(true)}
       onMouseLeave={() => setHov(false)}
-      style={{
-        background: '#fff', borderRadius: 18, overflow: 'hidden', cursor: 'pointer',
-        boxShadow: hov ? '0 16px 40px rgba(0,0,0,0.13)' : '0 4px 18px rgba(0,0,0,0.07)',
-        transform: hov ? 'translateY(-4px)' : 'translateY(0)',
-        transition: 'all 200ms ease', border: '1px solid #f0f0f5',
-      }}
+      style={{ cursor: 'pointer', background: hov ? '#F8FAFC' : 'transparent', transition: 'background 120ms ease' }}
     >
-      {/* Colored top bar */}
-      <div style={{ background: theme.grad, padding: '22px 22px 18px' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-          <h3 style={{ color: '#fff', fontSize: 20, fontWeight: 700, margin: 0, lineHeight: 1.2 }}>{cls.name}</h3>
-          <span style={{ background: 'rgba(255,255,255,0.22)', color: '#fff', fontSize: 11, fontWeight: 700, padding: '3px 10px', borderRadius: 999, whiteSpace: 'nowrap' }}>
-            {cls.aiEnabled ? '🤖 AI On' : '🚫 AI Off'}
-          </span>
+      <td style={{ padding: '14px 20px', borderBottom: '1px solid #f1f5f9' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <Avatar label={cls.name} bg={theme.accent} size={36} />
+          <div>
+            <div style={{ fontWeight: 700, color: '#1e293b', fontSize: 14 }}>{cls.name}</div>
+            <div style={{ fontSize: 12, color: '#94a3b8' }}>
+              Created {new Date(cls.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+            </div>
+          </div>
         </div>
-        <div style={{ display: 'flex', gap: 10, marginTop: 12 }}>
-          <span style={{ background: 'rgba(255,255,255,0.18)', color: '#fff', fontSize: 12, fontWeight: 600, padding: '4px 12px', borderRadius: 999 }}>
-            👥 {approved} student{approved !== 1 ? 's' : ''}
-          </span>
-          <span style={{ background: 'rgba(255,255,255,0.18)', color: '#fff', fontSize: 12, fontWeight: 600, padding: '4px 12px', borderRadius: 999 }}>
-            📝 {taskCount} task{taskCount !== 1 ? 's' : ''}
-          </span>
-          {pending > 0 && (
-            <span style={{ background: 'rgba(255,255,0,0.25)', color: '#fff', fontSize: 12, fontWeight: 600, padding: '4px 12px', borderRadius: 999 }}>
-              ⚠️ {pending} pending
-            </span>
-          )}
-        </div>
-      </div>
-      {/* Footer */}
-      <div style={{ padding: '12px 22px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <span style={{ fontSize: 12, color: '#94a3b8' }}>
-          Created {new Date(cls.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+      </td>
+      <td style={{ padding: '14px 16px', borderBottom: '1px solid #f1f5f9', color: '#475569', fontSize: 14 }}>
+        {approved} student{approved !== 1 ? 's' : ''}
+      </td>
+      <td style={{ padding: '14px 16px', borderBottom: '1px solid #f1f5f9', color: '#475569', fontSize: 14 }}>
+        {taskCount} task{taskCount !== 1 ? 's' : ''}
+      </td>
+      <td style={{ padding: '14px 16px', borderBottom: '1px solid #f1f5f9' }}>
+        <span style={{ fontSize: 11, fontWeight: 700, padding: '3px 10px', borderRadius: 999, background: cls.aiEnabled ? '#DCFCE7' : '#FEE2E2', color: cls.aiEnabled ? '#16A34A' : '#DC2626' }}>
+          {cls.aiEnabled ? 'Enabled' : 'Disabled'}
         </span>
-        <span style={{ fontSize: 13, fontWeight: 600, color: theme.accent, display: 'flex', alignItems: 'center', gap: 4 }}>
+      </td>
+      <td style={{ padding: '14px 16px', borderBottom: '1px solid #f1f5f9' }}>
+        {pending > 0 ? (
+          <span style={{ fontSize: 11, fontWeight: 700, padding: '3px 10px', borderRadius: 999, background: '#FFF7ED', color: '#EA580C' }}>
+            ⚠️ {pending} pending
+          </span>
+        ) : (
+          <span style={{ fontSize: 13, color: '#cbd5e1' }}>—</span>
+        )}
+      </td>
+      <td style={{ padding: '14px 20px', borderBottom: '1px solid #f1f5f9', textAlign: 'right' }}>
+        <span style={{ fontSize: 13, fontWeight: 600, color: theme.accent, display: 'inline-flex', alignItems: 'center', gap: 4, whiteSpace: 'nowrap' }}>
           Open →
         </span>
-      </div>
-    </div>
+      </td>
+    </tr>
   );
 }
 
@@ -92,6 +92,15 @@ function ClassDetail({ cls, taskCount, isViewOnly, onBack, onEnrollment, onToggl
   const boys  = approved.filter(e => e.student.gender === 'MALE').length;
   const girls = approved.filter(e => e.student.gender === 'FEMALE').length;
   const avatarColors = ['#7C3AED','#2563EB','#EA580C','#16A34A','#DB2777','#0891B2'];
+  const [copied, setCopied] = useState(false);
+
+  const handleCopyCode = () => {
+    if (!cls.code) return;
+    navigator.clipboard.writeText(cls.code).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    });
+  };
 
   return (
     <div style={{ maxWidth: 900, margin: '0 auto' }}>
@@ -107,8 +116,23 @@ function ClassDetail({ cls, taskCount, isViewOnly, onBack, onEnrollment, onToggl
       <div style={{ background: theme.grad, borderRadius: 20, padding: '28px 32px', marginBottom: 24, display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 16 }}>
         <div>
           <h2 style={{ color: '#fff', fontSize: 28, fontWeight: 800, margin: '0 0 8px' }}>{cls.name}</h2>
-          <div style={{ color: 'rgba(255,255,255,0.85)', fontSize: 14 }}>
-            Created {new Date(cls.createdAt).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+            <div style={{ color: 'rgba(255,255,255,0.85)', fontSize: 14 }}>
+              Created {new Date(cls.createdAt).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}
+            </div>
+            {cls.code && (
+              <button
+                onClick={handleCopyCode}
+                title="Copy join code"
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 6, padding: '4px 10px', borderRadius: 8,
+                  border: '1px solid rgba(255,255,255,0.4)', background: 'rgba(255,255,255,0.15)',
+                  color: '#fff', fontSize: 13, fontWeight: 700, letterSpacing: 0.5, cursor: 'pointer',
+                }}
+              >
+                {copied ? '✓ Copied' : `Code: ${cls.code}`}
+              </button>
+            )}
           </div>
         </div>
         {!isViewOnly && (
@@ -192,8 +216,8 @@ function ClassDetail({ cls, taskCount, isViewOnly, onBack, onEnrollment, onToggl
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 14 }}>
             <thead>
               <tr style={{ background: '#F8FAFC' }}>
-                {['#','Name','Email','Roll No','Grade / Section','Dept / Year'].map(h => (
-                  <th key={h} style={{ padding: '11px 16px', textAlign: 'left', fontSize: 12, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: 0.4, borderBottom: '1px solid #e2e8f0' }}>{h}</th>
+                {['#','Name','Email','Roll No','Grade / Section','Dept / Year',''].map(h => (
+                  <th key={h || 'actions'} style={{ padding: '11px 16px', textAlign: 'left', fontSize: 12, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: 0.4, borderBottom: '1px solid #e2e8f0' }}>{h}</th>
                 ))}
               </tr>
             </thead>
@@ -225,6 +249,19 @@ function ClassDetail({ cls, taskCount, isViewOnly, onBack, onEnrollment, onToggl
                     {e.student.department
                       ? `${e.student.department}${e.student.year ? ', ' + e.student.year : ''}`
                       : '—'}
+                  </td>
+                  <td style={{ padding: '12px 16px' }}>
+                    {!isViewOnly && (
+                      <button
+                        onClick={() => {
+                          if (!confirm(`Remove ${e.student.name || e.student.email} from this class? They'll need to be manually re-approved to rejoin, even with the class code.`)) return;
+                          onEnrollment(cls.id, e.id, 'REJECTED');
+                        }}
+                        style={{ padding: '5px 12px', borderRadius: 8, border: '1px solid #fecaca', background: '#fff', color: '#DC2626', fontWeight: 600, fontSize: 12, cursor: 'pointer' }}
+                      >
+                        Kick
+                      </button>
+                    )}
                   </td>
                 </tr>
               ))}
@@ -346,7 +383,7 @@ export default function TeacherClassesPage() {
   const today = new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
 
   return (
-    <div style={{ minHeight: '100vh', background: '#F8FAFC' }}>
+    <div className="page" style={{ minHeight: '100vh', background: '#F8FAFC' }}>
       <div style={{ maxWidth: 1200, margin: '0 auto', padding: '32px 32px 60px' }}>
 
         {/* ── Detail view ── */}
@@ -380,16 +417,21 @@ export default function TeacherClassesPage() {
               </div>
             </div>
 
-            {/* ── Search ── */}
+            {/* ── Toolbar: search + count ── */}
             {classes.length > 1 && (
-              <div style={{ position: 'relative', maxWidth: 360, marginBottom: 24 }}>
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" strokeWidth="2" strokeLinecap="round" style={{ position: 'absolute', left: 13, top: '50%', transform: 'translateY(-50%)' }}>
-                  <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
-                </svg>
-                <input
-                  type="text" placeholder="Search classes…" value={search} onChange={e => setSearch(e.target.value)}
-                  style={{ width: '100%', height: 42, paddingLeft: 38, paddingRight: 14, borderRadius: 12, border: '1.5px solid #e2e8f0', fontSize: 14, background: '#fff', boxSizing: 'border-box', outline: 'none' }}
-                />
+              <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 20, flexWrap: 'wrap' }}>
+                <div style={{ position: 'relative', width: 320 }}>
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" strokeWidth="2" strokeLinecap="round" style={{ position: 'absolute', left: 13, top: '50%', transform: 'translateY(-50%)' }}>
+                    <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+                  </svg>
+                  <input
+                    type="text" placeholder="Search classes…" value={search} onChange={e => setSearch(e.target.value)}
+                    style={{ width: '100%', height: 40, paddingLeft: 38, paddingRight: 14, borderRadius: 10, border: '1.5px solid #e2e8f0', fontSize: 14, background: '#fff', boxSizing: 'border-box', outline: 'none' }}
+                  />
+                </div>
+                <span style={{ fontSize: 13, color: '#94a3b8' }}>
+                  {filtered.length} class{filtered.length !== 1 ? 'es' : ''}
+                </span>
               </div>
             )}
 
@@ -397,13 +439,26 @@ export default function TeacherClassesPage() {
 
             {/* ── Loading skeleton ── */}
             {loading && (
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(280px,1fr))', gap: 20 }}>
-                {[1,2,3].map(i => (
-                  <div key={i} style={{ borderRadius: 18, overflow: 'hidden', background: '#fff', boxShadow: '0 4px 18px rgba(0,0,0,0.06)' }}>
-                    <div style={{ height: 110, background: '#e2e8f0' }} />
-                    <div style={{ padding: '14px 20px', height: 40 }} />
-                  </div>
-                ))}
+              <div style={{ background: '#fff', borderRadius: 16, border: '1px solid #e2e8f0', overflow: 'hidden' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                  <tbody>
+                    {[1,2,3].map(i => (
+                      <tr key={i}>
+                        <td style={{ padding: '16px 20px', borderBottom: '1px solid #f1f5f9' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                            <div style={{ width: 36, height: 36, borderRadius: '50%', background: '#e2e8f0' }} />
+                            <div style={{ width: 140, height: 14, borderRadius: 4, background: '#e2e8f0' }} />
+                          </div>
+                        </td>
+                        <td style={{ padding: '16px', borderBottom: '1px solid #f1f5f9' }}><div style={{ width: 60, height: 14, borderRadius: 4, background: '#e2e8f0' }} /></td>
+                        <td style={{ padding: '16px', borderBottom: '1px solid #f1f5f9' }}><div style={{ width: 50, height: 14, borderRadius: 4, background: '#e2e8f0' }} /></td>
+                        <td style={{ padding: '16px', borderBottom: '1px solid #f1f5f9' }}><div style={{ width: 60, height: 20, borderRadius: 999, background: '#e2e8f0' }} /></td>
+                        <td style={{ padding: '16px', borderBottom: '1px solid #f1f5f9' }}><div style={{ width: 40, height: 14, borderRadius: 4, background: '#e2e8f0' }} /></td>
+                        <td style={{ padding: '16px 20px', borderBottom: '1px solid #f1f5f9' }} />
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
             )}
 
@@ -425,17 +480,32 @@ export default function TeacherClassesPage() {
               </div>
             )}
 
-            {/* ── Class grid ── */}
+            {/* ── Class list ── */}
             {!loading && filtered.length > 0 && (
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(280px,1fr))', gap: 20 }}>
-                {filtered.map(cls => (
-                  <ClassCard
-                    key={cls.id}
-                    cls={cls}
-                    taskCount={taskCountByClass[cls.id] || 0}
-                    onClick={() => setSelected(cls.id)}
-                  />
-                ))}
+              <div style={{ background: '#fff', borderRadius: 16, border: '1px solid #e2e8f0', overflow: 'hidden', boxShadow: '0 2px 12px rgba(0,0,0,0.04)' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                  <thead>
+                    <tr style={{ background: '#F8FAFC' }}>
+                      {['Class', 'Students', 'Tasks', 'AI', 'Pending', ''].map(h => (
+                        <th key={h || 'action'} style={{
+                          padding: h === 'Class' || h === '' ? '12px 20px' : '12px 16px', textAlign: 'left',
+                          fontSize: 12, fontWeight: 700, color: '#64748b', textTransform: 'uppercase',
+                          letterSpacing: 0.4, borderBottom: '1px solid #e2e8f0',
+                        }}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filtered.map(cls => (
+                      <ClassRow
+                        key={cls.id}
+                        cls={cls}
+                        taskCount={taskCountByClass[cls.id] || 0}
+                        onClick={() => setSelected(cls.id)}
+                      />
+                    ))}
+                  </tbody>
+                </table>
               </div>
             )}
           </>

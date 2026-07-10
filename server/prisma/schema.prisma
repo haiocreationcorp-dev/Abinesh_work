@@ -166,6 +166,7 @@ model Payment {
 model Class {
   id            String            @id @default(cuid())
   name          String
+  code          String?           @unique // join code, e.g. "AB3X-7KQM"; nullable so the migration is non-destructive — see server/scripts/backfillClassCodes.js
   teacherId     String
   teacher       User              @relation(fields: [teacherId], references: [id], onDelete: Cascade)
   institutionId String

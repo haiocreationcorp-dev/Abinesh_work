@@ -84,6 +84,32 @@ const joinClass = async (req, res) => {
   res.status(201).json(enrollment);
 };
 
+const joinClassByCode = async (req, res) => {
+  const { code } = req.body;
+  if (!code || !code.trim()) return res.status(400).json({ error: 'Code is required' });
+
+  const cls = await prisma.class.findFirst({
+    where: { code: code.trim().toUpperCase(), institutionId: req.user.institutionId },
+  });
+  if (!cls) return res.status(404).json({ error: 'Invalid class code' });
+
+  const existing = await prisma.classEnrollment.findUnique({
+    where: { classId_studentId: { classId: cls.id, studentId: req.user.id } },
+  });
+  if (existing?.status === 'APPROVED') return res.json({ ...existing, className: cls.name }); // already joined — no-op
+
+  // A student who was previously kicked/rejected always needs the teacher's manual
+  // approval again — the code can't be used to bypass that. Everyone else auto-joins.
+  const targetStatus = existing?.status === 'REJECTED' ? 'PENDING' : 'APPROVED';
+
+  const enrollment = await prisma.classEnrollment.upsert({
+    where: { classId_studentId: { classId: cls.id, studentId: req.user.id } },
+    create: { classId: cls.id, studentId: req.user.id, status: targetStatus },
+    update: { status: targetStatus },
+  });
+  res.status(201).json({ ...enrollment, className: cls.name });
+};
+
 const submitTask = async (req, res) => {
   const { comicId } = req.body;
   if (!req.file) return res.status(400).json({ error: 'A PDF file is required' });
@@ -118,4 +144,4 @@ const getAIStatus = async (req, res) => {
   res.json({ aiEnabled });
 };
 
-module.exports = { listTasks, submitTask, listInstructors, joinClass, getAIStatus };
+module.exports = { listTasks, submitTask, listInstructors, joinClass, joinClassByCode, getAIStatus };

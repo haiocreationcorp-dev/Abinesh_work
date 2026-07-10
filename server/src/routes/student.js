@@ -2,7 +2,7 @@ const express = require('express');
 const multer = require('multer');
 const path = require('path');
 const router = express.Router();
-const { listTasks, submitTask, listInstructors, joinClass, getAIStatus } = require('../controllers/studentController');
+const { listTasks, submitTask, listInstructors, joinClass, joinClassByCode, getAIStatus } = require('../controllers/studentController');
 const studentAuth = require('../middleware/studentAuth');
 const requireActiveSubscription = require('../middleware/subscriptionAuth');
 const { asyncHandler } = require('../middleware/errorHandler');
@@ -22,5 +22,6 @@ router.post('/tasks/:taskId/submit', asyncHandler(requireActiveSubscription), up
 router.get('/ai-status', asyncHandler(getAIStatus));
 router.get('/instructors', asyncHandler(listInstructors));
 router.post('/classes/:classId/join', asyncHandler(requireActiveSubscription), asyncHandler(joinClass));
+router.post('/classes/join-by-code', asyncHandler(requireActiveSubscription), asyncHandler(joinClassByCode));
 
 module.exports = router;

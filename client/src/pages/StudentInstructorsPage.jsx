@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { listInstructors, joinClass } from '../api/student.js';
+import { listInstructors, joinClass, joinClassByCode } from '../api/student.js';
 import { useAuth } from '../context/AuthContext.jsx';
 
 const THEMES = [
@@ -95,6 +95,58 @@ function ClassCard({ cls, teacherName, teacherInitial, onJoined, isViewOnly }) {
   );
 }
 
+function JoinByCode({ onJoined, isViewOnly }) {
+  const [code, setCode] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState(null); // { type: 'success'|'error', text }
+
+  if (isViewOnly) return null;
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    if (!code.trim() || busy) return;
+    setBusy(true);
+    setMsg(null);
+    try {
+      const enrollment = await joinClassByCode(code.trim());
+      setMsg({
+        type: 'success',
+        text: enrollment.status === 'APPROVED'
+          ? `Joined "${enrollment.className}"!`
+          : `Request sent for "${enrollment.className}" — waiting on teacher approval.`,
+      });
+      setCode('');
+      onJoined();
+    } catch (err) {
+      setMsg({ type: 'error', text: err.response?.data?.error || 'Invalid code' });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <form onSubmit={handleSubmit} style={{ background: '#fff', borderRadius: 14, padding: '16px 20px', marginBottom: 24, border: '1px solid #e2e8f0', display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+      <span style={{ fontSize: 14, fontWeight: 600, color: '#1e293b' }}>Have a class code?</span>
+      <input
+        type="text" value={code} onChange={e => setCode(e.target.value.toUpperCase())}
+        placeholder="e.g. AB3X-7KQM"
+        style={{ padding: '9px 14px', borderRadius: 10, border: '1.5px solid #e2e8f0', fontSize: 14, width: 160, boxSizing: 'border-box', outline: 'none', letterSpacing: 0.5 }}
+      />
+      <button
+        type="submit" disabled={!code.trim() || busy}
+        style={{ padding: '9px 18px', borderRadius: 10, border: 'none', background: 'linear-gradient(135deg,#7C3AED,#A855F7)', color: '#fff', fontWeight: 700, fontSize: 14, cursor: 'pointer', opacity: !code.trim() ? 0.6 : 1 }}
+      >
+        {busy ? 'Joining…' : 'Join'}
+      </button>
+      {msg && (
+        <span style={{ fontSize: 13, fontWeight: 600, color: msg.type === 'success' ? '#16A34A' : '#DC2626' }}>
+          {msg.text}
+        </span>
+      )}
+    </form>
+  );
+}
+
 export default function StudentInstructorsPage() {
   const { user, isViewOnly } = useAuth();
   const [teachers, setTeachers] = useState([]);
@@ -119,7 +171,7 @@ export default function StudentInstructorsPage() {
   const today = new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
 
   return (
-    <div style={{ minHeight: '100vh', background: '#F8FAFC' }}>
+    <div className="page" style={{ minHeight: '100vh', background: '#F8FAFC' }}>
       <div style={{ maxWidth: 1100, margin: '0 auto', padding: '32px 32px 60px' }}>
 
         {/* Header */}
@@ -159,6 +211,8 @@ export default function StudentInstructorsPage() {
             </div>}
           </div>
         )}
+
+        <JoinByCode onJoined={() => listInstructors().then(setTeachers)} isViewOnly={isViewOnly} />
 
         {loading && (
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(280px,1fr))', gap: 16 }}>

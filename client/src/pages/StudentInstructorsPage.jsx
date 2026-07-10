@@ -178,7 +178,7 @@ export default function StudentInstructorsPage() {
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 32, flexWrap: 'wrap', gap: 16 }}>
           <div>
             <h1 style={{ fontSize: 30, fontWeight: 800, color: '#1e1b4b', margin: 0 }}>My Classroom</h1>
-            <p style={{ color: '#64748b', fontSize: 15, marginTop: 6, marginBottom: 0 }}>
+            <p style={{ color: '#64748b', fontSize: 13, marginTop: 6, marginBottom: 0 }}>
               Your enrolled classes and teachers — all in one place.
             </p>
           </div>

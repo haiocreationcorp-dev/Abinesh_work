@@ -43,11 +43,12 @@ const IRIS_REF_RGB = hexToBytes(IRIS_REF_COLOR);
 // Diagnostic overlay: tints selected eyebrow/iris pixels with the exact same color
 // that's actually saved (EYEBROW_REF_COLOR / IRIS_REF_COLOR) — no separate "preview-only"
 // color, so what you see while masking is exactly what ends up in the file, every time.
-// Per `mode` ('eyebrow' | 'iris' | 'both'). Live — recomputed from the current detection
-// windows + overrides every call, not a fixed snapshot. Pure — does not mutate srcData.
-export function previewEyeMasks(srcData, outData, eyebrowOverrides, irisOverrides, eyebrowDetection, irisDetection, mode) {
-  const showEyebrow = mode === 'eyebrow' || mode === 'both';
-  const showIris = mode === 'iris' || mode === 'both';
+// `visibility` = { showEyebrow, showIris } — independent per-layer toggles (so "both off"
+// is a real, reachable state showing the plain image, unlike the old 3-way mode enum).
+// Live — recomputed from the current detection windows + overrides every call, not a fixed
+// snapshot. Pure — does not mutate srcData.
+export function previewEyeMasks(srcData, outData, eyebrowOverrides, irisOverrides, eyebrowDetection, irisDetection, visibility) {
+  const { showEyebrow, showIris } = visibility;
   const eyebrowColor = EYEBROW_REF_RGB;
   const irisColor = IRIS_REF_RGB;
 

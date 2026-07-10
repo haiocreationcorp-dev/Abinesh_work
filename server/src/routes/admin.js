@@ -308,10 +308,28 @@ router.post(
   }
 );
 
+// POST /api/admin/assets/check-duplicates — pre-upload dedupe check. Given the batch's
+// derived name/category/view triples, reports which already match an existing Asset row
+// (the same lookup upload-folder's upsert uses), so the UI can warn before silently
+// overwriting instead of only finding out after the fact.
+router.post('/assets/check-duplicates', adminAuth, async (req, res) => {
+  const { items } = req.body;
+  if (!Array.isArray(items) || items.length === 0) return res.json({ duplicates: [] });
+
+  const key = (it) => `${it.name}::${(it.category || '').toUpperCase()}::${it.view || ''}`;
+  const existing = await prisma.asset.findMany({
+    where: { OR: items.map((it) => ({ name: it.name, category: (it.category || '').toUpperCase(), view: it.view || null })) },
+    select: { name: true, category: true, view: true },
+  });
+  const existingKeys = new Set(existing.map((a) => key({ ...a, view: a.view || '' })));
+  const duplicates = items.filter((it) => existingKeys.has(key(it)));
+  res.json({ duplicates });
+});
+
 // POST /api/admin/assets/upload-folder — folder-sync upload (upsert per asset name+category)
 router.post('/assets/upload-folder', adminAuth, uploadBatch.array('files', 500), async (req, res) => {
   try {
-    const { category, tags, folderName, removeWhiteBg, normalizeSkin, skinThresholds, view, partType, gender, eyeType, mouthType, faceFamily, costume, poseType, fileMeta } = req.body;
+    const { category, tags, folderName, removeWhiteBg, normalizeSkin, skinThresholds, view, partType, gender, eyeType, mouthType, faceFamily, costume, poseType, fileMeta, skipDuplicates } = req.body;
     const categoryUpper = (category || '').toUpperCase();
     const tagArray = tags ? tags.split(',').map((t) => t.trim()).filter(Boolean) : [];
     const stripBg = removeWhiteBg === 'true';
@@ -371,6 +389,8 @@ router.post('/assets/upload-folder', adminAuth, uploadBatch.array('files', 500),
     let added = 0;
     let updated = 0;
     const errors = [];
+    const skippedDuplicates = [];
+    const skipExisting = skipDuplicates === 'true';
 
     for (let i = 0; i < req.files.length; i++) {
       const file = req.files[i];
@@ -385,6 +405,16 @@ router.post('/assets/upload-folder', adminAuth, uploadBatch.array('files', 500),
         const assetTags = (categoryUpper === 'BODY_POSE' && folderPretty)
           ? [...tagArray, folderPretty.toLowerCase()]
           : tagArray;
+
+        const existing = await prisma.asset.findFirst({
+          where: { name: assetName, category: categoryUpper, view: fileView || null },
+        });
+
+        if (existing && skipExisting) {
+          skippedDuplicates.push({ file: file.originalname, reason: `Already exists as "${assetName}"` });
+          continue;
+        }
+
         let { buffer: fileBuf, ext } = await maybeToWebP(file.buffer, file.originalname, categoryUpper);
         if (stripBg) ({ buffer: fileBuf, ext } = await removeWhiteBackground(fileBuf, ext));
         if (normalizeSkinTone) ({ buffer: fileBuf, ext } = await normalizeSkinTones(fileBuf, ext, resolvedSkinThresholds));
@@ -392,10 +422,6 @@ router.post('/assets/upload-folder', adminAuth, uploadBatch.array('files', 500),
         // the asset name; everything else keeps the random UUID as before.
         const newFilename = meta ? `${sanitizeFilename(assetName)}${ext}` : `${uuidv4()}${ext}`;
         const newFilePath = `/uploads/${subdirRel}/${newFilename}`;
-
-        const existing = await prisma.asset.findFirst({
-          where: { name: assetName, category: categoryUpper, view: fileView || null },
-        });
 
         if (existing) {
           deleteOldFile(existing.filePath);
@@ -446,7 +472,7 @@ router.post('/assets/upload-folder', adminAuth, uploadBatch.array('files', 500),
     }
 
     const skipped = req.skippedFiles || [];
-    res.status(201).json({ added, updated, errors, skipped, total: req.files.length });
+    res.status(201).json({ added, updated, errors, skipped, skippedDuplicates, total: req.files.length });
   } catch (err) {
     res.status(500).json({ error: err.message || 'Folder upload failed' });
   }

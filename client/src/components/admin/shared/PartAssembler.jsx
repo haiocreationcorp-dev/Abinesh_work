@@ -5,6 +5,10 @@ import { resolveLayoutFilePaths } from '../../../utils/faceLayout.js';
 import { hexToRgb } from '../../../lighting/lightingEngine.js';
 import { VIEWS, GENDERS } from '../../../constants/categories.js';
 import { sliderFillStyle } from '../../../utils/sliderFill.js';
+import {
+  Undo2, Redo2, Trash2, Plus, Minus, ChevronUp, ChevronDown, X,
+  FlipHorizontal, FlipVertical, Crosshair, Scissors, Pin, UploadCloud,
+} from 'lucide-react';
 
 const ORANGE = '#F97316';
 const CANVAS_W = 500;
@@ -563,15 +567,6 @@ export default function PartAssembler({ title, libraryCategory, partTypes, onSav
     );
   }, []);
 
-  const handleWheelZoom = useCallback((e) => {
-    e.preventDefault();
-    userZoomedRef.current = true;
-    setZoom((z) => {
-      const next = z - e.deltaY * 0.001;
-      return Math.min(2, Math.max(0.4, Math.round(next * 100) / 100));
-    });
-  }, []);
-
   const handleMouseUp = useCallback(() => {
     if (dragRef.current?.moved || resizeRef.current?.moved) {
       setCanvasParts((prev) => {
@@ -1077,89 +1072,39 @@ export default function PartAssembler({ title, libraryCategory, partTypes, onSav
   return (
     <div style={{ display: 'flex', gap: 16, alignItems: 'flex-start' }}>
 
-      {/* ── LEFT: Library ── */}
-      <div style={{ width: 240, flexShrink: 0, display: 'flex', flexDirection: 'column', gap: 12 }}>
+      {/* ── LEFT: Asset Browser ── */}
+      <div className="card" style={{ width: 260, flexShrink: 0, padding: 14, maxHeight: 'calc(100vh - 200px)', overflowY: 'auto' }}>
+        <p style={{ fontSize: 13, fontWeight: 700, color: '#374151', margin: 0 }}>Asset Browser</p>
 
-        {/* Upload */}
-        <div className="card" style={{ padding: 14 }}>
-          <p style={s.sectionTitle}>Upload Parts</p>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 7, marginTop: 8 }}>
+        {/* Search + filters */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 10 }}>
+          <input className="input" placeholder="Search…" value={searchQ} onChange={(e) => setSearchQ(e.target.value)}
+            style={{ fontSize: 12, width: '100%', boxSizing: 'border-box' }} />
+          <div style={{ display: 'flex', gap: 6 }}>
             {!!partTypes?.length && (
-              <select className="input" value={uploadType} onChange={(e) => setUploadType(e.target.value)}
-                style={{ fontSize: 12 }}>
-                {partTypes.map((t) => (
-                  <option key={t.id} value={t.id}>{t.label}</option>
-                ))}
+              <select className="input" value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)} style={{ fontSize: 11, flex: 1, minWidth: 0 }}>
+                <option value="all">All Types</option>
+                {partTypes.map((t) => <option key={t.id} value={t.id}>{t.label}</option>)}
               </select>
             )}
-            <label style={{ ...s.fileLabel, background: uploadFiles.length ? '#FFF7ED' : '#F9FAFB', borderColor: uploadFiles.length ? ORANGE : '#E5E7EB' }}>
-              {uploadFiles.length
-                ? `${uploadFiles.length} file${uploadFiles.length > 1 ? 's' : ''} selected`
-                : 'Choose SVG/PNG/JPG files…'}
-              <input type="file" accept=".svg,.png,.jpg,.jpeg,.webp" multiple style={{ display: 'none' }}
-                onChange={(e) => setUploadFiles(Array.from(e.target.files))} />
-            </label>
-            {uploadFiles.length > 0 && (
-              <div style={{ maxHeight: 80, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 2 }}>
-                {uploadFiles.map((f, i) => (
-                  <div key={i} style={{ fontSize: 10, color: '#6B7280', padding: '1px 4px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    {f.name.replace(/\.[^.]+$/, '')}
-                  </div>
-                ))}
-              </div>
-            )}
-            <button className="btn btn-primary btn-sm" onClick={handleUpload}
-              disabled={uploading || !uploadFiles.length} style={{ fontSize: 12 }}>
-              {uploading ? 'Uploading…' : `Upload${uploadFiles.length > 1 ? ` (${uploadFiles.length})` : ''}`}
-            </button>
-            {uploadMsg && (
-              <p style={{ fontSize: 11, color: uploadMsg.includes('0/') ? '#dc2626' : '#16a34a' }}>{uploadMsg}</p>
-            )}
+            <select className="input" value={genderFilter} onChange={(e) => setGenderFilter(e.target.value)} style={{ fontSize: 11, flex: 1, minWidth: 0 }}>
+              <option value="all">All Genders</option>
+              {GENDERS.map((g) => <option key={g.id} value={g.id}>{g.label}</option>)}
+            </select>
           </div>
         </div>
 
-        {/* Library */}
-        <div className="card" style={{ padding: 14 }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-            <p style={s.sectionTitle}>Library <span style={{ fontWeight: 400, color: '#9CA3AF' }}>({filteredAssets.length})</span></p>
-            <button onClick={refreshAssets}
-              style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 14, color: '#9CA3AF' }} title="Refresh">↻</button>
-          </div>
-          {selectedIds.size > 1 ? (
-            <p style={{ fontSize: 11, color: ORANGE, marginTop: -4, marginBottom: 8 }}>
-              Click a part to swap {selectedIds.size} selected parts
-            </p>
-          ) : selectedPart && (
-            <p style={{ fontSize: 11, color: ORANGE, marginTop: -4, marginBottom: 8 }}>
-              Click a part to swap "{selectedPart.customName || selectedPart.name}"
-            </p>
-          )}
-          {!!partTypes?.length && (
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 8 }}>
-              <button onClick={() => setTypeFilter('all')}
-                style={{ ...s.chip, ...(typeFilter === 'all' ? s.chipActive : {}) }}>All</button>
-              {partTypes.map((t) => (
-                <button key={t.id} onClick={() => setTypeFilter(t.id)}
-                  style={{ ...s.chip, ...(typeFilter === t.id ? s.chipActive : {}) }}>{t.label}</button>
-              ))}
-            </div>
-          )}
-          {!!partTypes?.length && (
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 8 }}>
-              <button onClick={() => setGenderFilter('all')}
-                style={{ ...s.chip, ...(genderFilter === 'all' ? s.chipActive : {}) }}>All Genders</button>
-              {GENDERS.map((g) => (
-                <button key={g.id} onClick={() => setGenderFilter(g.id)}
-                  style={{ ...s.chip, ...(genderFilter === g.id ? s.chipActive : {}) }}>{g.label}</button>
-              ))}
-            </div>
-          )}
-          <input className="input" placeholder="Search…" value={searchQ} onChange={(e) => setSearchQ(e.target.value)}
-            style={{ fontSize: 12, marginBottom: 8, width: '100%', boxSizing: 'border-box' }} />
+        {(selectedIds.size > 1 || selectedPart) && (
+          <p style={{ fontSize: 11, color: ORANGE, marginTop: 8, marginBottom: 0 }}>
+            {selectedIds.size > 1 ? `Click a part to swap ${selectedIds.size} selected parts` : `Click a part to swap "${selectedPart.customName || selectedPart.name}"`}
+          </p>
+        )}
+
+        <Section title="Library" badge={`(${filteredAssets.length})`}>
           {loadingAssets ? (
             <p style={s.hint}>Loading…</p>
           ) : filteredAssets.length === 0 ? (
-            <p style={s.hint}>No parts found. Upload SVGs above.</p>
+            <p style={s.hint}>No parts found. Upload below.</p>
           ) : (
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 6, maxHeight: 320, overflowY: 'auto' }}>
               {filteredAssets.map((asset) => (
@@ -1171,16 +1116,10 @@ export default function PartAssembler({ title, libraryCategory, partTypes, onSav
               ))}
             </div>
           )}
-        </div>
+        </Section>
 
-        {/* Saved (recreate layout on canvas) */}
         {!!savedCategory && (
-          <div className="card" style={{ padding: 14 }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-              <p style={s.sectionTitle}>Saved <span style={{ fontWeight: 400, color: '#9CA3AF' }}>({savedAssets.length})</span></p>
-              <button onClick={refreshSaved}
-                style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 14, color: '#9CA3AF' }} title="Refresh">↻</button>
-            </div>
+          <Section title="Saved Templates" badge={`(${savedAssets.length})`}>
             {loadingSaved ? (
               <p style={s.hint}>Loading…</p>
             ) : savedAssets.length === 0 ? (
@@ -1213,17 +1152,11 @@ export default function PartAssembler({ title, libraryCategory, partTypes, onSav
                 ))}
               </div>
             )}
-          </div>
+          </Section>
         )}
 
-        {/* Addable (e.g. saved Faces) — adds parts on top of the current canvas, doesn't replace it */}
         {!!addableCategory && (
-          <div className="card" style={{ padding: 14 }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-              <p style={s.sectionTitle}>{addableLabel || addableCategory} <span style={{ fontWeight: 400, color: '#9CA3AF' }}>({addableAssets.length})</span></p>
-              <button onClick={refreshAddable}
-                style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 14, color: '#9CA3AF' }} title="Refresh">↻</button>
-            </div>
+          <Section title={addableLabel || addableCategory} badge={`(${addableAssets.length})`}>
             {loadingAddable ? (
               <p style={s.hint}>Loading…</p>
             ) : addableAssets.length === 0 ? (
@@ -1241,9 +1174,43 @@ export default function PartAssembler({ title, libraryCategory, partTypes, onSav
                 ))}
               </div>
             )}
-          </div>
+          </Section>
         )}
 
+        <Section title="Upload Asset" defaultOpen={false}>
+          {!!partTypes?.length && (
+            <select className="input" value={uploadType} onChange={(e) => setUploadType(e.target.value)}
+              style={{ fontSize: 12 }}>
+              {partTypes.map((t) => (
+                <option key={t.id} value={t.id}>{t.label}</option>
+              ))}
+            </select>
+          )}
+          <label style={{ ...s.fileLabel, background: uploadFiles.length ? '#FFF7ED' : '#F9FAFB', borderColor: uploadFiles.length ? ORANGE : '#E5E7EB', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
+            <UploadCloud size={13} />
+            {uploadFiles.length
+              ? `${uploadFiles.length} file${uploadFiles.length > 1 ? 's' : ''} selected`
+              : 'Choose SVG/PNG/JPG files…'}
+            <input type="file" accept=".svg,.png,.jpg,.jpeg,.webp" multiple style={{ display: 'none' }}
+              onChange={(e) => setUploadFiles(Array.from(e.target.files))} />
+          </label>
+          {uploadFiles.length > 0 && (
+            <div style={{ maxHeight: 80, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 2 }}>
+              {uploadFiles.map((f, i) => (
+                <div key={i} style={{ fontSize: 10, color: '#6B7280', padding: '1px 4px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {f.name.replace(/\.[^.]+$/, '')}
+                </div>
+              ))}
+            </div>
+          )}
+          <button className="btn btn-primary btn-sm" onClick={handleUpload}
+            disabled={uploading || !uploadFiles.length} style={{ fontSize: 12 }}>
+            {uploading ? 'Uploading…' : `Upload${uploadFiles.length > 1 ? ` (${uploadFiles.length})` : ''}`}
+          </button>
+          {uploadMsg && (
+            <p style={{ fontSize: 11, color: uploadMsg.includes('0/') ? '#dc2626' : '#16a34a' }}>{uploadMsg}</p>
+          )}
+        </Section>
       </div>
 
       {/* ── CENTER: Canvas ── */}
@@ -1252,21 +1219,20 @@ export default function PartAssembler({ title, libraryCategory, partTypes, onSav
         {/* Toolbar */}
         <div className="card" style={{ padding: '8px 12px', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
           {/* Undo / Redo / Delete */}
-          <button onClick={undo} disabled={!canUndo} title="Undo (Ctrl+Z)" style={{ ...s.iconBtn, opacity: canUndo ? 1 : 0.35 }}>↩</button>
-          <button onClick={redo} disabled={!canRedo} title="Redo (Ctrl+Y)" style={{ ...s.iconBtn, opacity: canRedo ? 1 : 0.35 }}>↪</button>
+          <button onClick={undo} disabled={!canUndo} title="Undo (Ctrl+Z)" style={{ ...s.iconBtn, opacity: canUndo ? 1 : 0.35 }}><Undo2 size={14} /></button>
+          <button onClick={redo} disabled={!canRedo} title="Redo (Ctrl+Y)" style={{ ...s.iconBtn, opacity: canRedo ? 1 : 0.35 }}><Redo2 size={14} /></button>
           <button onClick={removeSelected} disabled={!selectedId && selectedIds.size === 0}
-            title="Delete selected (Del)" style={{ ...s.iconBtn, opacity: (selectedId || selectedIds.size) ? 1 : 0.35, color: '#DC2626' }}>🗑</button>
+            title="Delete selected (Del)" style={{ ...s.iconBtn, opacity: (selectedId || selectedIds.size) ? 1 : 0.35, color: '#DC2626' }}><Trash2 size={14} /></button>
           <div style={s.tbDivider} />
           <button onClick={startNewFace} title="Start a new, blank face — clears the canvas and the name/family/view fields"
-            style={{ ...s.iconBtn, width: 'auto', padding: '0 8px', fontSize: 11 }}>＋ New</button>
+            style={{ ...s.iconBtn, width: 'auto', padding: '0 8px', fontSize: 11, gap: 4 }}><Plus size={13} /> New</button>
           <div style={s.tbDivider} />
 
           {/* Zoom */}
-          <button onClick={() => { userZoomedRef.current = true; setZoom((z) => Math.max(0.4, Math.round((z - 0.1) * 20) / 20)); }} title="Zoom out" style={s.iconBtn}>−</button>
+          <button onClick={() => { userZoomedRef.current = true; setZoom((z) => Math.max(0.4, Math.round((z - 0.1) * 20) / 20)); }} title="Zoom out" style={s.iconBtn}><Minus size={14} /></button>
           <span style={{ fontSize: 11, fontWeight: 700, color: '#374151', minWidth: 34, textAlign: 'center' }}>{Math.round(zoom * 100)}%</span>
-          <button onClick={() => { userZoomedRef.current = true; setZoom((z) => Math.min(2, Math.round((z + 0.1) * 20) / 20)); }} title="Zoom in" style={s.iconBtn}>+</button>
+          <button onClick={() => { userZoomedRef.current = true; setZoom((z) => Math.min(2, Math.round((z + 0.1) * 20) / 20)); }} title="Zoom in" style={s.iconBtn}><Plus size={14} /></button>
           <button onClick={() => { userZoomedRef.current = false; fitZoom(); }} title="Fit to screen" style={{ ...s.iconBtn, width: 'auto', padding: '0 8px', fontSize: 11 }}>Fit</button>
-          <span style={{ fontSize: 10, color: '#9CA3AF', whiteSpace: 'nowrap' }}>Scroll to zoom</span>
           <div style={s.tbDivider} />
 
           <span style={{ fontWeight: 700, fontSize: 14, color: '#111827' }}>{title}</span>
@@ -1311,7 +1277,7 @@ export default function PartAssembler({ title, libraryCategory, partTypes, onSav
         )}
 
         {/* Canvas wrapper with zoom */}
-        <div className="card" ref={wrapperRef} onWheel={handleWheelZoom}
+        <div className="card" ref={wrapperRef}
           style={{ padding: 0, overflow: 'auto', display: 'flex', alignItems: 'center', justifyContent: 'center',
             height: 'calc(100vh - 230px)', minHeight: 420, background: '#EEF1F5' }}>
           <div style={{ transform: `scale(${zoom})`, transformOrigin: 'center center', width: CANVAS_W, height: CANVAS_H, flexShrink: 0 }}>
@@ -1416,35 +1382,247 @@ export default function PartAssembler({ title, libraryCategory, partTypes, onSav
             </div>
           </div>
         </div>
-        <p style={{ fontSize:11, color:'#9CA3AF', textAlign:'center', margin:0 }}>
-          Del = remove • Ctrl+Z/Y = undo/redo • Shift-click layers to multi-select
-        </p>
+        <div className="card" style={{ padding: '6px 14px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', fontSize: 11, color: '#6B7280' }}>
+          <span>Selected: <strong style={{ color: '#374151' }}>{selectedPart ? (selectedPart.customName || selectedPart.name) : selectedIds.size > 1 ? `${selectedIds.size} parts` : 'None'}</strong></span>
+          <span>Zoom: <strong style={{ color: '#374151' }}>{Math.round(zoom * 100)}%</strong></span>
+          <span>Canvas: <strong style={{ color: '#374151' }}>{CANVAS_W} × {CANVAS_H}</strong></span>
+          <span style={{ color: '#9CA3AF' }}>Del = remove • Ctrl+Z/Y = undo/redo • Shift-click layers to multi-select</span>
+        </div>
       </div>
 
-      {/* ── RIGHT: Controls + Layers ── */}
-      <div style={{ width: 220, flexShrink: 0, display: 'flex', flexDirection: 'column', gap: 10 }}>
+      {/* ── RIGHT: Inspector ── */}
+      <div className="card" style={{ width: 240, flexShrink: 0, padding: 14, maxHeight: 'calc(100vh - 200px)', overflowY: 'auto' }}>
+        <p style={{ fontSize: 13, fontWeight: 700, color: '#374151', margin: 0 }}>Inspector</p>
+
+        {/* Selected Asset */}
+        <Section title="Selected Asset" defaultOpen>
+          {!selectedPart ? (
+            <p style={s.hint}>Click a part on the canvas</p>
+          ) : (
+            <>
+              <input className="input" value={selectedPart.customName || selectedPart.name}
+                onChange={(e) => updatePart(selectedPart.id, { customName: e.target.value })}
+                style={{ fontSize: 12, fontWeight: 600 }} placeholder="Layer name" />
+
+              {selectedPart.groupId && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '4px 8px',
+                  background: 'var(--nav-light)', borderRadius: 8, border: '1px solid rgba(99,102,241,0.3)' }}>
+                  <div style={{ width: 8, height: 8, borderRadius: '50%', background: groupColor(selectedPart.groupId), flexShrink: 0 }} />
+                  <span style={{ fontSize: 10, color: 'var(--nav-text)', flex: 1 }}>In group</span>
+                  <button onClick={() => ungroupPart(selectedPart.id)}
+                    style={{ background: 'none', border: 'none', color: '#9CA3AF', cursor: 'pointer', fontSize: 11, padding: 0, display: 'flex' }}><X size={12} /></button>
+                </div>
+              )}
+
+              {alignmentEnabled && alignablePartType(selectedPart, dressAlignMode) && (
+                <button onClick={saveFacePartAlignmentForSelected} disabled={savingAlignment || !loadedAlignAssetId}
+                  title={!loadedAlignAssetId ? 'Save the costume first (Save As), then lock positions' : ''}
+                  style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, padding: '6px', border: '1.5px solid #86EFAC', borderRadius: 8,
+                    background: loadedAlignAssetId ? '#DCFCE7' : '#F3F4F6', color: loadedAlignAssetId ? 'var(--action-hover)' : '#9CA3AF',
+                    fontSize: 12, fontWeight: 600, cursor: loadedAlignAssetId ? 'pointer' : 'not-allowed' }}>
+                  <Pin size={13} /> {savingAlignment ? 'Saving…' : `Save ${ALIGNABLE_PART_LABELS[alignablePartType(selectedPart, dressAlignMode)]} Position`}
+                </button>
+              )}
+              {alignmentEnabled && !loadedAlignAssetId && alignablePartType(selectedPart, dressAlignMode) && (
+                <p style={{ fontSize: 10, color: '#F97316', margin: 0 }}>Save As the costume first to lock positions</p>
+              )}
+
+              {/* Head group anchor — save entire face group bbox on the costume */}
+              {dressAlignMode && selectedPart.groupId && (
+                <button onClick={saveHeadGroupPosition} disabled={savingAlignment || !loadedAlignAssetId}
+                  title={!loadedAlignAssetId ? 'Save the costume first (Save As), then lock head position' : ''}
+                  style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, padding: '6px', border: '1.5px solid #BBF7D0', borderRadius: 8,
+                    background: loadedAlignAssetId ? '#F0FDF4' : '#F3F4F6', color: loadedAlignAssetId ? '#15803D' : '#9CA3AF',
+                    fontSize: 12, fontWeight: 600, cursor: loadedAlignAssetId ? 'pointer' : 'not-allowed' }}>
+                  <Pin size={13} /> {savingAlignment ? 'Saving…' : 'Save Head Position'}
+                </button>
+              )}
+
+              {/* Hands connection point — where wrists attach to the body arms */}
+              {dressAlignMode && alignablePartType(selectedPart, dressAlignMode) === 'hands' && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6, padding: '8px', background: '#FFF7ED', borderRadius: 8, border: '1.5px solid #FED7AA' }}>
+                  <p style={{ fontSize: 11, fontWeight: 700, color: '#C2410C', margin: 0 }}>Connection Point (wrist attach)</p>
+                  <SliderRow label="X %" value={Math.round((selectedPart.connectX ?? 0.5) * 100)} min={0} max={100}
+                    onChange={(v) => updatePart(selectedPart.id, { connectX: v / 100 })} unit="%" />
+                  <SliderRow label="Y %" value={Math.round((selectedPart.connectY ?? 0.0) * 100)} min={0} max={100}
+                    onChange={(v) => updatePart(selectedPart.id, { connectY: v / 100 })} unit="%" />
+                  <p style={{ fontSize: 10, color: '#9CA3AF', margin: 0 }}>0% = top, 50% = center, 100% = bottom</p>
+                </div>
+              )}
+
+              <button onClick={() => removePart(selectedPart.id)}
+                style={{ padding: '6px', border: '1.5px solid #FECACA', borderRadius: 8,
+                  background: '#FEF2F2', color: '#DC2626', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
+                Remove Part
+              </button>
+            </>
+          )}
+        </Section>
+
+        {/* Transform */}
+        <Section title="Transform" defaultOpen={!!selectedPart}>
+          {!selectedPart ? (
+            <p style={s.hint}>Click a part on the canvas</p>
+          ) : (
+            <>
+              <div style={{ display: 'flex', gap: 6 }}>
+                <button onClick={() => updatePart(selectedPart.id, { flipX: !selectedPart.flipX })}
+                  style={{ ...s.ctrlBtn, flex: 1, justifyContent: 'center', background: selectedPart.flipX ? '#FFF7ED' : '#F9FAFB', borderColor: selectedPart.flipX ? ORANGE : '#E5E7EB', color: selectedPart.flipX ? ORANGE : '#374151' }}>
+                  <FlipHorizontal size={13} /> Flip H
+                </button>
+                <button onClick={() => updatePart(selectedPart.id, { flipY: !selectedPart.flipY })}
+                  style={{ ...s.ctrlBtn, flex: 1, justifyContent: 'center', background: selectedPart.flipY ? '#FFF7ED' : '#F9FAFB', borderColor: selectedPart.flipY ? ORANGE : '#E5E7EB', color: selectedPart.flipY ? ORANGE : '#374151' }}>
+                  <FlipVertical size={13} /> Flip V
+                </button>
+              </div>
+
+              <div style={{ display: 'flex', gap: 6 }}>
+                <button onClick={() => centerSelected('x')} style={{ ...s.ctrlBtn, flex: 1, justifyContent: 'center' }}>Center H</button>
+                <button onClick={() => centerSelected('y')} style={{ ...s.ctrlBtn, flex: 1, justifyContent: 'center' }}>Center V</button>
+              </div>
+              <button onClick={() => centerSelected('both')} style={{ ...s.ctrlBtn, justifyContent: 'center' }}>
+                <Crosshair size={13} /> Center Both
+              </button>
+
+              <SliderRow label="X" value={Math.round(selectedPart.x)} min={-120} max={CANVAS_W + 40}
+                onChange={(v) => moveSelectedPart('x', v)} />
+              <SliderRow label="Y" value={Math.round(selectedPart.y)} min={-120} max={CANVAS_H + 40}
+                onChange={(v) => moveSelectedPart('y', v)} />
+              <SliderRow label="Width" value={selectedPart.w} min={16} max={CANVAS_W}
+                onChange={updateProportional} />
+              <SliderRow label="Height" value={selectedPart.h} min={16} max={CANVAS_H}
+                onChange={(v) => updatePart(selectedPart.id, { h: v })} />
+              <p style={{ fontSize: 10, color: '#9CA3AF', margin: '-4px 0 0' }}>
+                Width keeps the aspect ratio; Height stretches this part independently — use both together for a non-uniform stretch (e.g. fitting a 3/4 angle).
+              </p>
+              <SliderRow label="Rotate" value={selectedPart.rotation || 0} min={-180} max={180}
+                onChange={(v) => updatePart(selectedPart.id, { rotation: v })} unit="°" />
+              {!isFaceTemplateMode && (
+                <SliderRow label="Layer Z" value={selectedPart.zIndex} min={1} max={100}
+                  onChange={(v) => updatePart(selectedPart.id, { zIndex: v })} />
+              )}
+
+              <button onClick={() => setShowCrop((v) => !v)}
+                style={{ ...s.ctrlBtn, justifyContent: 'space-between' }}>
+                <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><Scissors size={13} /> Crop</span>
+                {showCrop ? <ChevronUp size={12} color="#9CA3AF" /> : <ChevronDown size={12} color="#9CA3AF" />}
+              </button>
+              {showCrop && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 4, paddingLeft: 4, borderLeft: `2px solid ${ORANGE}` }}>
+                  {[['t','Top'],['b','Bottom'],['l','Left'],['r','Right']].map(([k, label]) => (
+                    <SliderRow key={k} label={label} value={selectedPart.clip?.[k] ?? 0} min={0} max={49}
+                      onChange={(v) => updateClip(k, v)} unit="%" />
+                  ))}
+                  <button onClick={() => updatePart(selectedPart.id, { clip: { t:0,r:0,b:0,l:0 } })}
+                    style={{ ...s.ctrlBtn, fontSize: 10, color: '#9CA3AF' }}>Reset crop</button>
+                </div>
+              )}
+            </>
+          )}
+        </Section>
+
+        {/* Appearance */}
+        <Section title="Appearance" defaultOpen={false}>
+          {selectedPart && (
+            <>
+              {/* "Exposed Skin" marks which parts the runtime exact-match Skin Color tool
+                  (DressRig) recolors; "Hair" marks which parts the hair color overlay
+                  targets when its scope is "All layers tagged Hair". */}
+              <div style={{ display: 'flex', gap: 6 }}>
+                <button onClick={() => setPartCategory(selectedPart.id, selectedPart.partCategory === 'skin' ? null : 'skin')}
+                  style={{ ...s.ctrlBtn, flex: 1, justifyContent: 'center', background: selectedPart.partCategory === 'skin' ? '#FEF3C7' : '#F9FAFB', borderColor: selectedPart.partCategory === 'skin' ? '#F59E0B' : '#E5E7EB', color: selectedPart.partCategory === 'skin' ? '#B45309' : '#374151' }}>
+                  Exposed Skin
+                </button>
+                <button onClick={() => setPartCategory(selectedPart.id, selectedPart.partCategory === 'clothing' ? null : 'clothing')}
+                  style={{ ...s.ctrlBtn, flex: 1, justifyContent: 'center', background: selectedPart.partCategory === 'clothing' ? '#DBEAFE' : '#F9FAFB', borderColor: selectedPart.partCategory === 'clothing' ? '#3B82F6' : '#E5E7EB', color: selectedPart.partCategory === 'clothing' ? '#1D4ED8' : '#374151' }}>
+                  Clothing
+                </button>
+              </div>
+              <button onClick={() => setPartCategory(selectedPart.id, selectedPart.partCategory === 'hair' ? null : 'hair')}
+                style={{ ...s.ctrlBtn, justifyContent: 'center', background: selectedPart.partCategory === 'hair' ? '#F3E8FF' : '#F9FAFB', borderColor: selectedPart.partCategory === 'hair' ? '#8B5CF6' : '#E5E7EB', color: selectedPart.partCategory === 'hair' ? '#6D28D9' : '#374151' }}>
+                Hair
+              </button>
+
+              {/* Dress-mode part roles — assigns alignment role AND auto-tags as Exposed Skin */}
+              {dressAlignMode && (
+                <div style={{ display: 'flex', gap: 6 }}>
+                  <button onClick={() => setDressRole(selectedPart.id, 'neck')}
+                    style={{ ...s.ctrlBtn, flex: 1, justifyContent: 'center', background: selectedPart.dressRole === 'neck' ? '#DCFCE7' : '#F9FAFB', borderColor: selectedPart.dressRole === 'neck' ? '#16A34A' : '#E5E7EB', color: selectedPart.dressRole === 'neck' ? '#15803D' : '#374151' }}>
+                    Neck
+                  </button>
+                  <button onClick={() => setDressRole(selectedPart.id, 'hands')}
+                    style={{ ...s.ctrlBtn, flex: 1, justifyContent: 'center', background: selectedPart.dressRole === 'hands' ? '#DCFCE7' : '#F9FAFB', borderColor: selectedPart.dressRole === 'hands' ? '#16A34A' : '#E5E7EB', color: selectedPart.dressRole === 'hands' ? '#15803D' : '#374151' }}>
+                    Hands
+                  </button>
+                </div>
+              )}
+              <div style={{ borderTop: '1px solid #F3F4F6', margin: '4px 0' }} />
+            </>
+          )}
+
+          {/* Hair Color Overlay — skin tone now uses the exact-match Skin Color tool
+              (Palette Normalizer) instead of an overlay; hair hasn't moved to that yet */}
+          <p style={{ fontSize: 11, fontWeight: 700, color: '#374151', margin: 0 }}>Hair Color Overlay</p>
+          <p style={{ ...s.hint, margin: 0 }}>
+            Tint a layer (e.g. the hairstyle) with a color wash, blended like the panel lighting presets.
+          </p>
+          <select className="input" value={hairOverlayOwner?.id || ''}
+            onChange={(e) => (e.target.value ? setHairOverlayTarget(e.target.value) : removeHairOverlay())}
+            style={{ fontSize: 12 }}>
+            <option value="">No overlay</option>
+            {sortedByZ.map((p) => (
+              <option key={p.id} value={p.id}>{p.customName || p.name}</option>
+            ))}
+          </select>
+          {hairOverlayOwner && (
+            <>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <input type="color" value={hairOverlayOwner.hairOverlay.color}
+                  onChange={(e) => updateHairOverlay({ color: e.target.value })}
+                  style={{ width: 40, height: 28, padding: 0, border: '1.5px solid #E5E7EB', borderRadius: 6, cursor: 'pointer' }} />
+                <select value={hairOverlayOwner.hairOverlay.blendMode} onChange={(e) => updateHairOverlay({ blendMode: e.target.value })}
+                  style={{ flex: 1, fontSize: 12 }}>
+                  {OVERLAY_BLEND_MODES.map((m) => <option key={m} value={m}>{m}</option>)}
+                </select>
+              </div>
+              <SliderRow label="Opacity" value={hairOverlayOwner.hairOverlay.opacity ?? 50} min={0} max={100}
+                onChange={(v) => updateHairOverlay({ opacity: v })} unit="%" />
+              <div>
+                <p style={{ ...s.hint, marginBottom: 4 }}>Apply to</p>
+                <select value={hairOverlayOwner.hairOverlayScope || 'single'}
+                  onChange={(e) => setHairOverlayScope(e.target.value)}
+                  style={{ fontSize: 12, width: '100%' }}>
+                  <option value="single">This layer only</option>
+                  <option value="below">This layer + layers below</option>
+                  <option value="hairTagged">All layers tagged "Hair"</option>
+                </select>
+              </div>
+              <button onClick={removeHairOverlay}
+                style={{ ...s.ctrlBtn, justifyContent: 'center', color: '#9CA3AF' }}>
+                Remove overlay
+              </button>
+            </>
+          )}
+        </Section>
 
         {/* Layers */}
-        <div className="card" style={{ padding: 14 }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
-            <p style={s.sectionTitle}>Layers ({canvasParts.length})</p>
-            <div style={{ display: 'flex', gap: 4 }}>
-              {selectedIds.size >= 2 && (
-                <button onClick={groupSelected}
-                  style={{ fontSize: 10, fontWeight: 700, color: 'var(--nav-text)', background: 'var(--nav-light)',
-                    border: '1px solid rgba(99,102,241,0.3)', borderRadius: 6, padding: '2px 7px', cursor: 'pointer' }}>
-                  Group
-                </button>
-              )}
-              {canvasParts.length > 0 && (
-                <button onClick={() => { commitParts([]); setSelectedId(null); setSelectedIds(new Set()); }}
-                  style={{ fontSize: 10, color: '#9CA3AF', background: 'none', border: 'none', cursor: 'pointer', padding: '2px 4px' }}>
-                  Clear
-                </button>
-              )}
-            </div>
+        <Section title="Layers" badge={`(${canvasParts.length})`} defaultOpen action={
+          <div style={{ display: 'flex', gap: 4 }}>
+            {selectedIds.size >= 2 && (
+              <button onClick={groupSelected}
+                style={{ fontSize: 10, fontWeight: 700, color: 'var(--nav-text)', background: 'var(--nav-light)',
+                  border: '1px solid rgba(99,102,241,0.3)', borderRadius: 6, padding: '2px 7px', cursor: 'pointer' }}>
+                Group
+              </button>
+            )}
+            {canvasParts.length > 0 && (
+              <button onClick={() => { commitParts([]); setSelectedId(null); setSelectedIds(new Set()); }}
+                style={{ fontSize: 10, color: '#9CA3AF', background: 'none', border: 'none', cursor: 'pointer', padding: '2px 4px' }}>
+                Clear
+              </button>
+            )}
           </div>
-
+        }>
           {canvasParts.length === 0 ? (
             <p style={s.hint}>No parts added yet</p>
           ) : (
@@ -1498,229 +1676,53 @@ export default function PartAssembler({ title, libraryCategory, partTypes, onSav
                     {!isFaceTemplateMode && (
                       <div style={{ display: 'flex', flexDirection: 'column', gap: 1, flexShrink: 0 }}>
                         <button onClick={(e) => { e.stopPropagation(); moveLayer(part.id, -1); }}
-                          style={{ ...s.arrowBtn }} title="Move up" disabled={sortIdx === 0}>▲</button>
+                          style={{ ...s.arrowBtn }} title="Move up" disabled={sortIdx === 0}><ChevronUp size={10} /></button>
                         <button onClick={(e) => { e.stopPropagation(); moveLayer(part.id, 1); }}
-                          style={{ ...s.arrowBtn }} title="Move down" disabled={sortIdx === sortedByZ.length - 1}>▼</button>
+                          style={{ ...s.arrowBtn }} title="Move down" disabled={sortIdx === sortedByZ.length - 1}><ChevronDown size={10} /></button>
                       </div>
                     )}
                     <button onClick={(e) => { e.stopPropagation(); removePart(part.id); }}
-                      style={{ ...s.arrowBtn, color: '#EF4444', flexShrink: 0 }} title="Remove">✕</button>
+                      style={{ ...s.arrowBtn, color: '#EF4444', flexShrink: 0, display: 'flex' }} title="Remove"><X size={11} /></button>
                   </div>
                 );
               })}
             </div>
           )}
-        </div>
+        </Section>
 
-        {/* Part Controls */}
-        <div className="card" style={{ padding: 14 }}>
-          <p style={s.sectionTitle}>Part Controls</p>
-          {!selectedPart ? (
-            <p style={{ ...s.hint, marginTop: 8 }}>Click a part on the canvas</p>
-          ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 8 }}>
-
-              {/* Name */}
-              <input className="input" value={selectedPart.customName || selectedPart.name}
-                onChange={(e) => updatePart(selectedPart.id, { customName: e.target.value })}
-                style={{ fontSize: 12, fontWeight: 600 }} placeholder="Layer name" />
-
-              {/* Flip buttons */}
-              <div style={{ display: 'flex', gap: 6 }}>
-                <button onClick={() => updatePart(selectedPart.id, { flipX: !selectedPart.flipX })}
-                  style={{ ...s.ctrlBtn, flex: 1, background: selectedPart.flipX ? '#FFF7ED' : '#F9FAFB', borderColor: selectedPart.flipX ? ORANGE : '#E5E7EB', color: selectedPart.flipX ? ORANGE : '#374151' }}>
-                  ↔ Flip H
-                </button>
-                <button onClick={() => updatePart(selectedPart.id, { flipY: !selectedPart.flipY })}
-                  style={{ ...s.ctrlBtn, flex: 1, background: selectedPart.flipY ? '#FFF7ED' : '#F9FAFB', borderColor: selectedPart.flipY ? ORANGE : '#E5E7EB', color: selectedPart.flipY ? ORANGE : '#374151' }}>
-                  ↕ Flip V
-                </button>
-              </div>
-
-              {/* Center align buttons */}
-              <div style={{ display: 'flex', gap: 6 }}>
-                <button onClick={() => centerSelected('x')}
-                  style={{ ...s.ctrlBtn, flex: 1 }}>
-                  ↔ Center H
-                </button>
-                <button onClick={() => centerSelected('y')}
-                  style={{ ...s.ctrlBtn, flex: 1 }}>
-                  ↕ Center V
-                </button>
-              </div>
-              <button onClick={() => centerSelected('both')} style={s.ctrlBtn}>
-                ⊹ Center Both
-              </button>
-
-              <SliderRow label="X" value={Math.round(selectedPart.x)} min={-120} max={CANVAS_W + 40}
-                onChange={(v) => moveSelectedPart('x', v)} />
-              <SliderRow label="Y" value={Math.round(selectedPart.y)} min={-120} max={CANVAS_H + 40}
-                onChange={(v) => moveSelectedPart('y', v)} />
-              <SliderRow label="Width" value={selectedPart.w} min={16} max={CANVAS_W}
-                onChange={updateProportional} />
-              <SliderRow label="Height" value={selectedPart.h} min={16} max={CANVAS_H}
-                onChange={(v) => updatePart(selectedPart.id, { h: v })} />
-              <p style={{ fontSize: 10, color: '#9CA3AF', margin: '-4px 0 0' }}>
-                Width keeps the aspect ratio; Height stretches this part independently — use both together for a non-uniform stretch (e.g. fitting a 3/4 angle).
-              </p>
-              <SliderRow label="Rotate" value={selectedPart.rotation || 0} min={-180} max={180}
-                onChange={(v) => updatePart(selectedPart.id, { rotation: v })} unit="°" />
-              {!isFaceTemplateMode && (
-                <SliderRow label="Layer Z" value={selectedPart.zIndex} min={1} max={100}
-                  onChange={(v) => updatePart(selectedPart.id, { zIndex: v })} />
-              )}
-
-              {/* Crop section */}
-              <button onClick={() => setShowCrop((v) => !v)}
-                style={{ ...s.ctrlBtn, justifyContent: 'space-between' }}>
-                <span>✂ Crop</span>
-                <span style={{ fontSize: 10, color: '#9CA3AF' }}>{showCrop ? '▲' : '▼'}</span>
-              </button>
-              {showCrop && (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 4, paddingLeft: 4, borderLeft: `2px solid ${ORANGE}` }}>
-                  {[['t','Top'],['b','Bottom'],['l','Left'],['r','Right']].map(([k, label]) => (
-                    <SliderRow key={k} label={label} value={selectedPart.clip?.[k] ?? 0} min={0} max={49}
-                      onChange={(v) => updateClip(k, v)} unit="%" />
-                  ))}
-                  <button onClick={() => updatePart(selectedPart.id, { clip: { t:0,r:0,b:0,l:0 } })}
-                    style={{ ...s.ctrlBtn, fontSize: 10, color: '#9CA3AF' }}>Reset crop</button>
-                </div>
-              )}
-
-              {/* Part category — "Exposed Skin" marks which parts the runtime exact-match
-                  Skin Color tool recolors (DressRig); "Hair" marks which parts the hair
-                  color overlay targets when its scope is "All layers tagged Hair". */}
-              <div style={{ display: 'flex', gap: 6 }}>
-                <button onClick={() => setPartCategory(selectedPart.id, selectedPart.partCategory === 'skin' ? null : 'skin')}
-                  style={{ ...s.ctrlBtn, flex: 1, background: selectedPart.partCategory === 'skin' ? '#FEF3C7' : '#F9FAFB', borderColor: selectedPart.partCategory === 'skin' ? '#F59E0B' : '#E5E7EB', color: selectedPart.partCategory === 'skin' ? '#B45309' : '#374151' }}>
-                  Exposed Skin
-                </button>
-                <button onClick={() => setPartCategory(selectedPart.id, selectedPart.partCategory === 'clothing' ? null : 'clothing')}
-                  style={{ ...s.ctrlBtn, flex: 1, background: selectedPart.partCategory === 'clothing' ? '#DBEAFE' : '#F9FAFB', borderColor: selectedPart.partCategory === 'clothing' ? '#3B82F6' : '#E5E7EB', color: selectedPart.partCategory === 'clothing' ? '#1D4ED8' : '#374151' }}>
-                  Clothing
-                </button>
-              </div>
-              <button onClick={() => setPartCategory(selectedPart.id, selectedPart.partCategory === 'hair' ? null : 'hair')}
-                style={{ ...s.ctrlBtn, justifyContent: 'center', background: selectedPart.partCategory === 'hair' ? '#F3E8FF' : '#F9FAFB', borderColor: selectedPart.partCategory === 'hair' ? '#8B5CF6' : '#E5E7EB', color: selectedPart.partCategory === 'hair' ? '#6D28D9' : '#374151' }}>
-                Hair
-              </button>
-
-              {/* Dress-mode part roles — assigns alignment role AND auto-tags as Exposed Skin */}
-              {dressAlignMode && (
-                <div style={{ display: 'flex', gap: 6 }}>
-                  <button onClick={() => setDressRole(selectedPart.id, 'neck')}
-                    style={{ ...s.ctrlBtn, flex: 1, background: selectedPart.dressRole === 'neck' ? '#DCFCE7' : '#F9FAFB', borderColor: selectedPart.dressRole === 'neck' ? '#16A34A' : '#E5E7EB', color: selectedPart.dressRole === 'neck' ? '#15803D' : '#374151' }}>
-                    Neck
-                  </button>
-                  <button onClick={() => setDressRole(selectedPart.id, 'hands')}
-                    style={{ ...s.ctrlBtn, flex: 1, background: selectedPart.dressRole === 'hands' ? '#DCFCE7' : '#F9FAFB', borderColor: selectedPart.dressRole === 'hands' ? '#16A34A' : '#E5E7EB', color: selectedPart.dressRole === 'hands' ? '#15803D' : '#374151' }}>
-                    Hands
-                  </button>
-                </div>
-              )}
-
-              {/* Group badge */}
-              {selectedPart.groupId && (
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '4px 8px',
-                  background: 'var(--nav-light)', borderRadius: 8, border: '1px solid rgba(99,102,241,0.3)' }}>
-                  <div style={{ width: 8, height: 8, borderRadius: '50%', background: groupColor(selectedPart.groupId), flexShrink: 0 }} />
-                  <span style={{ fontSize: 10, color: 'var(--nav-text)', flex: 1 }}>In group</span>
-                  <button onClick={() => ungroupPart(selectedPart.id)}
-                    style={{ background: 'none', border: 'none', color: '#9CA3AF', cursor: 'pointer', fontSize: 11, padding: 0 }}>✕</button>
-                </div>
-              )}
-
-              {alignmentEnabled && alignablePartType(selectedPart, dressAlignMode) && (
-                <button onClick={saveFacePartAlignmentForSelected} disabled={savingAlignment || !loadedAlignAssetId}
-                  title={!loadedAlignAssetId ? 'Save the costume first (Save As), then lock positions' : ''}
-                  style={{ padding: '6px', border: '1.5px solid #86EFAC', borderRadius: 8,
-                    background: loadedAlignAssetId ? '#DCFCE7' : '#F3F4F6', color: loadedAlignAssetId ? 'var(--action-hover)' : '#9CA3AF',
-                    fontSize: 12, fontWeight: 600, cursor: loadedAlignAssetId ? 'pointer' : 'not-allowed' }}>
-                  {savingAlignment ? 'Saving…' : `📌 Save ${ALIGNABLE_PART_LABELS[alignablePartType(selectedPart, dressAlignMode)]} Position`}
-                </button>
-              )}
-              {alignmentEnabled && !loadedAlignAssetId && alignablePartType(selectedPart, dressAlignMode) && (
-                <p style={{ fontSize: 10, color: '#F97316', margin: 0 }}>Save As the costume first to lock positions</p>
-              )}
-
-              {/* Head group anchor — save entire face group bbox on the costume */}
-              {dressAlignMode && selectedPart.groupId && (
-                <button onClick={saveHeadGroupPosition} disabled={savingAlignment || !loadedAlignAssetId}
-                  title={!loadedAlignAssetId ? 'Save the costume first (Save As), then lock head position' : ''}
-                  style={{ padding: '6px', border: '1.5px solid #BBF7D0', borderRadius: 8,
-                    background: loadedAlignAssetId ? '#F0FDF4' : '#F3F4F6', color: loadedAlignAssetId ? '#15803D' : '#9CA3AF',
-                    fontSize: 12, fontWeight: 600, cursor: loadedAlignAssetId ? 'pointer' : 'not-allowed' }}>
-                  {savingAlignment ? 'Saving…' : '📌 Save Head Position'}
-                </button>
-              )}
-
-              {/* Hands connection point — where wrists attach to the body arms */}
-              {dressAlignMode && alignablePartType(selectedPart, dressAlignMode) === 'hands' && (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 6, padding: '8px', background: '#FFF7ED', borderRadius: 8, border: '1.5px solid #FED7AA' }}>
-                  <p style={{ fontSize: 11, fontWeight: 700, color: '#C2410C', margin: 0 }}>Connection Point (wrist attach)</p>
-                  <SliderRow label="X %" value={Math.round((selectedPart.connectX ?? 0.5) * 100)} min={0} max={100}
-                    onChange={(v) => updatePart(selectedPart.id, { connectX: v / 100 })} unit="%" />
-                  <SliderRow label="Y %" value={Math.round((selectedPart.connectY ?? 0.0) * 100)} min={0} max={100}
-                    onChange={(v) => updatePart(selectedPart.id, { connectY: v / 100 })} unit="%" />
-                  <p style={{ fontSize: 10, color: '#9CA3AF', margin: 0 }}>0% = top, 50% = center, 100% = bottom</p>
-                </div>
-              )}
-
-              <button onClick={() => removePart(selectedPart.id)}
-                style={{ padding: '6px', border: '1.5px solid #FECACA', borderRadius: 8,
-                  background: '#FEF2F2', color: '#DC2626', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
-                Remove Part
-              </button>
-            </div>
-          )}
-        </div>
-
-        {/* Hair Color Overlay — skin tone now uses the exact-match Skin Color tool
-            (Palette Normalizer) instead of an overlay; hair hasn't moved to that yet */}
-        <div className="card" style={{ padding: 14 }}>
-          <p style={s.sectionTitle}>Hair Color Overlay</p>
-          <p style={{ ...s.hint, marginTop: 4, marginBottom: 8 }}>
-            Tint a layer (e.g. the hairstyle) with a color wash, blended like the panel lighting presets.
-          </p>
-          <select className="input" value={hairOverlayOwner?.id || ''}
-            onChange={(e) => (e.target.value ? setHairOverlayTarget(e.target.value) : removeHairOverlay())}
-            style={{ fontSize: 12, marginBottom: 8 }}>
-            <option value="">No overlay</option>
-            {sortedByZ.map((p) => (
-              <option key={p.id} value={p.id}>{p.customName || p.name}</option>
-            ))}
-          </select>
-          {hairOverlayOwner && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                <input type="color" value={hairOverlayOwner.hairOverlay.color}
-                  onChange={(e) => updateHairOverlay({ color: e.target.value })}
-                  style={{ width: 40, height: 28, padding: 0, border: '1.5px solid #E5E7EB', borderRadius: 6, cursor: 'pointer' }} />
-                <select value={hairOverlayOwner.hairOverlay.blendMode} onChange={(e) => updateHairOverlay({ blendMode: e.target.value })}
-                  style={{ flex: 1, fontSize: 12 }}>
-                  {OVERLAY_BLEND_MODES.map((m) => <option key={m} value={m}>{m}</option>)}
-                </select>
-              </div>
-              <SliderRow label="Opacity" value={hairOverlayOwner.hairOverlay.opacity ?? 50} min={0} max={100}
-                onChange={(v) => updateHairOverlay({ opacity: v })} unit="%" />
-              <div>
-                <p style={{ ...s.hint, marginBottom: 4 }}>Apply to</p>
-                <select value={hairOverlayOwner.hairOverlayScope || 'single'}
-                  onChange={(e) => setHairOverlayScope(e.target.value)}
-                  style={{ fontSize: 12, width: '100%' }}>
-                  <option value="single">This layer only</option>
-                  <option value="below">This layer + layers below</option>
-                  <option value="hairTagged">All layers tagged "Hair"</option>
-                </select>
-              </div>
-              <button onClick={removeHairOverlay}
-                style={{ ...s.ctrlBtn, justifyContent: 'center', color: '#9CA3AF' }}>
-                Remove overlay
-              </button>
-            </div>
-          )}
-        </div>
+        {/* History */}
+        <Section title="History" defaultOpen={false}>
+          <div style={{ display: 'flex', gap: 6 }}>
+            <button onClick={undo} disabled={!canUndo} style={{ ...s.ctrlBtn, flex: 1, justifyContent: 'center', opacity: canUndo ? 1 : 0.4 }}>
+              <Undo2 size={13} /> Undo
+            </button>
+            <button onClick={redo} disabled={!canRedo} style={{ ...s.ctrlBtn, flex: 1, justifyContent: 'center', opacity: canRedo ? 1 : 0.4 }}>
+              <Redo2 size={13} /> Redo
+            </button>
+          </div>
+          <p style={s.hint}>Ctrl+Z / Ctrl+Y — every drag, resize, and edit is a checkpoint.</p>
+        </Section>
       </div>
+    </div>
+  );
+}
+
+// Collapsible section wrapper used to group the Asset Browser and Inspector into
+// labeled, expand/collapse blocks instead of separate cards — pure presentation,
+// each section's own content/handlers are unchanged from before.
+function Section({ title, badge, action, defaultOpen = true, children }) {
+  const [open, setOpen] = useState(defaultOpen);
+  return (
+    <div style={s.section}>
+      <div style={s.sectionHeader}>
+        <button onClick={() => setOpen((o) => !o)} style={s.sectionToggle}>
+          {open ? <ChevronUp size={13} color="#9CA3AF" /> : <ChevronDown size={13} color="#9CA3AF" />}
+          <span style={s.sectionHeaderTitle}>{title}</span>
+          {badge != null && <span style={s.sectionBadge}>{badge}</span>}
+        </button>
+        {action}
+      </div>
+      {open && <div style={s.sectionBody}>{children}</div>}
     </div>
   );
 }
@@ -1746,7 +1748,6 @@ function SliderRow({ label, value, min, max, onChange, unit = '' }) {
 }
 
 const s = {
-  sectionTitle: { fontSize: 13, fontWeight: 700, color: '#374151', margin: 0 },
   hint:         { fontSize: 12, color: '#9CA3AF' },
   assetThumb:   { border: '1.5px solid #E5E7EB', borderRadius: 8, overflow: 'hidden', background: '#F9FAFB', cursor: 'pointer', padding: 0, transition: 'border-color 0.15s', display: 'block', textAlign: 'left' },
   savedViewBtn: {
@@ -1762,4 +1763,11 @@ const s = {
   tbDivider:    { width: 1, height: 20, background: '#E5E7EB', flexShrink: 0 },
   chip:         { fontSize: 10, fontWeight: 600, color: '#6B7280', background: '#F9FAFB', border: '1.5px solid #E5E7EB', borderRadius: 12, padding: '2px 8px', cursor: 'pointer' },
   chipActive:   { background: '#FFF7ED', borderColor: ORANGE, color: ORANGE },
+
+  section:       { borderTop: '1px solid #E5E7EB', paddingTop: 10, marginTop: 10 },
+  sectionHeader: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6 },
+  sectionToggle: { display: 'flex', alignItems: 'center', gap: 6, background: 'none', border: 'none', cursor: 'pointer', padding: 0, flex: 1, minWidth: 0 },
+  sectionHeaderTitle: { fontSize: 12, fontWeight: 700, color: '#374151', textTransform: 'uppercase', letterSpacing: 0.3 },
+  sectionBadge:  { fontSize: 11, fontWeight: 400, color: '#9CA3AF' },
+  sectionBody:   { marginTop: 8, display: 'flex', flexDirection: 'column', gap: 8 },
 };

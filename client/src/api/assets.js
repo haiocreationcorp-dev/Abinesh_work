@@ -18,6 +18,11 @@ export const uploadFolder = (formData, onProgress) =>
     onUploadProgress: onProgress,
   }).then((r) => r.data);
 
+// items: [{ name, category, view }] — reports which already exist as Asset rows, using
+// the same name+category+view match upload-folder's upsert does, before anything uploads.
+export const checkDuplicateAssets = (items) =>
+  api.post('/admin/assets/check-duplicates', { items }).then((r) => r.data);
+
 export const getAdminStats = () => api.get('/admin/stats').then((r) => r.data);
 export const getAssetCategoryCounts = () => api.get('/admin/assets/category-counts').then((r) => r.data);
 export const getRecentComics = () => api.get('/admin/recent-comics').then((r) => r.data);

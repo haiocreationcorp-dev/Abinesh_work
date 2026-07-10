@@ -2,8 +2,26 @@ import { useEffect, useMemo, useState } from 'react';
 import { getAssets, getExpressions, getCharacterPresets, createCharacterPreset, updateCharacterPreset, deleteCharacterPreset } from '../../api/assets.js';
 import { SKIN_PRESETS } from '../../utils/skinPalette.js';
 import CharacterPresetRig from '../comic/CharacterPresetRig.jsx';
+import { Search, ArrowUpDown, User, Copy, Trash2, Pencil, Plus, ZoomIn, ZoomOut, RotateCcw, CheckCircle2, Loader2 } from 'lucide-react';
 
 const SKIN_TONE_OPTIONS = Object.values(SKIN_PRESETS);
+const ZOOM_MIN = 0.5;
+const ZOOM_MAX = 2;
+const ZOOM_STEP = 0.25;
+
+function formToPayload(f) {
+  return {
+    name: f.name.trim(),
+    frontFaceId: f.frontFaceId || null,
+    threeQuarterFaceId: f.threeQuarterFaceId || null,
+    defaultFaceView: f.defaultFaceView || null,
+    skinTone: f.skinTone,
+    hairColor: f.hairColor,
+    irisColor: f.irisColor,
+    defaultExpressionId: f.defaultExpressionId || null,
+    defaultBodyPoseId: f.defaultBodyPoseId || null,
+  };
+}
 
 // A named comic-character identity: which FACE_TEMPLATEs represent it (front and,
 // optionally, 3/4) plus its default skin tone / hair color / expression. skinTone is
@@ -29,6 +47,17 @@ export default function CharacterPresetBuilder() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [editingId, setEditingId] = useState(null);
+
+  // Sidebar library controls.
+  const [search, setSearch] = useState('');
+  const [sortBy, setSortBy] = useState('name'); // 'name' | 'updated'
+
+  // Preview zoom — purely presentational, doesn't touch saved data.
+  const [zoom, setZoom] = useState(1);
+
+  // Snapshot of the form as of the last load/save/reset — diffed against current form
+  // values to drive the honest "Unsaved changes" indicator (no background autosave exists).
+  const [lastSaved, setLastSaved] = useState(null);
 
   const refresh = () => {
     setLoading(true);
@@ -59,10 +88,19 @@ export default function CharacterPresetBuilder() {
 
   const needsExplicitDefaultView = !!frontFaceId && !!threeQuarterFaceId;
 
+  const currentForm = useMemo(() => ({
+    name, frontFaceId, threeQuarterFaceId, defaultFaceView, skinTone, hairColor, irisColor,
+    defaultExpressionId, defaultBodyPoseId,
+  }), [name, frontFaceId, threeQuarterFaceId, defaultFaceView, skinTone, hairColor, irisColor, defaultExpressionId, defaultBodyPoseId]);
+
+  const isDirty = lastSaved ? JSON.stringify(currentForm) !== JSON.stringify(lastSaved) : currentForm.name.trim() !== '';
+
   const resetForm = () => {
     setName(''); setFrontFaceId(''); setThreeQuarterFaceId(''); setDefaultFaceView('');
     setSkinTone(SKIN_TONE_OPTIONS[0]?.id || ''); setHairColor('#3b2412'); setIrisColor('#3b2a1f');
     setDefaultExpressionId(''); setDefaultBodyPoseId(''); setEditingId(null); setError('');
+    setLastSaved(null);
+    setZoom(1);
   };
 
   const handleSave = async (e) => {
@@ -75,17 +113,7 @@ export default function CharacterPresetBuilder() {
     setError('');
     setSaving(true);
     try {
-      const payload = {
-        name: name.trim(),
-        frontFaceId: frontFaceId || null,
-        threeQuarterFaceId: threeQuarterFaceId || null,
-        defaultFaceView: defaultFaceView || null,
-        skinTone,
-        hairColor,
-        irisColor,
-        defaultExpressionId: defaultExpressionId || null,
-        defaultBodyPoseId: defaultBodyPoseId || null,
-      };
+      const payload = formToPayload(currentForm);
       if (editingId) await updateCharacterPreset(editingId, payload);
       else await createCharacterPreset(payload);
       resetForm();
@@ -111,15 +139,57 @@ export default function CharacterPresetBuilder() {
     setDefaultExpressionId(p.defaultExpressionId || '');
     setDefaultBodyPoseId(p.defaultBodyPoseId || '');
     setError('');
+    setZoom(1);
+    setLastSaved({
+      name: p.name, frontFaceId: p.frontFaceId || '', threeQuarterFaceId: p.threeQuarterFaceId || '',
+      defaultFaceView: p.defaultFaceView || '', skinTone: p.skinTone, hairColor: p.hairColor,
+      irisColor: p.irisColor || '#3b2a1f', defaultExpressionId: p.defaultExpressionId || '',
+      defaultBodyPoseId: p.defaultBodyPoseId || '',
+    });
   };
 
   const handleDelete = async (id) => {
+    if (!confirm('Delete this character preset?')) return;
     await deleteCharacterPreset(id);
     if (editingId === id) resetForm();
     refresh();
   };
 
+  // No server-side duplicate endpoint — clones the preset's real fields and posts them as
+  // a brand-new preset via the existing create endpoint, so it's a genuine saved copy.
+  const handleDuplicate = async (p) => {
+    const payload = {
+      name: `${p.name} (Copy)`,
+      frontFaceId: p.frontFaceId || null,
+      threeQuarterFaceId: p.threeQuarterFaceId || null,
+      defaultFaceView: p.defaultFaceView || null,
+      skinTone: p.skinTone,
+      hairColor: p.hairColor,
+      irisColor: p.irisColor || null,
+      defaultExpressionId: p.defaultExpressionId || null,
+      defaultBodyPoseId: p.defaultBodyPoseId || null,
+    };
+    await createCharacterPreset(payload);
+    refresh();
+  };
+
   const faceName = (id) => [...frontFaces, ...threeQuarterFaces].find((f) => f.id === id)?.name || id;
+  const poseName = (id) => bodyPoses.find((bp) => bp.id === id)?.name || '';
+  const exprName = (id) => expressions.find((ex) => ex.id === id)?.name || '';
+
+  const visiblePresets = useMemo(() => {
+    let list = presets;
+    if (search.trim()) {
+      const q = search.trim().toLowerCase();
+      list = list.filter((p) => p.name.toLowerCase().includes(q));
+    }
+    list = [...list].sort((a, b) => (
+      sortBy === 'updated'
+        ? new Date(b.updatedAt) - new Date(a.updatedAt)
+        : a.name.localeCompare(b.name)
+    ));
+    return list;
+  }, [presets, search, sortBy]);
 
   // Live preview — reuses the exact same component that renders characters in the real
   // comic (CharacterPresetRig), fed with the current (not-yet-saved) form values instead
@@ -131,139 +201,293 @@ export default function CharacterPresetBuilder() {
     skinTone, hairColor, irisColor, defaultExpressionId: defaultExpressionId || null,
   }), [frontFaceId, threeQuarterFaceId, defaultFaceView, skinTone, hairColor, irisColor, defaultExpressionId]);
   const previewInstance = useMemo(() => ({ presetId: 'draft', bodyPoseId: defaultBodyPoseId }), [defaultBodyPoseId]);
+  const hasPreview = !!(frontFaceId || threeQuarterFaceId) && !!defaultBodyPoseId;
+
+  const statusDisplay = saving
+    ? { icon: <Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} />, text: 'Saving…', color: 'var(--mid)' }
+    : isDirty
+      ? { icon: null, text: 'Unsaved changes', color: 'var(--warning, #b45309)' }
+      : { icon: <CheckCircle2 size={13} color="var(--action-primary)" />, text: 'Saved', color: 'var(--mid)' };
 
   return (
-    <div className="card" style={s.root}>
-      <h3 style={s.heading}>{editingId ? `Editing "${name}"` : 'Character Preset Builder'}</h3>
-      <p style={s.sub}>A character identity — which Front/3-4 face templates represent it, plus default skin tone, hair color, and expression.</p>
-
-      <div style={s.builderRow}>
-      <form onSubmit={handleSave} style={s.form}>
-        <div className="form-group">
-          <label>Character Name *</label>
-          <input required value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Rahul, Inspector" />
+    <form onSubmit={handleSave} style={styles.root}>
+      {/* ── Header ── */}
+      <div style={styles.headerRow}>
+        <div>
+          <h2 style={styles.title}>Character Templates</h2>
+          <p className="text-sm text-muted">Create reusable character identities with default appearance and costume settings.</p>
         </div>
-        <div className="form-group">
-          <label>Front Face (optional)</label>
-          <select value={frontFaceId} onChange={(e) => setFrontFaceId(e.target.value)}>
-            <option value="">— None —</option>
-            {frontFaces.map((f) => <option key={f.id} value={f.id}>{f.faceFamily ? `${f.faceFamily} — ${f.name}` : f.name}</option>)}
-          </select>
-          {frontFaces.length === 0 && <p style={s.hint}>No FACE_TEMPLATE assets with View = Front yet.</p>}
-        </div>
-        <div className="form-group">
-          <label>3/4 Face (optional)</label>
-          <select value={threeQuarterFaceId} onChange={(e) => setThreeQuarterFaceId(e.target.value)}>
-            <option value="">— None —</option>
-            {threeQuarterFaces.map((f) => <option key={f.id} value={f.id}>{f.faceFamily ? `${f.faceFamily} — ${f.name}` : f.name}</option>)}
-          </select>
-          <p style={s.hint}>At least one of Front / 3-4 Face is required.</p>
-        </div>
-        {needsExplicitDefaultView && (
-          <div className="form-group">
-            <label>Default View *</label>
-            <select required value={defaultFaceView} onChange={(e) => setDefaultFaceView(e.target.value)}>
-              <option value="">— Choose —</option>
-              <option value="FRONT">Front</option>
-              <option value="THREE_QUARTER">3/4</option>
-            </select>
-            <p style={s.hint}>Used when a body pose's own view (Front/3-4) has no matching face assigned.</p>
-          </div>
-        )}
-        <div className="form-group">
-          <label>Default Skin Tone *</label>
-          <select required value={skinTone} onChange={(e) => setSkinTone(e.target.value)}>
-            {SKIN_TONE_OPTIONS.map((t) => <option key={t.id} value={t.id}>{t.label}</option>)}
-          </select>
-        </div>
-        <div className="form-group">
-          <label>Default Hair Color *</label>
-          <input type="color" value={hairColor} onChange={(e) => setHairColor(e.target.value)} style={{ width: 60, height: 36, padding: 0 }} />
-        </div>
-        <div className="form-group">
-          <label>Default Iris Color</label>
-          <input type="color" value={irisColor} onChange={(e) => setIrisColor(e.target.value)} style={{ width: 60, height: 36, padding: 0 }} />
-        </div>
-        <div className="form-group">
-          <label>Default Expression (optional)</label>
-          <select value={defaultExpressionId} onChange={(e) => setDefaultExpressionId(e.target.value)}>
-            <option value="">— None —</option>
-            {expressions.map((ex) => <option key={ex.id} value={ex.id}>{ex.name}</option>)}
-          </select>
-        </div>
-        <div className="form-group">
-          <label>Default Costume + Pose (optional)</label>
-          <select value={defaultBodyPoseId} onChange={(e) => setDefaultBodyPoseId(e.target.value)}>
-            <option value="">— None —</option>
-            {bodyPoses.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-          </select>
-          <p style={s.hint}>Used automatically the first time this character is placed in a panel, instead of asking — still changeable per-placement afterward via Outfit/Pose.</p>
-        </div>
-        {error && <p className="form-error">{error}</p>}
-        <div style={{ display: 'flex', gap: 8 }}>
-          <button className="btn btn-primary" type="submit" disabled={saving}>
-            {saving ? 'Saving…' : editingId ? 'Update Character Preset' : 'Save Character Preset'}
+        <div style={styles.headerActions}>
+          <span style={{ ...styles.statusText, color: statusDisplay.color }}>
+            {statusDisplay.icon}{statusDisplay.text}
+          </span>
+          <button type="button" className="btn btn-outline btn-sm" onClick={resetForm}>
+            <Plus size={14} /> New
           </button>
-          {editingId && (
-            <button className="btn btn-outline" type="button" onClick={resetForm}>Cancel</button>
-          )}
-        </div>
-      </form>
-
-      <div style={s.previewCol}>
-        <p style={s.previewLabel}>Live Preview</p>
-        <div style={s.previewBox}>
-          {(frontFaceId || threeQuarterFaceId) && defaultBodyPoseId ? (
-            <CharacterPresetRig instance={previewInstance} presetOverride={previewOverride} maxW={220} maxH={360} />
-          ) : (
-            <p style={s.hint}>Pick a Front or 3/4 Face and a Default Costume + Pose to see a preview.</p>
-          )}
+          <button type="button" className="btn btn-outline btn-sm" disabled={!editingId}
+            onClick={() => { const p = presets.find((x) => x.id === editingId); if (p) handleDuplicate(p); }}>
+            <Copy size={14} /> Duplicate
+          </button>
+          <button type="submit" className="btn btn-primary btn-sm" disabled={saving}>
+            {saving ? 'Saving…' : editingId ? 'Update' : 'Save Character'}
+          </button>
+          <button type="button" className="btn btn-danger btn-sm" disabled={!editingId}
+            onClick={() => editingId && handleDelete(editingId)}>
+            <Trash2 size={14} /> Delete
+          </button>
         </div>
       </div>
-      </div>
 
-      <h3 style={{ ...s.heading, marginTop: 28 }}>Saved Character Presets ({presets.length})</h3>
-      {loading ? (
-        <p style={s.hint}>Loading…</p>
-      ) : presets.length === 0 ? (
-        <p style={s.hint}>None saved yet.</p>
-      ) : (
-        <div style={s.list}>
-          {presets.map((p) => (
-            <div key={p.id} style={{ ...s.row, ...(editingId === p.id ? s.rowEditing : {}) }}>
-              <span style={s.rowName}>{p.name}</span>
-              <span style={s.rowDetail}>
-                {[p.frontFaceId && `Front: ${faceName(p.frontFaceId)}`, p.threeQuarterFaceId && `3/4: ${faceName(p.threeQuarterFaceId)}`].filter(Boolean).join(' / ')}
-                {p.defaultFaceView && p.frontFaceId && p.threeQuarterFaceId ? ` (default: ${p.defaultFaceView === 'FRONT' ? 'Front' : '3/4'})` : ''}
-                {' · '}{SKIN_PRESETS[p.skinTone]?.label || p.skinTone}
-                {p.defaultBodyPoseId ? ` · ${bodyPoses.find((bp) => bp.id === p.defaultBodyPoseId)?.name || 'pose'}` : ''}
-              </span>
-              <button className="btn btn-outline btn-sm" onClick={() => handleEdit(p)}>Edit</button>
-              <button className="btn btn-outline btn-sm" onClick={() => handleDelete(p.id)}>Delete</button>
+      <div style={styles.columns}>
+        {/* ── LEFT: Character Library ── */}
+        <div style={styles.leftCol}>
+          <div className="card" style={styles.libraryCard}>
+            <p style={styles.heading}>Character Library ({presets.length})</p>
+            <div style={styles.libraryControls}>
+              <div style={styles.searchWrap}>
+                <Search size={13} color="var(--mid)" />
+                <input
+                  value={search} onChange={(e) => setSearch(e.target.value)}
+                  placeholder="Search characters…" style={styles.searchInput}
+                />
+              </div>
+              <button type="button" className="btn btn-outline btn-sm" style={styles.sortBtn}
+                title="Sort" onClick={() => setSortBy((s) => (s === 'name' ? 'updated' : 'name'))}>
+                <ArrowUpDown size={13} /> {sortBy === 'name' ? 'Name' : 'Recent'}
+              </button>
             </div>
-          ))}
+
+            <div style={styles.libraryList}>
+              {loading ? (
+                <p style={styles.hint}>Loading…</p>
+              ) : visiblePresets.length === 0 ? (
+                <p style={styles.hint}>{presets.length === 0 ? 'No characters saved yet.' : 'No matches.'}</p>
+              ) : (
+                visiblePresets.map((p) => (
+                  <div key={p.id} style={{ ...styles.presetCard, ...(editingId === p.id ? styles.presetCardActive : {}) }}>
+                    <div style={styles.presetThumb}>
+                      {p.defaultBodyPoseId ? (
+                        <CharacterPresetRig instance={{ presetId: p.id, bodyPoseId: p.defaultBodyPoseId }} maxW={54} maxH={84} />
+                      ) : (
+                        <User size={22} color="var(--nav-primary)" />
+                      )}
+                    </div>
+                    <div style={styles.presetInfo}>
+                      <p style={styles.presetName}>{p.name}</p>
+                      <p style={styles.presetDetail}>
+                        {SKIN_PRESETS[p.skinTone]?.label || p.skinTone}
+                        {p.defaultBodyPoseId ? ` · ${poseName(p.defaultBodyPoseId)}` : ''}
+                      </p>
+                    </div>
+                    <div style={styles.presetActions}>
+                      <button type="button" style={styles.iconBtn} title="Edit" onClick={() => handleEdit(p)}><Pencil size={13} /></button>
+                      <button type="button" style={styles.iconBtn} title="Duplicate" onClick={() => handleDuplicate(p)}><Copy size={13} /></button>
+                      <button type="button" style={{ ...styles.iconBtn, color: '#DC2626' }} title="Delete" onClick={() => handleDelete(p.id)}><Trash2 size={13} /></button>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
         </div>
-      )}
+
+        {/* ── CENTER: Character Builder ── */}
+        <div style={styles.centerCol}>
+          <div className="card" style={styles.formCard}>
+            <p style={styles.heading}>Character Information</p>
+            <div style={styles.formGrid}>
+              <div className="form-group" style={{ ...styles.spanTwo, marginBottom: 0 }}>
+                <label>Character Name *</label>
+                <input required value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Rahul, Inspector" />
+              </div>
+              <div className="form-group" style={{ marginBottom: 0 }}>
+                <label>Front Face</label>
+                <select value={frontFaceId} onChange={(e) => setFrontFaceId(e.target.value)}>
+                  <option value="">— None —</option>
+                  {frontFaces.map((f) => <option key={f.id} value={f.id}>{f.faceFamily ? `${f.faceFamily} — ${f.name}` : f.name}</option>)}
+                </select>
+              </div>
+              <div className="form-group" style={{ marginBottom: 0 }}>
+                <label>3/4 Face</label>
+                <select value={threeQuarterFaceId} onChange={(e) => setThreeQuarterFaceId(e.target.value)}>
+                  <option value="">— None —</option>
+                  {threeQuarterFaces.map((f) => <option key={f.id} value={f.id}>{f.faceFamily ? `${f.faceFamily} — ${f.name}` : f.name}</option>)}
+                </select>
+              </div>
+              {needsExplicitDefaultView && (
+                <div className="form-group" style={{ ...styles.spanTwo, marginBottom: 0 }}>
+                  <label>Default View *</label>
+                  <select required value={defaultFaceView} onChange={(e) => setDefaultFaceView(e.target.value)}>
+                    <option value="">— Choose —</option>
+                    <option value="FRONT">Front</option>
+                    <option value="THREE_QUARTER">3/4</option>
+                  </select>
+                  <p style={styles.hintSmall}>Used when a body pose's own view has no matching face assigned.</p>
+                </div>
+              )}
+              <div className="form-group" style={{ marginBottom: 0 }}>
+                <label>Default Expression</label>
+                <select value={defaultExpressionId} onChange={(e) => setDefaultExpressionId(e.target.value)}>
+                  <option value="">— None —</option>
+                  {expressions.map((ex) => <option key={ex.id} value={ex.id}>{ex.name}</option>)}
+                </select>
+              </div>
+              <div className="form-group" style={{ marginBottom: 0 }}>
+                <label>Default Costume + Pose</label>
+                <select value={defaultBodyPoseId} onChange={(e) => setDefaultBodyPoseId(e.target.value)}>
+                  <option value="">— None —</option>
+                  {bodyPoses.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+                </select>
+              </div>
+              {!frontFaceId && !threeQuarterFaceId && <p style={{ ...styles.hintSmall, ...styles.spanTwo }}>At least one of Front / 3-4 Face is required.</p>}
+            </div>
+          </div>
+
+          <div className="card" style={styles.formCard}>
+            <p style={styles.heading}>Appearance</p>
+            <div className="form-group" style={{ marginBottom: 14 }}>
+              <label>Skin Tone</label>
+              <div style={styles.swatchRow}>
+                {SKIN_TONE_OPTIONS.map((t) => (
+                  <button
+                    key={t.id} type="button" title={t.label}
+                    onClick={() => setSkinTone(t.id)}
+                    style={{ ...styles.swatch, background: t.base, ...(skinTone === t.id ? styles.swatchActive : {}) }}
+                  />
+                ))}
+              </div>
+            </div>
+            <div style={styles.formGrid}>
+              <div className="form-group" style={{ marginBottom: 0 }}>
+                <label>Hair Color</label>
+                <div style={styles.colorRow}>
+                  <input type="color" value={hairColor} onChange={(e) => setHairColor(e.target.value)} style={styles.colorInput} />
+                  <span style={styles.colorHex}>{hairColor}</span>
+                </div>
+              </div>
+              <div className="form-group" style={{ marginBottom: 0 }}>
+                <label>Iris Color</label>
+                <div style={styles.colorRow}>
+                  <input type="color" value={irisColor} onChange={(e) => setIrisColor(e.target.value)} style={styles.colorInput} />
+                  <span style={styles.colorHex}>{irisColor}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {error && <p className="form-error">{error}</p>}
+        </div>
+
+        {/* ── RIGHT: Live Preview ── */}
+        <div style={styles.rightCol}>
+          <div className="card" style={styles.previewCard}>
+            <div style={styles.previewHeadRow}>
+              <p style={{ ...styles.heading, margin: 0 }}>Character Preview</p>
+              <div style={styles.zoomControls}>
+                <button type="button" style={styles.iconBtn} title="Zoom out" onClick={() => setZoom((z) => Math.max(ZOOM_MIN, +(z - ZOOM_STEP).toFixed(2)))}><ZoomOut size={13} /></button>
+                <button type="button" style={styles.iconBtn} title="Reset zoom" onClick={() => setZoom(1)}><RotateCcw size={13} /></button>
+                <button type="button" style={styles.iconBtn} title="Zoom in" onClick={() => setZoom((z) => Math.min(ZOOM_MAX, +(z + ZOOM_STEP).toFixed(2)))}><ZoomIn size={13} /></button>
+              </div>
+            </div>
+            <div style={styles.previewBox}>
+              {hasPreview ? (
+                <div style={{ transform: `scale(${zoom})`, transition: 'transform 120ms ease' }}>
+                  <CharacterPresetRig instance={previewInstance} presetOverride={previewOverride} maxW={180} maxH={300} />
+                </div>
+              ) : (
+                <p style={styles.hint}>Pick a Front or 3/4 Face and a Default Costume + Pose to see a preview.</p>
+              )}
+            </div>
+          </div>
+
+          <div className="card" style={styles.previewCard}>
+            <p style={styles.heading}>Character Summary</p>
+            <div style={styles.summaryList}>
+              <SummaryRow label="Front Face" value={frontFaceId ? faceName(frontFaceId) : '—'} />
+              <SummaryRow label="3/4 Face" value={threeQuarterFaceId ? faceName(threeQuarterFaceId) : '—'} />
+              <SummaryRow label="Expression" value={defaultExpressionId ? exprName(defaultExpressionId) : '—'} />
+              <SummaryRow label="Costume + Pose" value={defaultBodyPoseId ? poseName(defaultBodyPoseId) : '—'} />
+              <SummaryRow label="Skin Tone" value={SKIN_PRESETS[skinTone]?.label || '—'} swatch={SKIN_PRESETS[skinTone]?.base} />
+              <SummaryRow label="Hair Color" value={hairColor} swatch={hairColor} />
+              <SummaryRow label="Iris Color" value={irisColor} swatch={irisColor} />
+            </div>
+          </div>
+        </div>
+      </div>
+    </form>
+  );
+}
+
+function SummaryRow({ label, value, swatch }) {
+  return (
+    <div style={styles.summaryRow}>
+      <span style={styles.summaryLabel}>{label}</span>
+      <span style={styles.summaryValue}>
+        {swatch && <span style={{ ...styles.summarySwatch, background: swatch }} />}
+        {value}
+      </span>
     </div>
   );
 }
 
-const s = {
-  root: { padding: 28, maxWidth: 980 },
-  heading: { fontSize: 18, fontWeight: 700, marginBottom: 6 },
-  sub: { fontSize: 13, color: 'var(--mid)', marginBottom: 20, lineHeight: 1.6 },
-  hint: { fontSize: 12, color: 'var(--mid)', marginTop: 4 },
-  list: { display: 'flex', flexDirection: 'column', gap: 8 },
-  row: { display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', background: 'var(--primary-light)', borderRadius: 8 },
-  rowEditing: { outline: '2px solid var(--primary)', outlineOffset: -2 },
-  rowName: { fontWeight: 600, fontSize: 13, minWidth: 100 },
-  rowDetail: { fontSize: 12, color: 'var(--mid)', flex: 1 },
-  builderRow: { display: 'flex', gap: 24, alignItems: 'flex-start' },
-  form: { flex: 1, minWidth: 0, maxWidth: 420 },
-  previewCol: { flexShrink: 0, position: 'sticky', top: 16 },
-  previewLabel: { fontSize: 12, fontWeight: 700, textTransform: 'uppercase', color: 'var(--mid)', marginBottom: 8 },
-  previewBox: {
-    width: 220, height: 360, display: 'flex', alignItems: 'center', justifyContent: 'center',
-    background: 'var(--primary-light)', borderRadius: 10, padding: 12, textAlign: 'center',
+const styles = {
+  root: { display: 'flex', flexDirection: 'column', gap: 16 },
+  headerRow: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' },
+  title: { fontSize: 22, fontWeight: 800, color: 'var(--dark)', margin: '0 0 2px' },
+  headerActions: { display: 'flex', alignItems: 'center', gap: 8 },
+  statusText: { fontSize: 12, fontWeight: 600, whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: 5, marginRight: 4 },
+
+  columns: { display: 'flex', gap: 16, alignItems: 'flex-start', flexWrap: 'wrap' },
+  leftCol: { flex: '1 1 260px', maxWidth: 300, minWidth: 240 },
+  centerCol: { flex: '2 1 420px', minWidth: 320, display: 'flex', flexDirection: 'column', gap: 12 },
+  rightCol: { flex: '1 1 260px', maxWidth: 300, minWidth: 240, display: 'flex', flexDirection: 'column', gap: 16, position: 'sticky', top: 20, alignSelf: 'flex-start' },
+
+  libraryCard: { padding: 14, position: 'sticky', top: 20 },
+  heading: { fontSize: 12, fontWeight: 700, color: 'var(--mid)', textTransform: 'uppercase', letterSpacing: 0.4, margin: '0 0 10px' },
+  libraryControls: { display: 'flex', gap: 8, marginBottom: 10 },
+  searchWrap: { flex: 1, display: 'flex', alignItems: 'center', gap: 6, border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', padding: '0 8px', background: '#fff' },
+  searchInput: { border: 'none', outline: 'none', fontSize: 12.5, padding: '7px 0', width: '100%', background: 'transparent' },
+  sortBtn: { whiteSpace: 'nowrap', flexShrink: 0 },
+
+  libraryList: { display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 520, overflowY: 'auto' },
+  hint: { fontSize: 12, color: 'var(--mid)', margin: 0, padding: '8px 2px' },
+  hintSmall: { fontSize: 11.5, color: 'var(--mid)', margin: '4px 0 0' },
+
+  presetCard: { display: 'flex', alignItems: 'center', gap: 8, padding: 8, borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)', background: '#fff' },
+  presetCardActive: { borderColor: 'var(--edit-primary)', background: 'var(--primary-light)' },
+  presetThumb: { width: 54, height: 60, borderRadius: 6, background: 'var(--light)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, overflow: 'hidden' },
+  presetInfo: { flex: 1, minWidth: 0 },
+  presetName: { fontSize: 13, fontWeight: 700, color: 'var(--dark)', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
+  presetDetail: { fontSize: 11, color: 'var(--mid)', margin: '2px 0 0', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
+  presetActions: { display: 'flex', flexDirection: 'column', gap: 2, flexShrink: 0 },
+  iconBtn: {
+    width: 24, height: 24, borderRadius: 6, border: '1px solid var(--border)', background: '#fff',
+    color: 'var(--mid)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
   },
+
+  formCard: { padding: 18 },
+  formGrid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '14px 20px' },
+  spanTwo: { gridColumn: '1 / -1' },
+
+  swatchRow: { display: 'flex', gap: 8, flexWrap: 'wrap' },
+  swatch: { width: 30, height: 30, borderRadius: '50%', border: '2px solid var(--border)', cursor: 'pointer', padding: 0 },
+  swatchActive: { borderColor: 'var(--edit-primary)', boxShadow: '0 0 0 2px var(--primary-light)' },
+
+  colorRow: { display: 'flex', alignItems: 'center', gap: 8 },
+  colorInput: { width: 40, height: 32, padding: 0, border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)' },
+  colorHex: { fontSize: 12, color: 'var(--mid)', fontWeight: 600 },
+
+  previewCard: { padding: 16 },
+  previewHeadRow: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 },
+  zoomControls: { display: 'flex', gap: 2 },
+  previewBox: {
+    display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 220,
+    background: 'var(--light)', borderRadius: 'var(--radius-sm)', padding: 12, textAlign: 'center',
+  },
+
+  summaryList: { display: 'flex', flexDirection: 'column', gap: 0 },
+  summaryRow: { display: 'flex', justifyContent: 'space-between', gap: 10, padding: '6px 0', borderBottom: '1px solid var(--border)', fontSize: 12.5 },
+  summaryLabel: { color: 'var(--mid)' },
+  summaryValue: { color: 'var(--dark)', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6, textAlign: 'right', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '65%' },
+  summarySwatch: { width: 12, height: 12, borderRadius: '50%', border: '1px solid var(--border)', flexShrink: 0 },
 };

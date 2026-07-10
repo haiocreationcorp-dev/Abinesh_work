@@ -518,7 +518,7 @@ export default function ManageUsersPanel() {
 
 const styles = {
   headerRow: { display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 20, gap: 12, flexWrap: 'wrap' },
-  pageTitle: { fontSize: 24, fontWeight: 800, marginBottom: 4 },
+  pageTitle: { fontSize: 22, fontWeight: 800, marginBottom: 2 },
   statCard: { padding: 20 },
   statLabel: { fontSize: 13, color: 'var(--mid)', marginBottom: 6 },
   statValue: { fontSize: 28, fontWeight: 800 },

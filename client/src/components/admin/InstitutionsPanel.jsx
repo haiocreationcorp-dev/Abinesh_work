@@ -736,7 +736,7 @@ export default function InstitutionsPanel() {
 
 const styles = {
   headerRow: { display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 20, gap: 12, flexWrap: 'wrap' },
-  pageTitle: { fontSize: 24, fontWeight: 800, marginBottom: 4 },
+  pageTitle: { fontSize: 22, fontWeight: 800, marginBottom: 2 },
   codeCallout: {
     display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap',
     background: 'var(--primary-light)', color: 'var(--primary)', borderRadius: 'var(--radius-sm)', padding: '10px 14px', marginBottom: 16, fontSize: 14,

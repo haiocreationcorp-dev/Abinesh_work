@@ -203,7 +203,7 @@ export default function AdminPage() {
 
       <main style={styles.content}>
           <div style={styles.contentInner}>
-          {tab !== 0 && tab !== 9 && tab !== 10 && (
+          {tab !== 0 && tab !== 1 && tab !== 3 && tab !== 4 && tab !== 6 && tab !== 9 && tab !== 10 && (
             <PageHeader
               title={TABS[tab]}
               subtitle={TAB_SUBTITLES[tab]}
@@ -211,6 +211,15 @@ export default function AdminPage() {
                 <button className="btn btn-primary" onClick={() => setTab(0)}>
                   <UploadCloud size={15} /> Upload Asset
                 </button>
+              ) : tab === 2 ? (
+                <div style={styles.tabs}>
+                  <button className={`btn ${fbMode === 'face' ? 'btn-nav-active' : 'btn-ghost'}`} onClick={() => setFbMode('face')}>
+                    Face
+                  </button>
+                  <button className={`btn ${fbMode === 'pose' ? 'btn-nav-active' : 'btn-ghost'}`} onClick={() => setFbMode('pose')}>
+                    Pose
+                  </button>
+                </div>
               ) : null}
             />
           )}
@@ -218,19 +227,7 @@ export default function AdminPage() {
 
           {tab === 1 && <FolderUploadForm />}
 
-          {tab === 2 && (
-            <div>
-              <div style={{ ...styles.tabs, marginBottom: 16 }}>
-                <button className={`btn ${fbMode === 'face' ? 'btn-nav-active' : 'btn-ghost'}`} onClick={() => setFbMode('face')}>
-                  Face
-                </button>
-                <button className={`btn ${fbMode === 'pose' ? 'btn-nav-active' : 'btn-ghost'}`} onClick={() => setFbMode('pose')}>
-                  Pose
-                </button>
-              </div>
-              {fbMode === 'face' ? <FaceBuilder /> : <PoseBuilder />}
-            </div>
-          )}
+          {tab === 2 && (fbMode === 'face' ? <FaceBuilder /> : <PoseBuilder />)}
 
           {tab === 3 && <ExpressionBuilder />}
 
@@ -373,11 +370,11 @@ const styles = {
   categoryRowEven: { display: 'flex', gap: 10, marginBottom: 20 },
   categoryChipEven: { flex: 1, justifyContent: 'center', textAlign: 'center' },
   explorerHeader: {
-    display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between',
+    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
     gap: 16, marginBottom: 18, flexWrap: 'wrap',
   },
-  explorerTitle: { fontSize: 28, fontWeight: 800, color: 'var(--dark)', marginBottom: 4 },
-  explorerSubtitle: { fontSize: 13.5, color: 'var(--mid)', maxWidth: 520, lineHeight: 1.5 },
+  explorerTitle: { fontSize: 22, fontWeight: 800, color: 'var(--dark)', marginBottom: 2 },
+  explorerSubtitle: { fontSize: 13, color: 'var(--mid)', maxWidth: 520, lineHeight: 1.5 },
   searchWrapLarge: {
     display: 'flex', alignItems: 'center', gap: 8,
     width: '100%', maxWidth: 400, padding: '10px 14px',

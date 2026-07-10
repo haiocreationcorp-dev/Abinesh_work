@@ -62,10 +62,16 @@ Set-Location "$APP_DIR\server"
 npm install --production
 Write-Host "      Server deps installed." -ForegroundColor Green
 
-# ── 5. Prisma generate + db push ──────────────────────────────────────────────
-Write-Host "[5/8] Setting up database schema..." -ForegroundColor Yellow
+# ── 5. Backup, then Prisma generate + db push ─────────────────────────────────
+Write-Host "[5/8] Backing up database before touching schema..." -ForegroundColor Yellow
+npm run backup:all
+Write-Host "      Backup complete." -ForegroundColor Green
+Write-Host "      Setting up database schema..." -ForegroundColor Yellow
 npx prisma generate
-npx prisma db push --accept-data-loss
+# No --accept-data-loss: this fails loudly instead of silently dropping data if the
+# diff includes a destructive change. If it fails, back up (already done above),
+# review the diff yourself, and decide whether --accept-data-loss is really warranted.
+npx prisma db push
 Write-Host "      Database schema ready." -ForegroundColor Green
 
 # ── 6. Build React client ─────────────────────────────────────────────────────
@@ -88,7 +94,9 @@ Set-Location "$APP_DIR\server"
 # Stop existing instance if running, ignore error if not
 pm2 stop bharatcomic 2>$null
 pm2 delete bharatcomic 2>$null
-pm2 start npm --name "bharatcomic" -- start
+# `pm2 start npm -- start` has crash-looped on this box before (npm.cmd executed as
+# JS). Start src/index.js directly instead — equivalent to what `npm start` runs anyway.
+pm2 start src/index.js --name "bharatcomic"
 pm2 save
 Write-Host "      Server started." -ForegroundColor Green
 

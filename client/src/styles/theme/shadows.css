@@ -1,0 +1,18 @@
+/* ── shadows.css — box-shadow scale.
+   --shadow/--shadow-lg are the existing tokens used throughout the app today
+   (theme-dependent — stronger/darker in dark mode, see the override below).
+   --shadow-small/--shadow-medium/--shadow-large are additions from the latest
+   design brief for new/updated code. */
+:root {
+  --shadow: 0 4px 20px rgba(17, 24, 39, 0.08);
+  --shadow-lg: 0 8px 40px rgba(17, 24, 39, 0.16);
+
+  --shadow-small: 0 2px 6px rgba(0, 0, 0, 0.05);
+  --shadow-medium: 0 8px 20px rgba(0, 0, 0, 0.08);
+  --shadow-large: 0 20px 40px rgba(0, 0, 0, 0.10);
+}
+
+[data-theme="dark"] {
+  --shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+  --shadow-lg: 0 8px 40px rgba(0, 0, 0, 0.55);
+}

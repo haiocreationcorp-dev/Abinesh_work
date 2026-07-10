@@ -684,7 +684,7 @@ export default function PaletteNormalizer() {
               <button
                 key={c}
                 type="button"
-                style={{ ...s.btn, ...(libraryCategory === c ? s.btnActive : {}) }}
+                style={{ ...s.btn, ...(libraryCategory === c ? s.btnActiveNav : {}) }}
                 onClick={() => { setLibraryCategory(c); loadLibraryAssets(c); }}
               >
                 {c}
@@ -768,7 +768,7 @@ export default function PaletteNormalizer() {
           <h2 style={s.h2}>Load</h2>
           <button
             type="button"
-            style={{ ...s.btn, ...(libraryOpen ? s.btnActive : {}) }}
+            style={{ ...s.btn, ...(libraryOpen ? s.btnActiveNav : {}) }}
             onClick={() => { setLibraryOpen((o) => !o); if (!libraryOpen) loadLibraryAssets(libraryCategory); }}
           >
             Load From Library…
@@ -884,32 +884,32 @@ export default function PaletteNormalizer() {
 }
 
 const s = {
-  root: { fontFamily: 'system-ui, sans-serif', background: '#1b1b1f', color: '#eee', borderRadius: 8, overflow: 'hidden' },
-  toolbar: { display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 18, padding: '10px 16px', background: '#15151a', borderBottom: '1px solid #333' },
-  toolbarGroup: { display: 'flex', alignItems: 'center', gap: 6, paddingRight: 18, borderRight: '1px solid #333' },
-  toolbarSlider: { display: 'flex', flexDirection: 'column', gap: 2, fontSize: 11, color: '#bbb', width: 110 },
-  sampleDot: { display: 'inline-block', width: 10, height: 10, borderRadius: '50%', marginLeft: 6, border: '1px solid #555', verticalAlign: 'middle' },
-  h1: { fontSize: 16, margin: 0 },
-  fileName: { fontSize: 11, color: '#999', display: 'block', marginTop: 4 },
-  bgMsg: { fontSize: 12, color: '#7fd17f', textAlign: 'center', margin: '8px 16px 0' },
+  root: { fontFamily: 'system-ui, sans-serif', background: 'var(--surface)', color: 'var(--dark)', borderRadius: 8, overflow: 'hidden', border: '1px solid var(--border)' },
+  toolbar: { display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 18, padding: '10px 16px', background: 'var(--light)', borderBottom: '1px solid var(--border)' },
+  toolbarGroup: { display: 'flex', alignItems: 'center', gap: 6, paddingRight: 18, borderRight: '1px solid var(--border)' },
+  toolbarSlider: { display: 'flex', flexDirection: 'column', gap: 2, fontSize: 11, color: 'var(--mid)', width: 110 },
+  sampleDot: { display: 'inline-block', width: 10, height: 10, borderRadius: '50%', marginLeft: 6, border: '1px solid var(--border)', verticalAlign: 'middle' },
+  h1: { fontSize: 16, margin: 0, fontWeight: 700 },
+  fileName: { fontSize: 11, color: 'var(--muted)', display: 'block', marginTop: 4 },
+  bgMsg: { fontSize: 12, color: 'var(--success)', textAlign: 'center', margin: '8px 16px 0' },
   bgPickConfirm: {
     display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 12,
-    fontSize: 12, color: '#fff', background: '#3a2020', border: '1px solid #c0392b',
+    fontSize: 12, color: 'var(--danger)', background: '#fee2e2', border: '1px solid var(--danger)',
     margin: '8px 16px 0', padding: '8px 12px', borderRadius: 6,
   },
   bgPickOverlay: {
     position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', pointerEvents: 'none',
   },
   fileLoadSide: { fontSize: 12, display: 'flex', flexDirection: 'column', gap: 4, marginTop: 8 },
-  libraryPanel: { padding: 12, background: '#1f1f24', borderBottom: '1px solid #333' },
+  libraryPanel: { padding: 12, background: 'var(--light)', borderBottom: '1px solid var(--border)' },
   libraryCategoryRow: { display: 'flex', gap: 8, marginBottom: 10 },
   libraryGrid: { display: 'flex', flexWrap: 'wrap', gap: 10, maxHeight: 220, overflowY: 'auto' },
-  libraryThumb: { display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, width: 96, padding: 6, background: '#2a2a31', border: '1px solid #3a3a42', borderRadius: 4, cursor: 'pointer', position: 'relative' },
+  libraryThumb: { display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, width: 96, padding: 6, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 4, cursor: 'pointer', position: 'relative' },
   libraryThumbImg: { width: 80, height: 80, objectFit: 'contain', background: '#fff', borderRadius: 4 },
-  libraryThumbLabel: { fontSize: 10, color: '#ddd', textAlign: 'center', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', width: '100%' },
+  libraryThumbLabel: { fontSize: 10, color: 'var(--dark)', textAlign: 'center', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', width: '100%' },
   libraryMaskDot: {
     position: 'absolute', bottom: 4, right: 4, width: 9, height: 9, borderRadius: '50%',
-    background: '#22c55e', border: '1.5px solid #15151a', boxShadow: '0 0 4px rgba(34,197,94,0.7)',
+    background: '#22c55e', border: '1.5px solid var(--surface)', boxShadow: '0 0 4px rgba(34,197,94,0.7)',
   },
   mainRow: { display: 'flex', gap: 16, padding: 16, alignItems: 'flex-start' },
   bigStage: { flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', minWidth: 0 },
@@ -917,27 +917,28 @@ const s = {
   hiddenCanvas: { display: 'none' },
   presetGrid: { display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10, justifyContent: 'start' },
   presetCircle: { width: 44, height: 44, borderRadius: '50%', border: '3px solid transparent', cursor: 'pointer', padding: 0 },
-  presetCircleActive: { borderColor: '#3b5bdb' },
-  presetActiveLabel: { fontSize: 12, color: '#ddd', textAlign: 'center', margin: '8px 0 0' },
-  emptyStateInline: { textAlign: 'center', color: '#777', fontSize: 13, margin: '0 0 16px' },
-  toolsPanel: { display: 'flex', gap: 24, padding: 16, background: '#16161a', borderTop: '1px solid #333', flexWrap: 'wrap' },
+  presetCircleActive: { borderColor: 'var(--nav-primary)' },
+  presetActiveLabel: { fontSize: 12, color: 'var(--dark)', textAlign: 'center', margin: '8px 0 0' },
+  emptyStateInline: { textAlign: 'center', color: 'var(--mid)', fontSize: 13, margin: '0 0 16px' },
+  toolsPanel: { display: 'flex', gap: 24, padding: 16, background: 'var(--light)', borderTop: '1px solid var(--border)', flexWrap: 'wrap' },
   toolsCol: { flex: '1 1 260px', minWidth: 240 },
-  h2: { fontSize: 12, textTransform: 'uppercase', letterSpacing: '0.05em', color: '#999', margin: '16px 0 8px' },
-  h3: { fontSize: 12, color: '#aaa', margin: '0 0 6px' },
+  h2: { fontSize: 12, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--mid)', margin: '16px 0 8px', fontWeight: 700 },
+  h3: { fontSize: 12, color: 'var(--mid)', margin: '0 0 6px' },
   thresholdGroup: { display: 'flex', flexDirection: 'column', gap: 8 },
-  thresholdLabel: { display: 'flex', alignItems: 'center', gap: 8, fontSize: 11, color: '#bbb' },
+  thresholdLabel: { display: 'flex', alignItems: 'center', gap: 8, fontSize: 11, color: 'var(--mid)' },
   range: { flex: 1 },
-  output: { width: 32, textAlign: 'right', fontSize: 11, color: '#ddd' },
-  hint: { fontSize: 11, color: '#888', lineHeight: 1.4, whiteSpace: 'pre-line' },
+  output: { width: 32, textAlign: 'right', fontSize: 11, color: 'var(--dark)' },
+  hint: { fontSize: 11, color: 'var(--muted)', lineHeight: 1.4, whiteSpace: 'pre-line' },
   checkboxRow: { display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, marginTop: 6 },
-  alreadyNormalizedRow: { display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, fontWeight: 600, color: '#fff' },
+  alreadyNormalizedRow: { display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, fontWeight: 600, color: 'var(--dark)' },
   paletteRow: { display: 'flex', gap: 10 },
-  paletteLabel: { display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, fontSize: 11, color: '#bbb' },
-  colorInput: { width: 36, height: 30, padding: 0, border: '1px solid #3a3a42', borderRadius: 4, background: 'none' },
-  textInput: { width: '100%', padding: '5px 8px', background: '#2a2a31', color: '#eee', border: '1px solid #3a3a42', borderRadius: 4, fontSize: 12 },
-  btn: { padding: '6px 12px', cursor: 'pointer', background: '#2a2a31', color: '#eee', border: '1px solid #3a3a42', borderRadius: 4, fontSize: 12, marginTop: 8, marginRight: 6 },
-  btnActive: { borderColor: '#3b5bdb', background: '#283156' },
-  stats: { marginTop: 14, fontSize: 12, color: '#7fd17f', lineHeight: 1.6, whiteSpace: 'pre-line' },
+  paletteLabel: { display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, fontSize: 11, color: 'var(--mid)' },
+  colorInput: { width: 36, height: 30, padding: 0, border: '1px solid var(--border)', borderRadius: 4, background: 'none' },
+  textInput: { width: '100%', padding: '5px 8px', background: 'var(--surface)', color: 'var(--dark)', border: '1px solid var(--border)', borderRadius: 4, fontSize: 12 },
+  btn: { padding: '6px 12px', cursor: 'pointer', background: 'var(--surface)', color: 'var(--dark)', border: '1px solid var(--border)', borderRadius: 4, fontSize: 12, marginTop: 8, marginRight: 6 },
+  btnActive: { borderColor: 'var(--edit-primary)', background: 'var(--primary-light)', color: 'var(--edit-primary)' },
+  btnActiveNav: { borderColor: 'var(--nav-primary)', background: 'var(--nav-light)', color: 'var(--nav-text)' },
+  stats: { marginTop: 14, fontSize: 12, color: 'var(--success)', lineHeight: 1.6, whiteSpace: 'pre-line' },
   saveBox: { display: 'flex', flexDirection: 'column', gap: 8, marginTop: 4 },
   canvasWrap: { position: 'relative', display: 'inline-block', maxWidth: '100%' },
   brushRing: {
@@ -946,10 +947,9 @@ const s = {
   },
   canvas: {
     maxWidth: '100%', maxHeight: '60vh',
-    backgroundImage: 'linear-gradient(45deg, #2b2b2f 25%, transparent 25%), linear-gradient(-45deg, #2b2b2f 25%, transparent 25%), linear-gradient(45deg, transparent 75%, #2b2b2f 75%), linear-gradient(-45deg, transparent 75%, #2b2b2f 75%)',
+    backgroundImage: 'repeating-conic-gradient(var(--border) 0% 25%, transparent 0% 50%)',
     backgroundSize: '20px 20px',
-    backgroundPosition: '0 0, 0 10px, 10px -10px, -10px 0px',
-    backgroundColor: '#232328',
-    border: '1px solid #333',
+    backgroundColor: 'var(--surface)',
+    border: '1px solid var(--border)',
   },
 };

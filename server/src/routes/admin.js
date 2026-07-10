@@ -742,6 +742,14 @@ router.get('/stats', adminAuth, async (_req, res) => {
   });
 });
 
+// GET /api/admin/assets/category-counts — per-category asset totals, for the Asset Library sidebar badges
+router.get('/assets/category-counts', adminAuth, async (_req, res) => {
+  const rows = await prisma.asset.groupBy({ by: ['category'], _count: true });
+  const counts = {};
+  rows.forEach((r) => { counts[r.category] = r._count.category ?? r._count; });
+  res.json(counts);
+});
+
 // GET /api/admin/recent-comics — latest comics across all users, for the Dashboard's "Latest Comics" panel
 router.get('/recent-comics', adminAuth, async (_req, res) => {
   const comics = await prisma.comic.findMany({

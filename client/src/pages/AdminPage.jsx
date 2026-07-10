@@ -15,7 +15,8 @@ import AssetGrid from '../components/library/AssetGrid.jsx';
 import ManageUsersPanel from '../components/admin/ManageUsersPanel.jsx';
 import InstitutionsPanel from '../components/admin/InstitutionsPanel.jsx';
 import AdminNavDrawer from '../components/admin/AdminNavDrawer.jsx';
-import { CATEGORY_IDS, FACE_PART_TYPES, GENDERS, VIEWS, POSE_TYPES, EYE_TYPES, MOUTH_TYPES } from '../constants/categories.js';
+import { ASSET_CATEGORIES, FACE_PART_TYPES, GENDERS, VIEWS, POSE_TYPES, EYE_TYPES, MOUTH_TYPES } from '../constants/categories.js';
+import { Search, UploadCloud } from 'lucide-react';
 
 function IconSun() {
   return (
@@ -86,19 +87,45 @@ const NAV_GROUPS = {
   admin: { title: 'Administration', items: ADMINISTRATION_TABS },
 };
 
-// One row of "All" + option chips for a single-select filter — used for the
-// Browse Assets sub-category filters (Part Type, Gender, View, Pose Type).
-function FilterChipRow({ value, onChange, options }) {
+// One-line description shown under each tab's title in the shared PageHeader below —
+// index matches TABS. Tabs 9/10 (User/Organization Management) build their own headers
+// inside ManageUsersPanel/InstitutionsPanel, so they're not listed here.
+const TAB_SUBTITLES = [
+  'Upload a single asset with full metadata control.',
+  'Upload multiple assets at once from a folder, with automatic costume and pose detection.',
+  'Build and align face templates and body poses.',
+  'Create reusable eye + mouth expression pairs for characters.',
+  'Manage saved character presets.',
+  'Normalize skin tones and remove backgrounds for uploaded art.',
+  'Fine-tune eye masks and skin-tone normalization for FACE_PART eye assets.',
+  'Adjust lighting presets used across the comic editor.',
+  'Manage all image assets, templates, poses, backgrounds and visual resources.',
+];
+
+// Consistent large page header used at the top of every Content/Administration tab
+// (except 9/10, which build their own) — title + one-line subtitle, optional right-side action.
+function PageHeader({ title, subtitle, action }) {
   return (
-    <div style={styles.categoryRow}>
-      <button className={`btn btn-sm ${value === '' ? 'btn-primary' : 'btn-outline'}`} onClick={() => onChange('')}>
-        All
-      </button>
-      {options.map((o) => (
-        <button key={o.id} className={`btn btn-sm ${value === o.id ? 'btn-primary' : 'btn-outline'}`} onClick={() => onChange(o.id)}>
-          {o.label}
-        </button>
-      ))}
+    <div style={styles.explorerHeader}>
+      <div>
+        <h2 style={styles.explorerTitle}>{title}</h2>
+        {subtitle && <p style={styles.explorerSubtitle}>{subtitle}</p>}
+      </div>
+      {action}
+    </div>
+  );
+}
+
+// Plain labeled dropdown for a single-select filter — used for all the Asset Explorer's
+// sub-category filters (Part Type, Gender, View, Pose Type, Eye Type, Mouth Type).
+function FilterDropdown({ label, value, onChange, options }) {
+  return (
+    <div style={styles.filterField}>
+      <span style={styles.dropdownLabel}>{label}</span>
+      <select value={value} onChange={(e) => onChange(e.target.value)} style={styles.dropdownSelect}>
+        <option value="">All</option>
+        {options.map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}
+      </select>
     </div>
   );
 }
@@ -118,6 +145,7 @@ export default function AdminPage() {
   const [eyeType, setEyeType] = useState('');
   const [mouthType, setMouthType] = useState('');
   const [costumeFilter, setCostumeFilter] = useState('');
+  const [assetSearch, setAssetSearch] = useState('');
   const [fbMode, setFbMode] = useState('face');
 
   const toggleNav = (key) => setNavOpen((cur) => (cur === key ? null : key));
@@ -175,7 +203,17 @@ export default function AdminPage() {
 
       <main style={styles.content}>
           <div style={styles.contentInner}>
-          {tab !== 9 && tab !== 10 && <h3 style={styles.pageTitle}>{TABS[tab]}</h3>}
+          {tab !== 0 && tab !== 9 && tab !== 10 && (
+            <PageHeader
+              title={TABS[tab]}
+              subtitle={TAB_SUBTITLES[tab]}
+              action={tab === 8 ? (
+                <button className="btn btn-primary" onClick={() => setTab(0)}>
+                  <UploadCloud size={15} /> Upload Asset
+                </button>
+              ) : null}
+            />
+          )}
           {tab === 0 && <AssetUploadForm />}
 
           {tab === 1 && <FolderUploadForm />}
@@ -183,10 +221,10 @@ export default function AdminPage() {
           {tab === 2 && (
             <div>
               <div style={{ ...styles.tabs, marginBottom: 16 }}>
-                <button className={`btn ${fbMode === 'face' ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setFbMode('face')}>
+                <button className={`btn ${fbMode === 'face' ? 'btn-nav-active' : 'btn-ghost'}`} onClick={() => setFbMode('face')}>
                   Face
                 </button>
-                <button className={`btn ${fbMode === 'pose' ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setFbMode('pose')}>
+                <button className={`btn ${fbMode === 'pose' ? 'btn-nav-active' : 'btn-ghost'}`} onClick={() => setFbMode('pose')}>
                   Pose
                 </button>
               </div>
@@ -206,49 +244,63 @@ export default function AdminPage() {
 
           {tab === 8 && (
             <div>
-              <div style={styles.categoryRow}>
-                {CATEGORY_IDS.map((c) => (
+              <div style={styles.searchWrapLarge}>
+                <Search size={16} color="var(--mid)" />
+                <input
+                  style={styles.searchInputLarge}
+                  placeholder="Search assets by name…"
+                  value={assetSearch}
+                  onChange={(e) => setAssetSearch(e.target.value)}
+                />
+              </div>
+
+              <div style={styles.categoryRowEven}>
+                {ASSET_CATEGORIES.map((c) => (
                   <button
-                    key={c}
-                    className={`btn btn-sm ${category === c ? 'btn-primary' : 'btn-outline'}`}
-                    onClick={() => { setCategory(c); setPartType(''); setGender(''); setView(''); setPoseType(''); setEyeType(''); setMouthType(''); setCostumeFilter(''); }}
+                    key={c.id}
+                    className={`chip ${category === c.id ? 'chip-active' : ''}`}
+                    style={styles.categoryChipEven}
+                    onClick={() => { setCategory(c.id); setPartType(''); setGender(''); setView(''); setPoseType(''); setEyeType(''); setMouthType(''); setCostumeFilter(''); }}
                   >
-                    {c}
+                    {c.label}
                   </button>
                 ))}
               </div>
               {category === 'FACE_PART' && (
-                <>
-                  <FilterChipRow value={partType} onChange={(v) => { setPartType(v); if (v !== 'EYES') setEyeType(''); if (v !== 'MOUTH') setMouthType(''); }} options={FACE_PART_TYPES} />
-                  <FilterChipRow value={gender} onChange={setGender} options={GENDERS} />
-                  <FilterChipRow value={view} onChange={setView} options={VIEWS} />
+                <div style={styles.filterBar}>
+                  <FilterDropdown label="Part Type" value={partType} onChange={(v) => { setPartType(v); if (v !== 'EYES') setEyeType(''); if (v !== 'MOUTH') setMouthType(''); }} options={FACE_PART_TYPES} />
+                  <FilterDropdown label="Gender" value={gender} onChange={setGender} options={GENDERS} />
+                  <FilterDropdown label="View" value={view} onChange={setView} options={VIEWS} />
                   {partType === 'EYES' && (
-                    <FilterChipRow value={eyeType} onChange={setEyeType} options={EYE_TYPES} />
+                    <FilterDropdown label="Eye Type" value={eyeType} onChange={setEyeType} options={EYE_TYPES} />
                   )}
                   {partType === 'MOUTH' && (
-                    <FilterChipRow value={mouthType} onChange={setMouthType} options={MOUTH_TYPES} />
+                    <FilterDropdown label="Mouth Type" value={mouthType} onChange={setMouthType} options={MOUTH_TYPES} />
                   )}
-                </>
+                </div>
               )}
               {category === 'FACE_TEMPLATE' && (
-                <FilterChipRow value={view} onChange={setView} options={VIEWS} />
+                <div style={styles.filterBar}>
+                  <FilterDropdown label="View" value={view} onChange={setView} options={VIEWS} />
+                </div>
               )}
               {category === 'BODY_POSE' && (
-                <>
-                  <div className="form-group" style={{ maxWidth: 220, marginBottom: 10 }}>
-                    <label style={{ fontSize: 12 }}>Costume</label>
+                <div style={styles.filterBar}>
+                  <div className="form-group" style={{ maxWidth: 160, marginBottom: 0 }}>
+                    <label style={styles.dropdownLabel}>Costume</label>
                     <input
                       value={costumeFilter}
                       onChange={(e) => setCostumeFilter(e.target.value)}
                       placeholder="e.g. C1"
                     />
                   </div>
-                  <FilterChipRow value={poseType} onChange={setPoseType} options={POSE_TYPES} />
-                  <FilterChipRow value={view} onChange={setView} options={VIEWS} />
-                </>
+                  <FilterDropdown label="Pose Type" value={poseType} onChange={setPoseType} options={POSE_TYPES} />
+                  <FilterDropdown label="View" value={view} onChange={setView} options={VIEWS} />
+                </div>
               )}
               <AssetGrid
                 category={category}
+                search={assetSearch}
                 partType={category === 'FACE_PART' ? partType : ''}
                 gender={category === 'FACE_PART' ? gender : ''}
                 view={['FACE_PART', 'FACE_TEMPLATE', 'BODY_POSE'].includes(category) ? view : ''}
@@ -257,6 +309,7 @@ export default function AdminPage() {
                 mouthType={category === 'FACE_PART' && partType === 'MOUTH' ? mouthType : ''}
                 costume={category === 'BODY_POSE' ? costumeFilter : ''}
                 adminMode
+                onUploadClick={() => setTab(0)}
               />
             </div>
           )}
@@ -291,7 +344,7 @@ const styles = {
     borderRadius: 12, background: 'rgba(255,255,255,0.15)', color: '#fff',
     fontSize: 14, fontWeight: 700, transition: 'background 0.18s ease, color 0.18s ease',
   },
-  navBtnActive: { background: '#fff', color: 'var(--primary)' },
+  navBtnActive: { background: '#fff', color: 'var(--nav-primary)' },
   chevron: { fontSize: 10 },
   brandCenter: { fontFamily: 'var(--font-display)', fontSize: 26, color: '#fff', letterSpacing: 0.5 },
   rightGroup: { display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' },
@@ -313,9 +366,34 @@ const styles = {
     padding: 14, width: 240, zIndex: 90,
   },
   notifTitle: { fontSize: 13, fontWeight: 700, color: 'var(--dark)' },
-  pageTitle: { fontSize: 20, fontWeight: 700, color: 'var(--dark)', marginBottom: 20, textAlign: 'center' },
   content: { padding: '32px 40px' },
   contentInner: { maxWidth: 1400, margin: '0 auto' },
   tabs: { display: 'flex', gap: 8, flexWrap: 'wrap' },
   categoryRow: { display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 20 },
+  categoryRowEven: { display: 'flex', gap: 10, marginBottom: 20 },
+  categoryChipEven: { flex: 1, justifyContent: 'center', textAlign: 'center' },
+  explorerHeader: {
+    display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between',
+    gap: 16, marginBottom: 18, flexWrap: 'wrap',
+  },
+  explorerTitle: { fontSize: 28, fontWeight: 800, color: 'var(--dark)', marginBottom: 4 },
+  explorerSubtitle: { fontSize: 13.5, color: 'var(--mid)', maxWidth: 520, lineHeight: 1.5 },
+  searchWrapLarge: {
+    display: 'flex', alignItems: 'center', gap: 8,
+    width: '100%', maxWidth: 400, padding: '10px 14px',
+    borderRadius: 12, border: '1px solid var(--border)', background: 'var(--surface)',
+    marginBottom: 20,
+  },
+  searchInputLarge: {
+    border: 'none', outline: 'none', flex: 1, fontSize: 13.5,
+    background: 'transparent', color: 'var(--dark)',
+  },
+  filterBar: { display: 'flex', flexWrap: 'wrap', alignItems: 'flex-end', gap: 16, marginBottom: 20 },
+  filterField: { display: 'flex', flexDirection: 'column', gap: 5 },
+  dropdownLabel: { fontSize: 11.5, fontWeight: 700, color: 'var(--mid)', textTransform: 'uppercase', letterSpacing: 0.3 },
+  dropdownSelect: {
+    height: 34, padding: '0 10px', borderRadius: 8, border: '1px solid var(--border)',
+    background: 'var(--surface)', color: 'var(--dark)', fontSize: 12.5, fontWeight: 600, cursor: 'pointer',
+    minWidth: 140,
+  },
 };

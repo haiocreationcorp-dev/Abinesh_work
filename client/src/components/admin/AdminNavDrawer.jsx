@@ -51,7 +51,7 @@ export default function AdminNavDrawer({ open, title, items, activeIndex, onSele
                 transitionDelay: open ? `${i * 22}ms` : '0ms',
               }}
               onClick={() => onSelect(index)}
-              onMouseEnter={(e) => { if (activeIndex !== index) e.currentTarget.style.background = 'var(--primary-light)'; }}
+              onMouseEnter={(e) => { if (activeIndex !== index) e.currentTarget.style.background = 'var(--nav-hover)'; }}
               onMouseLeave={(e) => { if (activeIndex !== index) e.currentTarget.style.background = 'transparent'; }}
             >
               <span style={styles.itemIcon}>{icon}</span>
@@ -86,6 +86,6 @@ const styles = {
     color: 'var(--mid)', fontSize: 14, fontWeight: 600,
     transition: 'background 150ms ease, color 150ms ease, opacity 220ms ease, transform 220ms ease',
   },
-  itemActive: { background: 'var(--primary)', color: '#fff' },
+  itemActive: { background: 'var(--nav-light)', color: 'var(--nav-text)' },
   itemIcon: { display: 'flex', alignItems: 'center', flexShrink: 0 },
 };

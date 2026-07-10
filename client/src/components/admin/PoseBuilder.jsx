@@ -210,7 +210,7 @@ export default function PoseBuilder() {
               <button key={t.id} type="button" title={t.label} onClick={() => setPreviewSkinTone(t.id)}
                 style={{
                   width: 22, height: 22, borderRadius: '50%', padding: 0, cursor: 'pointer',
-                  background: t.base, border: previewSkinTone === t.id ? '2px solid #8B5CF6' : '1px solid var(--border)',
+                  background: t.base, border: previewSkinTone === t.id ? '2px solid var(--nav-primary)' : '1px solid var(--border)',
                 }} />
             ))}
           </div>
@@ -265,11 +265,11 @@ export default function PoseBuilder() {
                       position: 'absolute', cursor: 'move',
                       left: (box.x - unionMinX) * scale, top: (box.y - unionMinY) * scale,
                       width: box.w * scale, height: box.h * scale,
-                      border: '2px solid #8B5CF6', background: 'rgba(139,92,246,0.15)',
+                      border: '2px solid var(--primary)', background: 'rgba(37,99,235,0.15)',
                     }}
                   >
                     <div onMouseDown={startDrag('resize')}
-                      style={{ position: 'absolute', right: -6, bottom: -6, width: 12, height: 12, background: '#8B5CF6', borderRadius: '50%', cursor: 'nwse-resize' }} />
+                      style={{ position: 'absolute', right: -6, bottom: -6, width: 12, height: 12, background: 'var(--primary)', borderRadius: '50%', cursor: 'nwse-resize' }} />
                   </div>
                 )}
               </div>
@@ -321,7 +321,7 @@ const s = {
   sectionTitle: { fontSize: 13, fontWeight: 700, marginBottom: 8 },
   grid: { display: 'grid', gridTemplateColumns: 'repeat(2,1fr)', gap: 8, maxHeight: 500, overflowY: 'auto' },
   thumb: { display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, padding: 6, border: '1px solid var(--border)', borderRadius: 8, background: 'none', cursor: 'pointer' },
-  thumbActive: { borderColor: '#8B5CF6', background: 'var(--primary-light)' },
+  thumbActive: { borderColor: 'var(--nav-primary)', background: 'var(--nav-light)' },
   thumbLabel: { fontSize: 10, color: 'var(--mid)', textAlign: 'center', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', width: '100%', margin: 0 },
   stage: { flex: 1, minWidth: 0, maxWidth: STAGE_MAX_W + 32, display: 'flex', justifyContent: 'center', background: 'var(--primary-light)', borderRadius: 8, padding: 16 },
   previewThumb: { width: 32, height: 32, objectFit: 'contain', borderRadius: 6, border: '1px solid var(--border)', background: '#fff' },

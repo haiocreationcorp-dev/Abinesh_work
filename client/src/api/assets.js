@@ -19,6 +19,7 @@ export const uploadFolder = (formData, onProgress) =>
   }).then((r) => r.data);
 
 export const getAdminStats = () => api.get('/admin/stats').then((r) => r.data);
+export const getAssetCategoryCounts = () => api.get('/admin/assets/category-counts').then((r) => r.data);
 export const getRecentComics = () => api.get('/admin/recent-comics').then((r) => r.data);
 export const getAdminUsers = () => api.get('/admin/users').then((r) => r.data);
 export const disableUser = (id, disabled) => api.patch(`/admin/users/${id}/disable`, { disabled }).then((r) => r.data);

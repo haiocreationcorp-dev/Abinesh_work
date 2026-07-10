@@ -303,9 +303,9 @@ export default function EyeNormalizer() {
           {libraryOpen && (
             <>
               <div style={{ display: 'flex', gap: 6, marginBottom: 8 }}>
-                <button className={`btn btn-sm ${viewFilter === '' ? 'btn-primary' : 'btn-outline'}`} onClick={() => setViewFilter('')}>All</button>
+                <button className={`btn btn-sm ${viewFilter === '' ? 'btn-nav-active' : 'btn-outline'}`} onClick={() => setViewFilter('')}>All</button>
                 {VIEWS.map((v) => (
-                  <button key={v.id} className={`btn btn-sm ${viewFilter === v.id ? 'btn-primary' : 'btn-outline'}`} onClick={() => setViewFilter(v.id)}>
+                  <button key={v.id} className={`btn btn-sm ${viewFilter === v.id ? 'btn-nav-active' : 'btn-outline'}`} onClick={() => setViewFilter(v.id)}>
                     {v.label}
                   </button>
                 ))}
@@ -335,7 +335,7 @@ export default function EyeNormalizer() {
                 <button className="btn btn-sm btn-outline" onClick={removeBackground} title="Auto-erase white background connected to the edges">
                   Remove BG
                 </button>
-                <button className={`btn btn-sm ${tool === 'bg-pick' ? 'btn-primary' : 'btn-outline'}`}
+                <button className={`btn btn-sm ${tool === 'bg-pick' ? 'btn-edit-active' : 'btn-outline'}`}
                   onClick={() => { setTool((t) => (t === 'bg-pick' ? 'none' : 'bg-pick')); setBgPickPending(null); }}
                   title="Click a pixel to pick the background color — highlights every connected matching pixel around that spot, then asks before deleting">
                   🎯 Pick BG Color
@@ -354,7 +354,7 @@ export default function EyeNormalizer() {
               <p style={s.sectionTitle}>Layer</p>
               <div style={{ display: 'flex', gap: 6, marginBottom: 10 }}>
                 {LAYERS.map((l) => (
-                  <button key={l.id} className={`btn btn-sm ${activeLayer === l.id ? 'btn-primary' : 'btn-outline'}`}
+                  <button key={l.id} className={`btn btn-sm ${activeLayer === l.id ? 'btn-nav-active' : 'btn-outline'}`}
                     onClick={() => setActiveLayer(l.id)}>
                     <span style={{ ...s.dot, background: l.color }} /> {l.label}
                   </button>
@@ -363,11 +363,11 @@ export default function EyeNormalizer() {
 
               <p style={s.sectionTitle}>Tool</p>
               <div style={{ display: 'flex', gap: 6, marginBottom: 10, flexWrap: 'wrap' }}>
-                <button className={`btn btn-sm ${tool === 'brush' ? 'btn-primary' : 'btn-outline'}`}
+                <button className={`btn btn-sm ${tool === 'brush' ? 'btn-edit-active' : 'btn-outline'}`}
                   onClick={() => setTool((t) => (t === 'brush' ? 'none' : 'brush'))}>🖌 Brush</button>
-                <button className={`btn btn-sm ${tool === 'erase' ? 'btn-primary' : 'btn-outline'}`}
+                <button className={`btn btn-sm ${tool === 'erase' ? 'btn-edit-active' : 'btn-outline'}`}
                   onClick={() => setTool((t) => (t === 'erase' ? 'none' : 'erase'))}>🧹 Eraser</button>
-                <button className={`btn btn-sm ${tool === 'pick' ? 'btn-primary' : 'btn-outline'}`}
+                <button className={`btn btn-sm ${tool === 'pick' ? 'btn-edit-active' : 'btn-outline'}`}
                   onClick={() => setTool((t) => (t === 'pick' ? 'none' : 'pick'))} title="Click a pixel — same as Palette Normalizer's Pick Base/Shadow Sample">
                   🪄 Pick Color
                 </button>
@@ -397,7 +397,7 @@ export default function EyeNormalizer() {
               <p style={s.sectionTitle}>Preview</p>
               <div style={{ display: 'flex', gap: 6, marginBottom: 10 }}>
                 {['eyebrow', 'iris', 'both'].map((m) => (
-                  <button key={m} className={`btn btn-sm ${previewMode === m ? 'btn-primary' : 'btn-outline'}`}
+                  <button key={m} className={`btn btn-sm ${previewMode === m ? 'btn-nav-active' : 'btn-outline'}`}
                     onClick={() => setPreviewMode(m)} style={{ textTransform: 'capitalize' }}>
                     {m}
                   </button>
@@ -461,11 +461,11 @@ const s = {
   sectionTitle: { fontSize: 12, fontWeight: 700, marginTop: 12, marginBottom: 6, textTransform: 'uppercase', color: 'var(--mid)' },
   grid: { display: 'grid', gridTemplateColumns: 'repeat(2,1fr)', gap: 8, maxHeight: 300, overflowY: 'auto', marginBottom: 10 },
   thumb: { display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, padding: 6, border: '1px solid var(--border)', borderRadius: 8, background: 'none', cursor: 'pointer' },
-  thumbActive: { borderColor: '#8B5CF6', background: 'var(--primary-light)' },
+  thumbActive: { borderColor: 'var(--nav-primary)', background: 'var(--nav-light)' },
   thumbLabel: { fontSize: 10, color: 'var(--mid)', textAlign: 'center', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', width: '100%', margin: 0 },
   dot: { display: 'inline-block', width: 8, height: 8, borderRadius: '50%', marginRight: 4 },
   sliderLabel: { display: 'flex', flexDirection: 'column', gap: 4, fontSize: 12, color: 'var(--mid)', marginBottom: 10 },
-  stage: { flex: 1, minWidth: 0, display: 'flex', justifyContent: 'center', background: 'var(--primary-light)', borderRadius: 8, padding: 16 },
+  stage: { flex: 1, minWidth: 0, display: 'flex', justifyContent: 'center', background: 'var(--light)', borderRadius: 8, padding: 16 },
   canvasRow: { display: 'flex', gap: 16, flexWrap: 'wrap', justifyContent: 'center' },
   canvasCol: { display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 },
   canvasWrap: { position: 'relative', display: 'inline-block' },

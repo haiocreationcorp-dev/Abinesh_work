@@ -1,4 +1,5 @@
-import { useEffect, useState, useCallback, useRef } from 'react';
+import { useEffect, useState, useCallback, useRef, useMemo } from 'react';
+import { LayoutGrid, List, ImageOff, UploadCloud } from 'lucide-react';
 import { getAssets, deleteAsset, deleteAssets, renameAsset } from '../../api/assets.js';
 import AssetCard from './AssetCard.jsx';
 import Modal from '../ui/Modal.jsx';
@@ -6,8 +7,29 @@ import Modal from '../ui/Modal.jsx';
 // Bulk-deleting more than this many at once requires the safety password below —
 // mirrors BULK_DELETE_PASSWORD_THRESHOLD in server/src/controllers/assetController.js.
 const BULK_DELETE_PASSWORD_THRESHOLD = 9;
+const PAGE_SIZE = 60;
 
-export default function AssetGrid({ category, tags, search = '', partType, gender, view, poseType, eyeType, mouthType, costume, onSelect, adminMode = false }) {
+function isToday(iso) {
+  if (!iso) return false;
+  const d = new Date(iso);
+  const now = new Date();
+  return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth() && d.getDate() === now.getDate();
+}
+
+function SkeletonCard() {
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+      <div className="skeleton" style={{ aspectRatio: '1', borderRadius: 16 }} />
+      <div className="skeleton" style={{ height: 11, width: '70%', borderRadius: 4 }} />
+      <div className="skeleton" style={{ height: 9, width: '40%', borderRadius: 4 }} />
+    </div>
+  );
+}
+
+export default function AssetGrid({
+  category, tags, search = '', partType, gender, view, poseType, eyeType, mouthType, costume,
+  onSelect, adminMode = false, onUploadClick,
+}) {
   const [assets, setAssets] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -16,6 +38,9 @@ export default function AssetGrid({ category, tags, search = '', partType, gende
   const [confirmPasswordOpen, setConfirmPasswordOpen] = useState(false);
   const [bulkPassword, setBulkPassword] = useState('');
   const [bulkPasswordError, setBulkPasswordError] = useState('');
+  const [sortBy, setSortBy] = useState('newest');
+  const [viewMode, setViewMode] = useState('grid');
+  const [page, setPage] = useState(1);
   const selectAllRef = useRef(null);
 
   const load = useCallback(() => {
@@ -43,12 +68,26 @@ export default function AssetGrid({ category, tags, search = '', partType, gende
   }, [category, tags, search, partType, gender, view, poseType, eyeType, mouthType, costume]);
 
   useEffect(() => { load(); }, [load]);
+  useEffect(() => { setPage(1); }, [category, tags, search, partType, gender, view, poseType, eyeType, mouthType, costume, sortBy]);
 
   // Keep the "select all" checkbox indeterminate state in sync
   useEffect(() => {
     if (!selectAllRef.current) return;
     selectAllRef.current.indeterminate = selected.size > 0 && selected.size < assets.length;
   }, [selected.size, assets.length]);
+
+  const sortedAssets = useMemo(() => {
+    const arr = [...assets];
+    if (sortBy === 'newest') arr.sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
+    else if (sortBy === 'oldest') arr.sort((a, b) => new Date(a.createdAt || 0) - new Date(b.createdAt || 0));
+    else if (sortBy === 'name') arr.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
+    return arr;
+  }, [assets, sortBy]);
+
+  const totalPages = Math.max(1, Math.ceil(sortedAssets.length / PAGE_SIZE));
+  const pagedAssets = adminMode ? sortedAssets.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE) : sortedAssets;
+
+  const uploadedToday = useMemo(() => assets.filter((a) => isToday(a.createdAt)).length, [assets]);
 
   const handleDelete = async (id) => {
     if (!confirm('Delete this asset?')) return;
@@ -71,7 +110,7 @@ export default function AssetGrid({ category, tags, search = '', partType, gende
   };
 
   const handleSelectAll = (e) => {
-    setSelected(e.target.checked ? new Set(assets.map((a) => a.id)) : new Set());
+    setSelected(e.target.checked ? new Set(sortedAssets.map((a) => a.id)) : new Set());
   };
 
   const handleBulkDelete = async () => {
@@ -109,16 +148,33 @@ export default function AssetGrid({ category, tags, search = '', partType, gende
     }
   };
 
-  if (loading && assets.length === 0) return <div style={styles.loading}>Loading…</div>;
+  if (loading && assets.length === 0) {
+    return (
+      <div style={{ ...styles.grid, ...(!adminMode ? styles.gridCompact : {}) }}>
+        {Array.from({ length: 12 }).map((_, i) => <SkeletonCard key={i} />)}
+      </div>
+    );
+  }
   if (error) return (
     <div style={styles.error}>
       <span>⚠ {error}</span>
       <button style={styles.retryBtn} onClick={load}>Retry</button>
     </div>
   );
-  if (assets.length === 0) return <div style={styles.empty}>No {category.toLowerCase()}s found</div>;
+  if (assets.length === 0) return (
+    <div style={styles.empty}>
+      <ImageOff size={40} color="var(--muted)" />
+      <p style={styles.emptyTitle}>No assets found</p>
+      <p style={styles.emptySub}>Try changing your filters or upload a new asset.</p>
+      {adminMode && onUploadClick && (
+        <button className="btn btn-primary btn-sm" onClick={onUploadClick} style={{ marginTop: 4 }}>
+          <UploadCloud size={14} /> Upload Asset
+        </button>
+      )}
+    </div>
+  );
 
-  const allChecked = assets.length > 0 && selected.size === assets.length;
+  const allChecked = sortedAssets.length > 0 && selected.size === sortedAssets.length;
 
   return (
     <div>
@@ -130,29 +186,44 @@ export default function AssetGrid({ category, tags, search = '', partType, gende
               type="checkbox"
               checked={allChecked}
               onChange={handleSelectAll}
-              style={{ width: 15, height: 15, cursor: 'pointer', accentColor: '#F97316' }}
+              style={{ width: 15, height: 15, cursor: 'pointer', accentColor: 'var(--action-primary)' }}
             />
             <span style={styles.selectAllText}>
               {selected.size === 0
-                ? `Select all (${assets.length})`
-                : `${selected.size} of ${assets.length} selected`}
+                ? `Showing ${sortedAssets.length} asset${sortedAssets.length !== 1 ? 's' : ''}`
+                : `${selected.size} of ${sortedAssets.length} selected`}
             </span>
+            {uploadedToday > 0 && <span style={styles.todayBadge}>{uploadedToday} uploaded today</span>}
           </label>
 
-          {selected.size > 0 && (
-            <button
-              style={{ ...styles.deleteSelectedBtn, ...(bulkDeleting ? styles.deleteSelectedBtnDisabled : {}) }}
-              onClick={handleBulkDelete}
-              disabled={bulkDeleting}
-            >
-              {bulkDeleting ? 'Deleting…' : `Delete ${selected.size} selected`}
-            </button>
-          )}
+          <div style={styles.toolbarRight}>
+            <select value={sortBy} onChange={(e) => setSortBy(e.target.value)} style={styles.sortSelect}>
+              <option value="newest">Newest</option>
+              <option value="oldest">Oldest</option>
+              <option value="name">A–Z</option>
+            </select>
+            <div style={styles.viewToggle}>
+              <button
+                style={{ ...styles.viewToggleBtn, ...(viewMode === 'grid' ? styles.viewToggleBtnActive : {}) }}
+                onClick={() => setViewMode('grid')}
+                title="Grid view"
+              ><LayoutGrid size={14} /></button>
+              <button
+                style={{ ...styles.viewToggleBtn, ...(viewMode === 'list' ? styles.viewToggleBtnActive : {}) }}
+                onClick={() => setViewMode('list')}
+                title="List view"
+              ><List size={14} /></button>
+            </div>
+          </div>
         </div>
       )}
 
-      <div style={styles.grid}>
-        {assets.map((asset) => (
+      <div style={{
+        ...styles.grid,
+        ...(!adminMode ? styles.gridCompact : {}),
+        ...(adminMode && viewMode === 'list' ? styles.gridList : {}),
+      }}>
+        {pagedAssets.map((asset) => (
           <AssetCard
             key={asset.id}
             asset={asset}
@@ -165,6 +236,28 @@ export default function AssetGrid({ category, tags, search = '', partType, gende
           />
         ))}
       </div>
+
+      {adminMode && totalPages > 1 && (
+        <div style={styles.pagination}>
+          <button className="btn btn-sm btn-outline" disabled={page === 1} onClick={() => setPage((p) => p - 1)}>Previous</button>
+          <span style={styles.pageInfo}>Page {page} of {totalPages}</span>
+          <button className="btn btn-sm btn-outline" disabled={page === totalPages} onClick={() => setPage((p) => p + 1)}>Next</button>
+        </div>
+      )}
+
+      {adminMode && selected.size > 0 && (
+        <div style={styles.floatingBar}>
+          <span style={styles.floatingBarText}>{selected.size} selected</span>
+          <button
+            style={{ ...styles.deleteSelectedBtn, ...(bulkDeleting ? styles.deleteSelectedBtnDisabled : {}) }}
+            onClick={handleBulkDelete}
+            disabled={bulkDeleting}
+          >
+            {bulkDeleting ? 'Deleting…' : 'Delete'}
+          </button>
+          <button className="btn btn-sm btn-ghost" onClick={() => setSelected(new Set())} style={{ color: '#fff' }}>Clear</button>
+        </div>
+      )}
 
       <Modal open={confirmPasswordOpen} onClose={() => setConfirmPasswordOpen(false)} title="Confirm bulk delete">
         <form onSubmit={handleConfirmBulkDeleteWithPassword}>
@@ -196,25 +289,58 @@ export default function AssetGrid({ category, tags, search = '', partType, gende
 
 const styles = {
   toolbar: {
-    display: 'flex', alignItems: 'center', gap: 12,
-    padding: '8px 2px', marginBottom: 10,
+    display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12,
+    padding: '10px 2px', marginBottom: 14,
     borderBottom: '1px solid var(--border)',
   },
   selectAllLabel: {
-    display: 'flex', alignItems: 'center', gap: 7,
-    cursor: 'pointer', userSelect: 'none', flex: 1,
+    display: 'flex', alignItems: 'center', gap: 10,
+    cursor: 'pointer', userSelect: 'none',
   },
-  selectAllText: { fontSize: 13, color: 'var(--text)', fontWeight: 500 },
+  selectAllText: { fontSize: 13, color: 'var(--dark)', fontWeight: 600 },
+  todayBadge: {
+    fontSize: 11, fontWeight: 700, color: 'var(--success)',
+    background: 'rgba(22,163,74,0.12)', padding: '2px 8px', borderRadius: 20,
+  },
+  toolbarRight: { display: 'flex', alignItems: 'center', gap: 8 },
+  sortSelect: {
+    height: 32, padding: '0 10px', borderRadius: 8, border: '1px solid var(--border)',
+    background: 'var(--surface)', color: 'var(--dark)', fontSize: 12.5, fontWeight: 600, cursor: 'pointer',
+  },
+  viewToggle: {
+    display: 'flex', border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden',
+  },
+  viewToggleBtn: {
+    width: 30, height: 32, display: 'flex', alignItems: 'center', justifyContent: 'center',
+    background: 'var(--surface)', color: 'var(--mid)', border: 'none', cursor: 'pointer',
+  },
+  viewToggleBtnActive: { background: 'var(--nav-primary)', color: '#fff' },
+  grid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: 14 },
+  gridCompact: { gridTemplateColumns: 'repeat(3, 1fr)', gap: 6 },
+  gridList: { gridTemplateColumns: '1fr', gap: 8 },
+  loading: { color: 'var(--mid)', fontSize: 12, padding: 8 },
+  empty: {
+    display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6,
+    padding: '56px 12px', textAlign: 'center',
+  },
+  emptyTitle: { fontSize: 15, fontWeight: 700, color: 'var(--dark)', marginTop: 4 },
+  emptySub: { fontSize: 12.5, color: 'var(--mid)' },
+  error: { display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8, padding: 12, color: 'var(--danger)', fontSize: 12, textAlign: 'center' },
+  retryBtn: { background: 'var(--action-primary)', color: '#fff', border: 'none', borderRadius: 6, padding: '5px 14px', fontSize: 12, cursor: 'pointer' },
+  pagination: { display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 12, marginTop: 20 },
+  pageInfo: { fontSize: 12.5, color: 'var(--mid)', fontWeight: 600 },
+  floatingBar: {
+    position: 'fixed', bottom: 24, left: '50%', transform: 'translateX(-50%)',
+    background: 'var(--dark)', color: '#fff', borderRadius: 999,
+    padding: '10px 12px 10px 18px', display: 'flex', alignItems: 'center', gap: 12,
+    boxShadow: 'var(--shadow-lg)', zIndex: 50,
+  },
+  floatingBarText: { fontSize: 13, fontWeight: 600 },
   deleteSelectedBtn: {
-    background: '#ef4444', color: '#fff', border: 'none',
-    borderRadius: 7, padding: '6px 16px', fontSize: 13,
+    background: 'var(--danger)', color: '#fff', border: 'none',
+    borderRadius: 999, padding: '6px 16px', fontSize: 12.5,
     fontWeight: 600, cursor: 'pointer',
     transition: 'opacity 0.12s',
   },
   deleteSelectedBtnDisabled: { opacity: 0.6, cursor: 'not-allowed' },
-  grid: { display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 6 },
-  loading: { color: '#64748b', fontSize: 12, padding: 8 },
-  empty: { color: '#64748b', fontSize: 12, padding: 8, textAlign: 'center' },
-  error: { display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8, padding: 12, color: '#ef4444', fontSize: 12, textAlign: 'center' },
-  retryBtn: { background: '#6B35E8', color: '#fff', border: 'none', borderRadius: 6, padding: '5px 14px', fontSize: 12, cursor: 'pointer' },
 };

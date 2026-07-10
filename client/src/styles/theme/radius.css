@@ -1,0 +1,12 @@
+/* ── radius.css — border-radius scale.
+   --radius/--radius-sm are the existing tokens used throughout the app today.
+   --radius-small/--radius-large/--radius-pill are additions from the latest
+   design brief for new/updated code. */
+:root {
+  --radius: 12px;
+  --radius-sm: 8px;
+
+  --radius-small: 6px;
+  --radius-large: 16px;
+  --radius-pill: 999px;
+}

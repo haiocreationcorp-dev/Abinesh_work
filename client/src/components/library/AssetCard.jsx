@@ -1,4 +1,5 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
+import { MoreVertical, Pencil, Download, Trash2 } from 'lucide-react';
 import { useDrag } from '../../context/DragContext.jsx';
 
 function findTrimRect(img) {
@@ -50,6 +51,11 @@ function formatBytes(bytes) {
   return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
 }
 
+function formatDate(iso) {
+  if (!iso) return null;
+  return new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+}
+
 function PreviewModal({ asset, fileSize, onClose }) {
   return (
     <div style={styles.overlay} onClick={onClose}>
@@ -59,10 +65,51 @@ function PreviewModal({ asset, fileSize, onClose }) {
           {fileSize != null && <span style={styles.modalSize}>{formatBytes(fileSize)}</span>}
           <button style={styles.closeBtn} onClick={onClose}>✕</button>
         </div>
-        <div style={styles.modalImgWrap}>
+        <div className="checkered-bg" style={styles.modalImgWrap}>
           <img src={asset.filePath} alt={asset.name} style={styles.modalImg} />
         </div>
       </div>
+    </div>
+  );
+}
+
+function ActionMenu({ onRename, onDownload, onDelete }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDocClick = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    document.addEventListener('mousedown', onDocClick);
+    return () => document.removeEventListener('mousedown', onDocClick);
+  }, [open]);
+
+  return (
+    <div ref={ref} style={styles.menuWrap}>
+      <button
+        style={styles.menuTrigger}
+        onClick={(e) => { e.stopPropagation(); setOpen((o) => !o); }}
+        title="More actions"
+      >
+        <MoreVertical size={14} />
+      </button>
+      {open && (
+        <div style={styles.menuDropdown} onClick={(e) => e.stopPropagation()}>
+          {onRename && (
+            <button style={styles.menuItem} onClick={() => { setOpen(false); onRename(); }}>
+              <Pencil size={13} /> Rename
+            </button>
+          )}
+          <button style={styles.menuItem} onClick={() => { setOpen(false); onDownload(); }}>
+            <Download size={13} /> Download
+          </button>
+          {onDelete && (
+            <button style={{ ...styles.menuItem, color: 'var(--danger)' }} onClick={() => { setOpen(false); onDelete(); }}>
+              <Trash2 size={13} /> Delete
+            </button>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -74,7 +121,7 @@ export default function AssetCard({ asset, category, onSelect, onDelete, onRenam
   const [trim, setTrim] = useState(null);
   const [bubbleSrc, setBubbleSrc] = useState(null);
   const [fileSize, setFileSize] = useState(null);
-  const [showSize, setShowSize] = useState(false);
+  const [hovering, setHovering] = useState(false);
   const [preview, setPreview] = useState(false);
 
   useEffect(() => {
@@ -128,6 +175,15 @@ export default function AssetCard({ asset, category, onSelect, onDelete, onRenam
     window.addEventListener('mouseup', onUp);
   };
 
+  const handleDownload = () => {
+    const a = document.createElement('a');
+    a.href = asset.filePath;
+    a.download = asset.name || '';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  };
+
   let imgStyle;
   if (trim) {
     const { minX, minY, maxX, maxY, nw, nh } = trim;
@@ -146,7 +202,7 @@ export default function AssetCard({ asset, category, onSelect, onDelete, onRenam
   }
 
   const cardBorder = isSelected
-    ? { border: '2px solid #F97316', boxShadow: '0 0 0 3px rgba(249,115,22,0.18)' }
+    ? { borderColor: 'var(--nav-primary)', boxShadow: '0 0 0 3px rgba(99,102,241,0.18)' }
     : {};
 
   return (
@@ -155,27 +211,20 @@ export default function AssetCard({ asset, category, onSelect, onDelete, onRenam
         <PreviewModal asset={asset} fileSize={fileSize} onClose={() => setPreview(false)} />
       )}
       <div
-        style={{ ...styles.card, ...cardBorder }}
+        style={{
+          ...styles.card,
+          ...cardBorder,
+          ...(hovering && !isSelected ? { boxShadow: 'var(--shadow-lg)', transform: 'translateY(-3px) scale(1.02)' } : {}),
+        }}
         onClick={isSelectable ? () => onSelect(asset) : () => setPreview(true)}
         onMouseDown={handleMouseDown}
         title={asset.name}
-        onMouseEnter={(e) => { e.currentTarget.style.boxShadow = isSelected ? cardBorder.boxShadow : '0 4px 16px rgba(0,0,0,0.12)'; e.currentTarget.style.transform = 'translateY(-2px)'; setShowSize(true); }}
-        onMouseLeave={(e) => { e.currentTarget.style.boxShadow = isSelected ? cardBorder.boxShadow : styles.card.boxShadow; e.currentTarget.style.transform = 'none'; setShowSize(false); }}
+        onMouseEnter={() => setHovering(true)}
+        onMouseLeave={() => setHovering(false)}
       >
         {asset.isNew && <span style={styles.newBadge}>NEW</span>}
 
-        {category !== 'CHARACTER' && showSize && fileSize != null && (
-          <span style={styles.sizeBadge}>{formatBytes(fileSize)}</span>
-        )}
-
-        {category === 'CHARACTER' && showSize && (
-          <div style={styles.charInfo}>
-            <span style={styles.charName}>{asset.name}</span>
-            {fileSize != null && <span style={styles.charSize}>{formatBytes(fileSize)}</span>}
-          </div>
-        )}
-
-        <div style={styles.thumb}>
+        <div className="checkered-bg" style={styles.thumb}>
           <img
             src={bubbleSrc || thumb}
             alt={asset.name}
@@ -184,37 +233,38 @@ export default function AssetCard({ asset, category, onSelect, onDelete, onRenam
             onError={(e) => { e.currentTarget.style.display = 'none'; }}
             style={imgStyle}
           />
+
+          {onToggleSelect && (
+            <div
+              style={{ ...styles.checkbox, opacity: hovering || isSelected ? 1 : 0 }}
+              onClick={(e) => { e.stopPropagation(); onToggleSelect(asset.id); }}
+              title={isSelected ? 'Deselect' : 'Select'}
+            >
+              {isSelected && <span style={styles.checkmark}>✓</span>}
+            </div>
+          )}
+
+          {(onDelete || onRename) && (
+            <div style={{ opacity: hovering ? 1 : 0, transition: 'opacity 0.15s' }}>
+              <ActionMenu
+                onRename={onRename ? () => {
+                  const next = window.prompt('Rename asset', asset.name);
+                  if (next && next.trim() && next.trim() !== asset.name) onRename(asset.id, next.trim());
+                } : null}
+                onDownload={handleDownload}
+                onDelete={onDelete ? () => onDelete(asset.id) : null}
+              />
+            </div>
+          )}
         </div>
 
-        {onToggleSelect && (
-          <div
-            style={{ ...styles.checkbox, ...(isSelected ? styles.checkboxChecked : {}) }}
-            onClick={(e) => { e.stopPropagation(); onToggleSelect(asset.id); }}
-            title={isSelected ? 'Deselect' : 'Select'}
-          >
-            {isSelected && <span style={styles.checkmark}>✓</span>}
+        <div style={styles.meta}>
+          <span style={styles.metaName}>{asset.name}</span>
+          <div style={styles.metaRow}>
+            {fileSize != null && <span>{formatBytes(fileSize)}</span>}
+            {asset.createdAt && <span>{formatDate(asset.createdAt)}</span>}
           </div>
-        )}
-
-        {onRename && (
-          <button
-            style={styles.renameBtn}
-            onClick={(e) => {
-              e.stopPropagation();
-              const next = window.prompt('Rename asset', asset.name);
-              if (next && next.trim() && next.trim() !== asset.name) onRename(asset.id, next.trim());
-            }}
-            title="Rename asset"
-          >✎</button>
-        )}
-
-        {onDelete && (
-          <button
-            style={styles.deleteBtn}
-            onClick={(e) => { e.stopPropagation(); onDelete(asset.id); }}
-            title="Delete asset"
-          >×</button>
-        )}
+        </div>
       </div>
     </div>
   );
@@ -222,16 +272,16 @@ export default function AssetCard({ asset, category, onSelect, onDelete, onRenam
 
 const styles = {
   card: {
-    background: 'var(--t-surface)',
-    border: '1px solid var(--t-border)',
-    borderRadius: 10,
+    background: 'var(--surface)',
+    border: '1px solid var(--border)',
+    borderRadius: 16,
     overflow: 'hidden',
     cursor: 'grab',
     position: 'relative',
     display: 'flex',
     flexDirection: 'column',
-    boxShadow: '0 1px 4px rgba(0,0,0,0.06)',
-    transition: 'box-shadow 0.18s, transform 0.18s',
+    boxShadow: '0 1px 3px rgba(0,0,0,0.06)',
+    transition: 'box-shadow 0.2s, transform 0.2s, border-color 0.2s',
     userSelect: 'none',
   },
   thumb: {
@@ -239,65 +289,59 @@ const styles = {
     width: '100%',
     position: 'relative',
     overflow: 'hidden',
-    background: 'var(--t-bg3)',
+  },
+  meta: {
+    padding: '8px 10px 10px',
+    display: 'flex',
+    flexDirection: 'column',
+    gap: 3,
+  },
+  metaName: {
+    fontSize: 12.5, fontWeight: 600, color: 'var(--dark)',
+    overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+  },
+  metaRow: {
+    display: 'flex', gap: 8,
+    fontSize: 10.5, color: 'var(--muted)', fontWeight: 500,
   },
   newBadge: {
     position: 'absolute', top: 6, left: 6,
-    background: '#F97316', color: '#fff',
+    background: 'var(--warning)', color: '#fff',
     fontSize: 9, fontWeight: 800, letterSpacing: 0.8,
     padding: '2px 6px', borderRadius: 20, zIndex: 2,
     textTransform: 'uppercase',
   },
   checkbox: {
-    position: 'absolute', top: 5, left: 5,
-    width: 18, height: 18, borderRadius: 4, zIndex: 3,
-    background: 'rgba(255,255,255,0.9)', border: '1.5px solid #d1d5db',
+    position: 'absolute', top: 6, left: 6,
+    width: 18, height: 18, borderRadius: 5, zIndex: 3,
+    background: 'var(--action-primary)', border: '1.5px solid #fff',
     cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
-    transition: 'background 0.12s, border-color 0.12s',
-  },
-  checkboxChecked: {
-    background: '#F97316', border: '1.5px solid #F97316',
+    transition: 'opacity 0.15s',
+    boxShadow: '0 1px 3px rgba(0,0,0,0.25)',
   },
   checkmark: {
     color: '#fff', fontSize: 11, fontWeight: 800, lineHeight: 1, userSelect: 'none',
   },
-  deleteBtn: {
-    position: 'absolute', top: 4, right: 4,
-    background: '#ef4444', color: '#fff', border: 'none',
-    borderRadius: '50%', width: 18, height: 18,
-    fontSize: 13, cursor: 'pointer', lineHeight: 1,
+  menuWrap: {
+    position: 'absolute', top: 6, right: 6, zIndex: 4,
+  },
+  menuTrigger: {
+    width: 22, height: 22, borderRadius: 6,
+    background: 'rgba(17,24,39,0.55)', color: '#fff', border: 'none',
     display: 'flex', alignItems: 'center', justifyContent: 'center',
-    zIndex: 2,
+    cursor: 'pointer',
   },
-  renameBtn: {
-    position: 'absolute', top: 4, right: 24,
-    background: '#6B7280', color: '#fff', border: 'none',
-    borderRadius: '50%', width: 18, height: 18,
-    fontSize: 10, cursor: 'pointer', lineHeight: 1,
-    display: 'flex', alignItems: 'center', justifyContent: 'center',
-    zIndex: 2,
+  menuDropdown: {
+    position: 'absolute', top: 26, right: 0,
+    background: 'var(--surface)', border: '1px solid var(--border)',
+    borderRadius: 10, boxShadow: 'var(--shadow-lg)',
+    minWidth: 130, padding: 4, display: 'flex', flexDirection: 'column',
   },
-  sizeBadge: {
-    position: 'absolute', bottom: 6, left: '50%',
-    transform: 'translateX(-50%)',
-    background: 'rgba(0,0,0,0.65)', color: '#fff',
-    fontSize: 10, fontWeight: 700, letterSpacing: 0.3,
-    padding: '2px 7px', borderRadius: 20, zIndex: 3,
-    pointerEvents: 'none', whiteSpace: 'nowrap',
-  },
-  charInfo: {
-    position: 'absolute', bottom: 0, left: 0, right: 0, zIndex: 3,
-    background: 'rgba(0,0,0,0.72)',
-    display: 'flex', flexDirection: 'column', gap: 1,
-    padding: '5px 7px', pointerEvents: 'none',
-  },
-  charName: {
-    fontSize: 10, fontWeight: 600, color: '#fff',
-    overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-    lineHeight: 1.3,
-  },
-  charSize: {
-    fontSize: 9, color: '#F97316', fontWeight: 700, letterSpacing: 0.2,
+  menuItem: {
+    display: 'flex', alignItems: 'center', gap: 8,
+    padding: '7px 10px', borderRadius: 6, border: 'none', background: 'none',
+    fontSize: 12.5, fontWeight: 500, color: 'var(--dark)', cursor: 'pointer',
+    textAlign: 'left', width: '100%',
   },
   overlay: {
     position: 'fixed', inset: 0, zIndex: 1000,
@@ -305,8 +349,8 @@ const styles = {
     display: 'flex', alignItems: 'center', justifyContent: 'center',
   },
   modal: {
-    background: '#fff', borderRadius: 16,
-    boxShadow: '0 8px 40px rgba(0,0,0,0.3)',
+    background: 'var(--surface)', borderRadius: 16,
+    boxShadow: 'var(--shadow-lg)',
     maxWidth: '90vw', maxHeight: '90vh',
     display: 'flex', flexDirection: 'column',
     overflow: 'hidden',
@@ -314,20 +358,20 @@ const styles = {
   modalHeader: {
     display: 'flex', alignItems: 'center', gap: 10,
     padding: '12px 16px',
-    borderBottom: '1px solid #f0f0f0',
+    borderBottom: '1px solid var(--border)',
   },
   modalName: {
-    flex: 1, fontSize: 15, fontWeight: 700, color: '#111827',
+    flex: 1, fontSize: 15, fontWeight: 700, color: 'var(--dark)',
     overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
   },
   modalSize: {
-    fontSize: 12, fontWeight: 700, color: '#F97316',
-    background: '#FFF7ED', padding: '2px 8px', borderRadius: 20,
+    fontSize: 12, fontWeight: 700, color: 'var(--primary)',
+    background: 'var(--primary-light)', padding: '2px 8px', borderRadius: 20,
     flexShrink: 0,
   },
   closeBtn: {
     background: 'none', border: 'none', fontSize: 18,
-    cursor: 'pointer', color: '#6B7280', lineHeight: 1,
+    cursor: 'pointer', color: 'var(--mid)', lineHeight: 1,
     padding: '2px 6px', borderRadius: 6, flexShrink: 0,
   },
   modalImgWrap: {

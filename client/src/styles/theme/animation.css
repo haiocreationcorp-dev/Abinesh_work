@@ -1,0 +1,9 @@
+/* ── animation.css — transition durations. New tokens from the latest design
+   brief; existing components use their own literal durations (e.g. "0.2s")
+   inline and are not being migrated in this pass — available for new/updated
+   code to use. */
+:root {
+  --transition-fast: 0.15s;
+  --transition: 0.25s;
+  --transition-slow: 0.35s;
+}

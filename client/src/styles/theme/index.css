@@ -1,0 +1,10 @@
+/* ── theme/index.css — imports every design-token file.
+   This is the ONLY place hex/rgba color values, font sizes, spacing, radii,
+   shadows, and transition durations should be defined. Every other CSS file
+   and every component should consume these via var(--token-name). */
+@import "./colors.css";
+@import "./typography.css";
+@import "./spacing.css";
+@import "./radius.css";
+@import "./shadows.css";
+@import "./animation.css";

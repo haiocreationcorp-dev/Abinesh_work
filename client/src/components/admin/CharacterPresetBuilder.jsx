@@ -255,7 +255,7 @@ const s = {
   hint: { fontSize: 12, color: 'var(--mid)', marginTop: 4 },
   list: { display: 'flex', flexDirection: 'column', gap: 8 },
   row: { display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', background: 'var(--primary-light)', borderRadius: 8 },
-  rowEditing: { outline: '2px solid #8B5CF6', outlineOffset: -2 },
+  rowEditing: { outline: '2px solid var(--primary)', outlineOffset: -2 },
   rowName: { fontWeight: 600, fontSize: 13, minWidth: 100 },
   rowDetail: { fontSize: 12, color: 'var(--mid)', flex: 1 },
   builderRow: { display: 'flex', gap: 24, alignItems: 'flex-start' },

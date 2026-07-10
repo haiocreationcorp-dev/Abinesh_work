@@ -1,0 +1,118 @@
+/* ── colors.css — single source of truth for every color used site-wide ──
+   Existing variable names (--primary, --dark, --light, --mid, etc.) are kept
+   exactly as-is: the whole app already consumes them via var(...) inside
+   component inline styles, so renaming would mean touching every component.
+   Newer tokens from the latest design brief (--primary-hover, --slider-*,
+   --sidebar-hover, etc.) are added alongside for new/updated code to use. */
+:root {
+  /* Primary */
+  --primary: #2563EB;
+  --primary-dark: #1D4ED8;
+  --primary-hover: #1D4ED8;
+  --primary-active: #1E40AF;
+  --primary-light: #EFF6FF;
+
+  /* Secondary */
+  --secondary: #2563EB;
+  --secondary-dark: #1D4ED8;
+
+  /* Success / Warning / Danger */
+  --success: #10B981;
+  --success-hover: #059669;
+  --warning: #F59E0B;
+  --danger: #EF4444;
+  --info: #3B82F6;
+
+  /* Navigation (sidebar, tabs, selected lists/cards/presets, category chips) — Soft Indigo */
+  --nav-primary: #6366F1;
+  --nav-light: #EEF2FF;
+  --nav-hover: #F5F3FF;
+  --nav-text: #4338CA;
+
+  /* Editing controls (sliders, drag handles, focus rings) — Royal Blue, same as --primary */
+  --edit-primary: var(--primary);
+  --edit-hover: var(--primary-hover);
+  --edit-glow: rgba(37, 99, 235, 0.18);
+
+  /* Actions (Save/Apply/Publish/Upload/Confirm/Export/Create) — Emerald Green */
+  --action-primary: #16A34A;
+  --action-hover: #15803D;
+  --action-active: #166534;
+  --action-text: #FFFFFF;
+
+  /* Background / Surface */
+  --light: #F6F7FB;
+  --surface: #FFFFFF;
+  --surface-hover: #F8FAFC;
+
+  /* Header ribbon — DO NOT MODIFY. Signature brand gradient, left unchanged by design. */
+  --header-gradient: linear-gradient(90deg, #FF8C00 0%, #FF5722 28%, #C2185B 62%, #7C3AED 100%);
+  --header-bg: #FFFFFF;
+
+  /* Sidebar / left nav panels — soft indigo selection, not a solid fill */
+  --sidebar-bg: #FFFFFF;
+  --sidebar-hover: var(--nav-hover);
+  --sidebar-active: var(--nav-light);
+
+  /* Text */
+  --dark: #1F2937;
+  --dark-2: #1F2937;
+  --mid: #6B7280;
+  --muted: #9CA3AF;
+  --text-on-primary: #FFFFFF;
+
+  /* Border */
+  --border: #E5E7EB;
+  --divider: #EEF2F7;
+
+  /* Sliders */
+  --slider-track: #D1D5DB;
+  --slider-fill: var(--primary);
+  --slider-thumb: #FFFFFF;
+
+  /* Inputs */
+  --input-bg: #FFFFFF;
+  --input-border: #D1D5DB;
+  --input-focus: var(--primary);
+}
+
+/* ── Dark mode (general UI chrome only — see UIThemeContext.jsx) ── */
+[data-theme="dark"] {
+  --primary: #60A5FA;
+  --primary-dark: #3B82F6;
+  --primary-hover: #3B82F6;
+  --primary-active: #2563EB;
+  --primary-light: #1E3A5F;
+  --secondary: #60A5FA;
+  --secondary-dark: #3B82F6;
+  --success-hover: #34D399;
+
+  --nav-primary: #818CF8;
+  --nav-light: #312E81;
+  --nav-hover: #3730A3;
+  --nav-text: #C7D2FE;
+
+  --action-primary: #22C55E;
+  --action-hover: #16A34A;
+  --action-active: #15803D;
+
+  --light: #14151A;
+  --surface: #1C1D24;
+  --surface-hover: #23242C;
+
+  --header-bg: #1C1D24;
+  --sidebar-bg: #1C1D24;
+  --sidebar-hover: var(--nav-hover);
+  --sidebar-active: var(--nav-light);
+
+  --dark: #F3F4F6;
+  --mid: #9CA3AF;
+  --muted: #6B7280;
+
+  --border: #2A2B33;
+  --divider: #2A2B33;
+
+  --slider-track: #3A3B45;
+  --input-bg: #1C1D24;
+  --input-border: #2A2B33;
+}

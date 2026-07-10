@@ -4,6 +4,7 @@ import { computeTrimRect, loadTrimRect, trimmedRect } from '../../../utils/trimR
 import { resolveLayoutFilePaths } from '../../../utils/faceLayout.js';
 import { hexToRgb } from '../../../lighting/lightingEngine.js';
 import { VIEWS, GENDERS } from '../../../constants/categories.js';
+import { sliderFillStyle } from '../../../utils/sliderFill.js';
 
 const ORANGE = '#F97316';
 const CANVAS_W = 500;
@@ -1430,8 +1431,8 @@ export default function PartAssembler({ title, libraryCategory, partTypes, onSav
             <div style={{ display: 'flex', gap: 4 }}>
               {selectedIds.size >= 2 && (
                 <button onClick={groupSelected}
-                  style={{ fontSize: 10, fontWeight: 700, color: '#6D28D9', background: '#F5F3FF',
-                    border: '1px solid #DDD6FE', borderRadius: 6, padding: '2px 7px', cursor: 'pointer' }}>
+                  style={{ fontSize: 10, fontWeight: 700, color: 'var(--nav-text)', background: 'var(--nav-light)',
+                    border: '1px solid rgba(99,102,241,0.3)', borderRadius: 6, padding: '2px 7px', cursor: 'pointer' }}>
                   Group
                 </button>
               )}
@@ -1459,8 +1460,8 @@ export default function PartAssembler({ title, libraryCategory, partTypes, onSav
                     style={{
                       display: 'flex', alignItems: 'center', gap: 5,
                       padding: '4px 5px', borderRadius: 7, cursor: 'pointer',
-                      background: isSel ? '#FEF3E2' : isMulti ? '#F5F3FF' : 'transparent',
-                      border: `1.5px solid ${isSel ? ORANGE : isMulti ? '#818CF8' : 'transparent'}`,
+                      background: isSel ? '#FEF3E2' : isMulti ? 'var(--nav-light)' : 'transparent',
+                      border: `1.5px solid ${isSel ? ORANGE : isMulti ? 'var(--nav-primary)' : 'transparent'}`,
                     }}>
                     {gc && <div style={{ width: 4, height: '100%', minHeight: 26, borderRadius: 2, background: gc, flexShrink: 0 }} />}
                     <img src={part.filePath} alt=""
@@ -1621,9 +1622,9 @@ export default function PartAssembler({ title, libraryCategory, partTypes, onSav
               {/* Group badge */}
               {selectedPart.groupId && (
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '4px 8px',
-                  background: '#F5F3FF', borderRadius: 8, border: '1px solid #DDD6FE' }}>
+                  background: 'var(--nav-light)', borderRadius: 8, border: '1px solid rgba(99,102,241,0.3)' }}>
                   <div style={{ width: 8, height: 8, borderRadius: '50%', background: groupColor(selectedPart.groupId), flexShrink: 0 }} />
-                  <span style={{ fontSize: 10, color: '#6D28D9', flex: 1 }}>In group</span>
+                  <span style={{ fontSize: 10, color: 'var(--nav-text)', flex: 1 }}>In group</span>
                   <button onClick={() => ungroupPart(selectedPart.id)}
                     style={{ background: 'none', border: 'none', color: '#9CA3AF', cursor: 'pointer', fontSize: 11, padding: 0 }}>✕</button>
                 </div>
@@ -1632,8 +1633,8 @@ export default function PartAssembler({ title, libraryCategory, partTypes, onSav
               {alignmentEnabled && alignablePartType(selectedPart, dressAlignMode) && (
                 <button onClick={saveFacePartAlignmentForSelected} disabled={savingAlignment || !loadedAlignAssetId}
                   title={!loadedAlignAssetId ? 'Save the costume first (Save As), then lock positions' : ''}
-                  style={{ padding: '6px', border: '1.5px solid #BFDBFE', borderRadius: 8,
-                    background: loadedAlignAssetId ? '#EFF6FF' : '#F3F4F6', color: loadedAlignAssetId ? '#1D4ED8' : '#9CA3AF',
+                  style={{ padding: '6px', border: '1.5px solid #86EFAC', borderRadius: 8,
+                    background: loadedAlignAssetId ? '#DCFCE7' : '#F3F4F6', color: loadedAlignAssetId ? 'var(--action-hover)' : '#9CA3AF',
                     fontSize: 12, fontWeight: 600, cursor: loadedAlignAssetId ? 'pointer' : 'not-allowed' }}>
                   {savingAlignment ? 'Saving…' : `📌 Save ${ALIGNABLE_PART_LABELS[alignablePartType(selectedPart, dressAlignMode)]} Position`}
                 </button>
@@ -1739,7 +1740,7 @@ function SliderRow({ label, value, min, max, onChange, unit = '' }) {
       </div>
       <input type="range" min={min} max={max} value={value}
         onChange={(e) => onChange(Number(e.target.value))}
-        style={{ width: '100%', accentColor: ORANGE, display: 'block' }} />
+        style={{ width: '100%', display: 'block', ...sliderFillStyle(value, min, max) }} />
     </div>
   );
 }

@@ -1,33 +1,9 @@
-/* ── BharathComic brand tokens — vivid modern SaaS design system ── */
-:root {
-  --primary: #7C3AED; /* Vivid Purple */
-  --primary-dark: #6D28D9;
-  --primary-light: #EFE6FE;
-  --secondary: #2563EB; /* Blue accent */
-  --secondary-dark: #1D4ED8;
-  --dark: #111827;
-  --dark-2: #1F2937;
-  --mid: #6B7280;
-  --muted: #9CA3AF;
-  --light: #F5F6FA;
-  --border: #E5E7EB;
-  --success: #16A34A;
-  --warning: #F97316;
-  --danger: #DC2626;
-  --info: #2563EB;
-  --font-comic: 'Comic Neue', cursive;
-  --font-display: 'Plus Jakarta Sans', sans-serif;
-  --font-ui: 'Inter', sans-serif;
-  --shadow: 0 4px 20px rgba(17, 24, 39, 0.08);
-  --shadow-lg: 0 8px 40px rgba(17, 24, 39, 0.16);
-  --radius: 12px;
-  --radius-sm: 8px;
-  --surface: #FFFFFF;
-  --header-bg: #FFFFFF;
-  --sidebar-bg: #FFFFFF;
-  /* The Comic Editor's signature gradient ribbon — reused on other top header bars site-wide. */
-  --header-gradient: linear-gradient(90deg, #FF8C00 0%, #FF5722 28%, #C2185B 62%, #7C3AED 100%);
-}
+/* ── BharathComic design tokens ──
+   All color/typography/spacing/radius/shadow/animation values live in
+   styles/theme/ (one file per category, colors.css is the single source of
+   truth for every hex/rgba in the app) — this import must come first so the
+   variables are defined before anything below references them. */
+@import "./styles/theme/index.css";
 
 /* ── Comic Editor layout tokens — shrink on laptop screens ── */
 :root {
@@ -50,25 +26,6 @@
     --editor-app-name-size: 24px;
     --editor-top-bar-h: 58px;
   }
-}
-
-/* ── Dark mode (general UI chrome only — see UIThemeContext.jsx) ── */
-[data-theme="dark"] {
-  --primary: #A78BFA;
-  --primary-dark: #8B5CF6;
-  --primary-light: #2E2350;
-  --secondary: #60A5FA;
-  --secondary-dark: #3B82F6;
-  --dark: #F3F4F6;
-  --mid: #9CA3AF;
-  --muted: #6B7280;
-  --light: #14151A;
-  --border: #2A2B33;
-  --surface: #1C1D24;
-  --header-bg: #1C1D24;
-  --sidebar-bg: #1C1D24;
-  --shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
-  --shadow-lg: 0 8px 40px rgba(0, 0, 0, 0.55);
 }
 
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -102,6 +59,83 @@ input, textarea, select {
 
 input:focus, textarea:focus, select:focus { border-color: var(--primary); }
 
+/* Every range slider site-wide: gray track, white thumb with a colored ring — set here
+   once so new sliders match automatically regardless of the surrounding component's own
+   styling. The "filled" portion left of the thumb needs a per-slider inline background
+   (see sliderFillStyle in utils/sliderFill.js) since no browser lets pure CSS color part
+   of a native track based on its current value except Firefox's non-standard
+   ::-moz-range-progress — accent-color alone can't express track≠thumb colors either. */
+input[type="range"] {
+  -webkit-appearance: none;
+  appearance: none;
+  /* Native sliders inset the thumb's center by half its own width from each edge,
+     so it never quite reaches the true corners. Widening the track by one thumb's
+     width and pulling it back in with matching negative margins cancels that inset
+     out, so at min/max the thumb's center — not just its trailing edge — lands
+     exactly on the container's boundary instead of stopping short of it. !important
+     because every call site sets its own inline `width: '100%'` (higher specificity
+     than this rule), which would otherwise silently cancel the fix out. */
+  width: calc(100% + 16px) !important;
+  margin: 0 -8px !important;
+  height: 6px;
+  border-radius: var(--radius-pill, 999px);
+  background: var(--slider-track);
+  outline: none;
+  cursor: pointer;
+  transition: background 0.2s ease;
+}
+input[type="range"]::-webkit-slider-runnable-track {
+  height: 6px;
+  border-radius: var(--radius-pill, 999px);
+  background: transparent;
+}
+input[type="range"]::-moz-range-track {
+  height: 6px;
+  border-radius: var(--radius-pill, 999px);
+  background: var(--slider-track);
+}
+input[type="range"]::-moz-range-progress {
+  height: 6px;
+  border-radius: var(--radius-pill, 999px);
+  background: var(--slider-fill);
+  transition: width 0.2s ease;
+}
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 16px;
+  height: 16px;
+  margin-top: -5px;
+  border-radius: 50%;
+  background: var(--slider-thumb);
+  border: 2px solid var(--primary);
+  box-shadow: 0 1px 3px rgba(0,0,0,0.18), 0 0 0 0 var(--edit-glow, rgba(37,99,235,0.18));
+  cursor: pointer;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease;
+}
+input[type="range"]::-moz-range-thumb {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--slider-thumb);
+  border: 2px solid var(--primary);
+  box-shadow: 0 1px 3px rgba(0,0,0,0.18), 0 0 0 0 var(--edit-glow, rgba(37,99,235,0.18));
+  cursor: pointer;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease;
+}
+input[type="range"]:hover::-webkit-slider-thumb { border-color: var(--primary-hover); transform: scale(1.1); }
+input[type="range"]:hover::-moz-range-thumb { border-color: var(--primary-hover); transform: scale(1.1); }
+input[type="range"]:active::-webkit-slider-thumb,
+input[type="range"]:focus-visible::-webkit-slider-thumb {
+  box-shadow: 0 1px 3px rgba(0,0,0,0.18), 0 0 0 6px var(--edit-glow, rgba(37,99,235,0.18));
+  transform: scale(1.1);
+}
+input[type="range"]:active::-moz-range-thumb,
+input[type="range"]:focus-visible::-moz-range-thumb {
+  box-shadow: 0 1px 3px rgba(0,0,0,0.18), 0 0 0 6px var(--edit-glow, rgba(37,99,235,0.18));
+  transform: scale(1.1);
+}
+
 /* ── Buttons ── */
 .btn {
   display: inline-flex;
@@ -114,10 +148,11 @@ input:focus, textarea:focus, select:focus { border-color: var(--primary); }
 }
 
 .btn-primary {
-  background: var(--primary);
-  color: #fff;
+  background: var(--action-primary);
+  color: var(--action-text);
 }
-.btn-primary:hover { background: var(--primary-dark); }
+.btn-primary:hover { background: var(--action-hover); }
+.btn-primary:active { background: var(--action-active); }
 
 .btn-secondary {
   background: var(--secondary);
@@ -126,11 +161,25 @@ input:focus, textarea:focus, select:focus { border-color: var(--primary); }
 .btn-secondary:hover { background: var(--secondary-dark); }
 
 .btn-outline {
-  background: transparent;
-  color: var(--primary);
-  border: 1.5px solid var(--primary);
+  background: #FFFFFF;
+  color: var(--dark);
+  border: 1.5px solid var(--border);
 }
-.btn-outline:hover { background: var(--primary-light); }
+.btn-outline:hover { background: var(--surface-hover); }
+
+.btn-nav-active {
+  background: var(--nav-light);
+  color: var(--nav-text);
+  border: 1px solid var(--nav-primary);
+}
+.btn-nav-active:hover { background: var(--nav-hover); }
+
+.btn-edit-active {
+  background: var(--edit-primary);
+  color: #fff;
+  border: 1px solid var(--edit-primary);
+}
+.btn-edit-active:hover { background: var(--edit-hover); }
 
 .btn-ghost {
   background: transparent;
@@ -148,10 +197,37 @@ input:focus, textarea:focus, select:focus { border-color: var(--primary); }
 .btn-sm { padding: 5px 12px; font-size: 12px; }
 .btn-lg { padding: 12px 28px; font-size: 16px; }
 
+/* ── Filter pills (segmented-control look for asset/category filters) ── */
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 16px;
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 600;
+  background: var(--surface);
+  color: var(--mid);
+  border: 1px solid var(--border);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s, box-shadow 0.15s;
+}
+.chip:hover { border-color: var(--nav-primary); color: var(--nav-primary); }
+.chip-active {
+  background: var(--nav-primary);
+  color: #fff;
+  border-color: var(--nav-primary);
+  box-shadow: 0 2px 8px rgba(99, 102, 241, 0.35);
+}
+.chip-active:hover { background: var(--nav-text); color: #fff; border-color: var(--nav-text); }
+
 /* ── Layout ── */
 .page { min-height: 100vh; padding-top: 58px; }
 .container { max-width: 1440px; margin: 0 auto; padding: 0 36px; }
-.section { padding: 40px 0; }
+/* Longhand on purpose: .container and .section are combined on the same element
+   (e.g. className="container section") — a shorthand `padding: 40px 0` here would
+   overwrite .container's left/right padding to 0 instead of layering on top of it. */
+.section { padding-top: 40px; padding-bottom: 40px; }
 @media (max-width: 600px) {
   .container { padding: 0 16px; }
 }
@@ -184,6 +260,17 @@ input:focus, textarea:focus, select:focus { border-color: var(--primary); }
   color: var(--primary);
 }
 .badge-admin { background: #fff0e6; color: var(--secondary); }
+
+/* ── Skeleton loading placeholder ── */
+@keyframes skeleton-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+.skeleton {
+  background: var(--border);
+  border-radius: var(--radius-sm);
+  animation: skeleton-pulse 1.4s ease-in-out infinite;
+}
 
 /* ── Loading ── */
 .spinner {
@@ -370,7 +457,7 @@ input:focus, textarea:focus, select:focus { border-color: var(--primary); }
 .cmdk-input:focus { border-color: var(--border); }
 .cmdk-list { max-height: 340px; overflow-y: auto; padding: 8px; }
 .cmdk-item { width: 100%; text-align: left; padding: 11px 14px; border-radius: var(--radius-sm); background: transparent; color: var(--dark); font-size: 14px; font-weight: 600; display: flex; align-items: center; gap: 10px; }
-.cmdk-item:hover, .cmdk-item-active { background: var(--primary-light); color: var(--primary); }
+.cmdk-item:hover, .cmdk-item-active { background: var(--nav-light); color: var(--nav-text); }
 .cmdk-empty { padding: 24px; text-align: center; color: var(--mid); font-size: 13px; }
 
 /* ── Scoped modern inputs (Upload Asset form only) ── */
@@ -390,23 +477,10 @@ textarea.asset-form-input { height: auto; padding: 12px 16px; }
 }
 .dropzone:hover, .dropzone-active { border-color: var(--primary); background: var(--primary-light); }
 
-/* ── Category picker chips ── */
-.category-chip {
-  display: flex; align-items: center; gap: 6px; padding: 8px 14px; border-radius: 99px;
-  border: 1.5px solid var(--border); background: var(--surface); color: var(--mid); font-size: 13px; font-weight: 600;
-  transition: border-color 150ms ease, color 150ms ease, background 150ms ease;
-}
-.category-chip:hover { border-color: var(--primary); color: var(--primary); }
-.category-chip-active { background: var(--primary); border-color: var(--primary); color: #fff; }
-.category-star { display: flex; align-items: center; justify-content: center; color: inherit; opacity: 0.7; }
-.category-star:hover { opacity: 1; }
-
-/* ── Checkered transparency background (asset preview) ── */
+/* ── Checkered transparency background (asset preview) — theme-aware neutral checkerboard ── */
 .checkered-bg {
-  background-image:
-    linear-gradient(45deg, #ccc 25%, transparent 25%), linear-gradient(-45deg, #ccc 25%, transparent 25%),
-    linear-gradient(45deg, transparent 75%, #ccc 75%), linear-gradient(-45deg, transparent 75%, #ccc 75%);
+  background-image: repeating-conic-gradient(var(--border) 0% 25%, transparent 0% 50%);
   background-size: 16px 16px;
-  background-position: 0 0, 0 8px, 8px -8px, -8px 0px;
+  background-color: var(--surface);
   border-radius: 12px;
 }

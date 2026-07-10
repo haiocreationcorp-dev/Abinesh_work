@@ -1,0 +1,22 @@
+/* ── typography.css — fonts, sizes, weights.
+   font-comic, font-display, and font-ui are the fonts actually referenced
+   across components today. The font-size and font-weight scales are new
+   tokens from the latest design brief, available for new/updated code —
+   existing components still set their own px sizes inline and are not being
+   migrated in this pass. */
+:root {
+  --font-comic: 'Comic Neue', cursive;
+  --font-display: 'Plus Jakarta Sans', sans-serif;
+  --font-ui: 'Inter', sans-serif;
+  --font-family: var(--font-ui);
+
+  --font-size-xs: 12px;
+  --font-size-sm: 14px;
+  --font-size-md: 16px;
+  --font-size-lg: 20px;
+  --font-size-xl: 28px;
+
+  --font-weight-normal: 400;
+  --font-weight-medium: 500;
+  --font-weight-bold: 700;
+}

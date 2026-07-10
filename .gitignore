@@ -9,3 +9,5 @@ npm-debug.log*
 tmp_parts/
 server/backups/
 Details from the old devices/
+# Off-site backup copy (contains .env secrets + a DB dump) — never commit this.
+Pendrive Content/

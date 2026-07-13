@@ -1,8 +1,14 @@
 import { useState, useRef, useMemo, useEffect } from 'react';
-import { uploadFolder, checkDuplicateAssets } from '../../api/assets.js';
-import { CATEGORY_IDS as CATEGORIES, BG_SUBCATEGORIES, VIEWS, FACE_PART_TYPES, GENDERS, POSE_TYPES, EYE_TYPES, MOUTH_TYPES } from '../../constants/categories.js';
+import { uploadFolder, checkDuplicateAssets, getBackgroundSubcategories, createBackgroundSubcategory } from '../../api/assets.js';
+import { CATEGORY_IDS as CATEGORIES, VIEWS, FACE_PART_TYPES, GENDERS, POSE_TYPES, EYE_TYPES, MOUTH_TYPES } from '../../constants/categories.js';
 import { readDroppedFolder } from '../../utils/folderDrop.js';
-import { FolderOpen, CheckCircle2, AlertTriangle, ChevronLeft, ChevronRight, Download, ImageOff } from 'lucide-react';
+import { FolderOpen, CheckCircle2, AlertTriangle, ChevronLeft, ChevronRight, Download, ImageOff, Plus, Check, X } from 'lucide-react';
+
+// Mirrors the server's slugify (backgroundSubcategoryController.js) so a folder-name-derived
+// subcategory tag matches the slug the server registers for it.
+function slugify(label) {
+  return String(label || '').trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+}
 
 const ALLOWED_EXTS = ['.svg', '.png', '.jpg', '.jpeg', '.gif', '.webp', '.mp3', '.wav', '.ogg', '.m4a'];
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // matches the server's multer per-file limit
@@ -103,6 +109,10 @@ export default function FolderUploadForm() {
   const [folderName, setFolderName] = useState('');
   const [category, setCategory] = useState('FACE_PART');
   const [bgSubcategory, setBgSubcategory] = useState('');
+  const [subcats, setSubcats] = useState([]);
+  const [useFolderAsSubcat, setUseFolderAsSubcat] = useState(false);
+  const [addingSubcat, setAddingSubcat] = useState(false);
+  const [newSubcatLabel, setNewSubcatLabel] = useState('');
   const [partType, setPartType] = useState('');
   const [view, setView] = useState('');
   const [gender, setGender] = useState('');
@@ -139,6 +149,27 @@ export default function FolderUploadForm() {
     setUseCostumePosePlan(cfg.useCostumePosePlan ?? true);
     setSkipDuplicates(cfg.skipDuplicates ?? false);
   }, []);
+
+  const refreshSubcats = () => { getBackgroundSubcategories().then(setSubcats).catch(() => {}); };
+  useEffect(refreshSubcats, []);
+
+  const handleAddSubcat = async () => {
+    const label = newSubcatLabel.trim();
+    if (!label) return;
+    try {
+      const created = await createBackgroundSubcategory(label);
+      setNewSubcatLabel('');
+      setAddingSubcat(false);
+      await refreshSubcats();
+      setBgSubcategory(created.slug);
+    } catch (_) { /* duplicate or invalid — leave the input for the admin to fix */ }
+  };
+
+  // The subcategory slug actually applied to this batch: folder-name-derived when that
+  // option is on, otherwise the one picked from the managed list.
+  const effectiveSubcatSlug = category === 'BACKGROUND'
+    ? (useFolderAsSubcat ? slugify(folderName) : bgSubcategory)
+    : '';
 
   const saveConfig = () => {
     localStorage.setItem(CONFIG_KEY, JSON.stringify({
@@ -240,7 +271,10 @@ export default function FolderUploadForm() {
     fd.append('category', category);
     fd.append('folderName', folderName);
     if (skipDuplicates) fd.append('skipDuplicates', 'true');
-    if (category === 'BACKGROUND' && bgSubcategory) fd.append('tags', bgSubcategory);
+    if (category === 'BACKGROUND' && effectiveSubcatSlug) {
+      fd.append('tags', effectiveSubcatSlug);
+      fd.append('bgSubcategory', effectiveSubcatSlug);
+    }
     if (category === 'FACE_PART') {
       if (partType) fd.append('partType', partType);
       if (view) fd.append('view', view);
@@ -407,10 +441,42 @@ export default function FolderUploadForm() {
               {category === 'BACKGROUND' && (
                 <div className="form-group" style={{ marginBottom: 0 }}>
                   <label>Subcategory</label>
-                  <select className="asset-form-input" value={bgSubcategory} onChange={(e) => setBgSubcategory(e.target.value)}>
-                    <option value="">— None —</option>
-                    {BG_SUBCATEGORIES.map((sc) => <option key={sc.id} value={sc.id}>{sc.label}</option>)}
-                  </select>
+                  {useFolderAsSubcat ? (
+                    <input
+                      className="asset-form-input"
+                      value={folderName ? folderName.replace(/[-_]+/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()).trim() : ''}
+                      readOnly
+                      placeholder="Pick a folder — its name becomes the subcategory"
+                      style={{ background: 'var(--light)' }}
+                    />
+                  ) : addingSubcat ? (
+                    <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                      <input
+                        autoFocus
+                        className="asset-form-input"
+                        value={newSubcatLabel}
+                        onChange={(e) => setNewSubcatLabel(e.target.value)}
+                        onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleAddSubcat(); } if (e.key === 'Escape') { setAddingSubcat(false); setNewSubcatLabel(''); } }}
+                        placeholder="New subcategory name…"
+                      />
+                      <button type="button" style={styles.subcatIconBtn} title="Add" onClick={handleAddSubcat}><Check size={14} /></button>
+                      <button type="button" style={styles.subcatIconBtn} title="Cancel" onClick={() => { setAddingSubcat(false); setNewSubcatLabel(''); }}><X size={14} /></button>
+                    </div>
+                  ) : (
+                    <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                      <select className="asset-form-input" value={bgSubcategory} onChange={(e) => setBgSubcategory(e.target.value)}>
+                        <option value="">— None —</option>
+                        {subcats.map((sc) => <option key={sc.id} value={sc.slug}>{sc.label}</option>)}
+                      </select>
+                      <button type="button" className="btn btn-outline btn-sm" style={{ whiteSpace: 'nowrap' }} onClick={() => setAddingSubcat(true)}>
+                        <Plus size={14} /> New
+                      </button>
+                    </div>
+                  )}
+                  <label style={styles.folderSubcatToggle}>
+                    <input type="checkbox" checked={useFolderAsSubcat} onChange={(e) => setUseFolderAsSubcat(e.target.checked)} />
+                    Use folder name as subcategory
+                  </label>
                 </div>
               )}
               {category === 'FACE_PART' && (
@@ -649,6 +715,11 @@ const styles = {
   sectionCard: { padding: 14 },
   heading: { fontSize: 11.5, fontWeight: 700, color: 'var(--mid)', textTransform: 'uppercase', letterSpacing: 0.4, margin: '0 0 8px' },
   formGrid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '8px 16px', marginTop: 0 },
+  subcatIconBtn: {
+    width: 30, height: 30, borderRadius: 7, border: '1px solid var(--border)', background: '#fff',
+    color: 'var(--mid)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+  },
+  folderSubcatToggle: { display: 'flex', alignItems: 'center', gap: 6, fontSize: 11.5, color: 'var(--mid)', marginTop: 6, cursor: 'pointer', textTransform: 'none', fontWeight: 500, letterSpacing: 0 },
 
   dropzone: { padding: '12px 16px', textAlign: 'center' },
   folderSummary: { marginTop: 10, display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '4px 16px' },

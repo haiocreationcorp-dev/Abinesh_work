@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import ProfileMenu from '../components/ui/ProfileMenu.jsx';
 import { useUITheme } from '../context/UIThemeContext.jsx';
@@ -16,6 +16,7 @@ import ManageUsersPanel from '../components/admin/ManageUsersPanel.jsx';
 import InstitutionsPanel from '../components/admin/InstitutionsPanel.jsx';
 import AdminNavDrawer from '../components/admin/AdminNavDrawer.jsx';
 import { ASSET_CATEGORIES, FACE_PART_TYPES, GENDERS, VIEWS, POSE_TYPES, EYE_TYPES, MOUTH_TYPES } from '../constants/categories.js';
+import { getBackgroundSubcategories } from '../api/assets.js';
 import { Search, UploadCloud } from 'lucide-react';
 
 function IconSun() {
@@ -145,8 +146,15 @@ export default function AdminPage() {
   const [eyeType, setEyeType] = useState('');
   const [mouthType, setMouthType] = useState('');
   const [costumeFilter, setCostumeFilter] = useState('');
+  const [bgSubFilter, setBgSubFilter] = useState('');
+  const [bgSubcats, setBgSubcats] = useState([]);
   const [assetSearch, setAssetSearch] = useState('');
   const [fbMode, setFbMode] = useState('face');
+
+  // Background subcategory folders, for the Asset Explorer's Backgrounds filter.
+  useEffect(() => {
+    if (bgSubcats.length === 0) getBackgroundSubcategories().then(setBgSubcats).catch(() => {});
+  }, [bgSubcats.length]);
 
   const toggleNav = (key) => setNavOpen((cur) => (cur === key ? null : key));
   const activeGroup = navOpen ? NAV_GROUPS[navOpen] : NAV_GROUPS.content;
@@ -257,7 +265,7 @@ export default function AdminPage() {
                     key={c.id}
                     className={`chip ${category === c.id ? 'chip-active' : ''}`}
                     style={styles.categoryChipEven}
-                    onClick={() => { setCategory(c.id); setPartType(''); setGender(''); setView(''); setPoseType(''); setEyeType(''); setMouthType(''); setCostumeFilter(''); }}
+                    onClick={() => { setCategory(c.id); setPartType(''); setGender(''); setView(''); setPoseType(''); setEyeType(''); setMouthType(''); setCostumeFilter(''); setBgSubFilter(''); }}
                   >
                     {c.label}
                   </button>
@@ -281,6 +289,16 @@ export default function AdminPage() {
                   <FilterDropdown label="View" value={view} onChange={setView} options={VIEWS} />
                 </div>
               )}
+              {category === 'BACKGROUND' && bgSubcats.length > 0 && (
+                <div style={styles.filterBar}>
+                  <FilterDropdown
+                    label="Subcategory"
+                    value={bgSubFilter}
+                    onChange={setBgSubFilter}
+                    options={bgSubcats.map((s) => ({ id: s.slug, label: s.label }))}
+                  />
+                </div>
+              )}
               {category === 'BODY_POSE' && (
                 <div style={styles.filterBar}>
                   <div className="form-group" style={{ maxWidth: 160, marginBottom: 0 }}>
@@ -298,6 +316,7 @@ export default function AdminPage() {
               <AssetGrid
                 category={category}
                 search={assetSearch}
+                tags={category === 'BACKGROUND' ? bgSubFilter : undefined}
                 partType={category === 'FACE_PART' ? partType : ''}
                 gender={category === 'FACE_PART' ? gender : ''}
                 view={['FACE_PART', 'FACE_TEMPLATE', 'BODY_POSE'].includes(category) ? view : ''}

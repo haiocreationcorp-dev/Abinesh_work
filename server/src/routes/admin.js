@@ -11,6 +11,7 @@ const prisma = require('../config/prisma');
 const { addMonths } = require('../utils/dates');
 const { quantizeSkinTones, DEFAULT_SKIN_THRESHOLDS } = require('../utils/skinNormalize');
 const { findInheritedHeadBox } = require('../utils/headBoxFallback');
+const { ensureSubcategoryExists, nextAssetNumber, codeName } = require('../controllers/backgroundSubcategoryController');
 
 const SHARED_ALIGNMENT_KEY = '__ALL__';
 
@@ -236,8 +237,11 @@ router.post(
   async (req, res) => {
     try {
       const { name, category, tags, removeWhiteBg, normalizeSkin, skinThresholds, skipProcessing,
-        partType, view, gender, eyeType, mouthType, faceFamily, costume, poseType } = req.body;
-      if (!name || !category || !req.files?.file) {
+        partType, view, gender, eyeType, mouthType, faceFamily, costume, poseType, bgSubcategory } = req.body;
+      // Backgrounds placed in a subcategory are auto-named (A01, A02, …) below, so an empty
+      // name is fine in that one case; everything else still requires a name.
+      const willAutoName = (category || '').toUpperCase() === 'BACKGROUND' && !!bgSubcategory;
+      if ((!name && !willAutoName) || !category || !req.files?.file) {
         return res.status(400).json({ error: 'name, category, and file are required' });
       }
       const resolvedSkinThresholds = normalizeSkin === 'true' ? parseSkinThresholds(skinThresholds) : null;
@@ -247,13 +251,29 @@ router.post(
         return res.status(400).json({ error: `Invalid category: ${category}` });
       }
 
-      const writeFile = (buffer, ext, subdir) => {
-        const filename = `${uuidv4()}${ext}`;
+      // `subdir` is relative to UPLOADS_ROOT (may include a nested subfolder like
+      // "backgrounds/nature"); `explicitBase` gives the file a readable name instead of a
+      // random UUID (used for coded background names like "A01").
+      const writeFile = (buffer, ext, subdir, explicitBase) => {
+        const filename = `${explicitBase ? sanitizeFilename(explicitBase) : uuidv4()}${ext}`;
         const dir = path.join(UPLOADS_ROOT, subdir);
         if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
         fs.writeFileSync(path.join(dir, filename), buffer);
         return `/uploads/${subdir}/${filename}`;
       };
+
+      // BACKGROUND + a chosen subcategory → auto-name the asset with the subcategory's
+      // letter code + sequential number (A01, A02, …), stored in its own on-disk folder,
+      // instead of a random UUID. Falls back to the typed name/flat folder otherwise.
+      let bgSub = null, bgAssetName = null, bgSubdir = null;
+      if (categoryUpper === 'BACKGROUND' && bgSubcategory) {
+        bgSub = await ensureSubcategoryExists(bgSubcategory).catch(() => null);
+        if (bgSub) {
+          const n = await nextAssetNumber(bgSub.slug, bgSub.code);
+          bgAssetName = codeName(bgSub.code, n);
+          bgSubdir = `${CATEGORY_TO_DIR.BACKGROUND}/${bgSub.slug}`;
+        }
+      }
 
       const assetFile = req.files.file[0];
       let assetBuf, assetExt;
@@ -271,7 +291,7 @@ router.post(
           ({ buffer: assetBuf, ext: assetExt } = await normalizeSkinTones(assetBuf, assetExt, resolvedSkinThresholds));
         }
       }
-      const filePath = writeFile(assetBuf, assetExt, CATEGORY_TO_DIR[categoryUpper]);
+      const filePath = writeFile(assetBuf, assetExt, bgSubdir || CATEGORY_TO_DIR[categoryUpper], bgAssetName || undefined);
 
       let thumbnailPath = null;
       if (req.files?.thumbnail?.[0]) {
@@ -283,7 +303,7 @@ router.post(
 
       const asset = await prisma.asset.create({
         data: {
-          name,
+          name: bgAssetName || name,
           category: categoryUpper,
           tags: tagArray,
           filename: assetFile.originalname,
@@ -329,7 +349,7 @@ router.post('/assets/check-duplicates', adminAuth, async (req, res) => {
 // POST /api/admin/assets/upload-folder — folder-sync upload (upsert per asset name+category)
 router.post('/assets/upload-folder', adminAuth, uploadBatch.array('files', 500), async (req, res) => {
   try {
-    const { category, tags, folderName, removeWhiteBg, normalizeSkin, skinThresholds, view, partType, gender, eyeType, mouthType, faceFamily, costume, poseType, fileMeta, skipDuplicates } = req.body;
+    const { category, tags, folderName, removeWhiteBg, normalizeSkin, skinThresholds, view, partType, gender, eyeType, mouthType, faceFamily, costume, poseType, fileMeta, skipDuplicates, bgSubcategory } = req.body;
     const categoryUpper = (category || '').toUpperCase();
     const tagArray = tags ? tags.split(',').map((t) => t.trim()).filter(Boolean) : [];
     const stripBg = removeWhiteBg === 'true';
@@ -350,11 +370,23 @@ router.post('/assets/upload-folder', adminAuth, uploadBatch.array('files', 500),
       return res.status(400).json({ error: 'No valid files found in folder' });
     }
 
+    // BACKGROUND + a chosen subcategory → its own folder (uploads/backgrounds/<slug>/) with
+    // code-named files (A01, A02, …); resolve the subcategory + a running counter up front.
+    let bgSub = null;
+    let bgCounter = 0;
+    if (categoryUpper === 'BACKGROUND' && bgSubcategory) {
+      bgSub = await ensureSubcategoryExists(bgSubcategory).catch(() => null);
+      if (bgSub) bgCounter = await nextAssetNumber(bgSub.slug, bgSub.code);
+    }
+
     // BODY_POSE assets with a costume get their own subfolder (e.g. uploads/body-poses/C3/)
-    // instead of dumping every costume's poses into one flat folder.
+    // instead of dumping every costume's poses into one flat folder. BACKGROUND uses the
+    // subcategory slug folder when one is set.
     const subdirRel = (categoryUpper === 'BODY_POSE' && costume)
       ? `${CATEGORY_TO_DIR[categoryUpper]}/${sanitizeFilename(costume)}`
-      : CATEGORY_TO_DIR[categoryUpper];
+      : bgSub
+        ? `${CATEGORY_TO_DIR.BACKGROUND}/${bgSub.slug}`
+        : CATEGORY_TO_DIR[categoryUpper];
     const dir = path.join(UPLOADS_ROOT, subdirRel);
     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
 
@@ -399,9 +431,13 @@ router.post('/assets/upload-folder', adminAuth, uploadBatch.array('files', 500),
         const fileView = meta?.view ?? view;
         const filePoseType = meta?.poseType ?? poseType;
         const baseName = meta?.name || prettify(stripViewSuffix(file.originalname));
-        const assetName = (!meta && categoryUpper === 'BODY_POSE' && folderPretty)
-          ? `${folderPretty} ${baseName}`
-          : baseName;
+        // BACKGROUND + subcategory → sequential code name (A01, A02, …); otherwise the
+        // usual base/costume-prefixed name.
+        const assetName = bgSub
+          ? codeName(bgSub.code, bgCounter++)
+          : (!meta && categoryUpper === 'BODY_POSE' && folderPretty)
+            ? `${folderPretty} ${baseName}`
+            : baseName;
         const assetTags = (categoryUpper === 'BODY_POSE' && folderPretty)
           ? [...tagArray, folderPretty.toLowerCase()]
           : tagArray;
@@ -418,9 +454,9 @@ router.post('/assets/upload-folder', adminAuth, uploadBatch.array('files', 500),
         let { buffer: fileBuf, ext } = await maybeToWebP(file.buffer, file.originalname, categoryUpper);
         if (stripBg) ({ buffer: fileBuf, ext } = await removeWhiteBackground(fileBuf, ext));
         if (normalizeSkinTone) ({ buffer: fileBuf, ext } = await normalizeSkinTones(fileBuf, ext, resolvedSkinThresholds));
-        // fileMeta-driven uploads (e.g. C1P1) get a readable on-disk filename matching
-        // the asset name; everything else keeps the random UUID as before.
-        const newFilename = meta ? `${sanitizeFilename(assetName)}${ext}` : `${uuidv4()}${ext}`;
+        // fileMeta-driven uploads (e.g. C1P1) and coded backgrounds (A01) get a readable
+        // on-disk filename matching the asset name; everything else keeps the random UUID.
+        const newFilename = (meta || bgSub) ? `${sanitizeFilename(assetName)}${ext}` : `${uuidv4()}${ext}`;
         const newFilePath = `/uploads/${subdirRel}/${newFilename}`;
 
         if (existing) {

@@ -950,9 +950,12 @@ export default function Panel({ panel, panelIndex, canvasW = 800, canvasH = 450,
               <div style={styles.decorDots} />
               <div style={styles.decorBlob} />
               <div style={styles.noBgHint}>
-                <div style={styles.noBgIcon}>🖼️</div>
-                <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--t-text-muted)', marginTop: 12 }}>Drop a background</div>
-                <div style={{ fontSize: 12, color: 'var(--t-accent)', marginTop: 6, fontWeight: 500 }}>or browse from Library</div>
+                <div style={styles.noBgIcon}>
+                  <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                    strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                    <line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" />
+                  </svg>
+                </div>
               </div>
             </div>
           )}
@@ -2141,7 +2144,7 @@ const styles = {
   wrapper: { position: 'relative', borderRadius: 14 },
   canvas: { position: 'relative', border: '2px dashed var(--t-panel-border)', borderRadius: 12, overflow: 'hidden', userSelect: 'none' },
   noBgHint: { position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', pointerEvents: 'none', zIndex: 1 },
-  noBgIcon: { width: 52, height: 52, borderRadius: 14, background: 'rgba(249,115,22,0.10)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 26 },
+  noBgIcon: { width: 52, height: 52, borderRadius: 14, background: 'rgba(249,115,22,0.10)', color: 'var(--t-accent)', display: 'flex', alignItems: 'center', justifyContent: 'center' },
   decorDots: {
     position: 'absolute', top: 12, right: 12, width: 48, height: 48, pointerEvents: 'none', zIndex: 0,
     backgroundImage: 'radial-gradient(circle, var(--t-panel-border) 1.5px, transparent 1.5px)',

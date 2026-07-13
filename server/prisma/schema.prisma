@@ -379,3 +379,21 @@ model LightingPreset {
   overlayOpacity    Int     @default(0) // 0 = no custom overlay layer
   updatedAt   DateTime @updatedAt
 }
+
+// Admin-managed registry of BACKGROUND asset subcategories. `slug` is the value actually
+// written into an asset's `tags` array at upload time (e.g. "sci-fi"); it is stable/never
+// renamed so existing tagged assets never break. `label` is the display name and is what
+// rename edits. Seeded from a hardcoded default list on first access, same self-healing
+// pattern as LightingPreset (see backgroundSubcategoryController.js).
+model BackgroundSubcategory {
+  id        String   @id @default(cuid())
+  slug      String   @unique
+  label     String
+  // Stable letter code (A, B, … Z, AA…) assigned sequentially when the subcategory is
+  // created. Used to name the background assets in this subcategory (A01, A02, …) and
+  // their on-disk folder, so it must never change once set — renames only touch `label`.
+  code      String?  @unique
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}

@@ -43,17 +43,7 @@ export const EYE_TYPES = Array.from({ length: 5 }, (_, i) => ({ id: `TYPE_${i + 
 // styles (separate per Gender) are decided; ids stay stable either way.
 export const MOUTH_TYPES = Array.from({ length: 5 }, (_, i) => ({ id: `TYPE_${i + 1}`, label: `Type ${i + 1}` }));
 
-export const BG_SUBCATEGORIES = [
-  { id: 'home',       label: 'Home',       icon: '🏠' },
-  { id: 'education',  label: 'Education',  icon: '📚' },
-  { id: 'office',     label: 'Office',     icon: '💼' },
-  { id: 'city',       label: 'City',       icon: '🏙️' },
-  { id: 'nature',     label: 'Nature',     icon: '🌿' },
-  { id: 'fantasy',    label: 'Fantasy',    icon: '🧙' },
-  { id: 'sci-fi',     label: 'Sci-Fi',     icon: '🚀' },
-  { id: 'historical', label: 'Historical', icon: '🏛️' },
-  { id: 'horror',     label: 'Horror',     icon: '💀' },
-  { id: 'commercial', label: 'Commercial', icon: '🏪' },
-  { id: 'transport',  label: 'Transport',  icon: '🚗' },
-  { id: 'action',     label: 'Action',     icon: '⚔️' },
-];
+// Background subcategories are no longer a hardcoded constant — they're an admin-managed
+// list stored server-side (model BackgroundSubcategory, seeded from defaults in
+// server/src/controllers/backgroundSubcategoryController.js). Fetch them via
+// getBackgroundSubcategories() from api/assets.js.

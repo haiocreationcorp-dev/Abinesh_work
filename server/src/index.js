@@ -12,6 +12,7 @@ const teacherRoutes = require('./routes/teacher');
 const studentRoutes = require('./routes/student');
 const billingRoutes = require('./routes/billing');
 const lightingPresetRoutes = require('./routes/lightingPresets');
+const backgroundSubcategoryRoutes = require('./routes/backgroundSubcategories');
 const aiRoutes = require('./routes/ai');
 const { warmupModels } = require('./controllers/aiController');
 const { errorHandler } = require('./middleware/errorHandler');
@@ -53,6 +54,7 @@ app.use('/api/teacher', teacherRoutes);
 app.use('/api/student', studentRoutes);
 app.use('/api/billing', billingRoutes);
 app.use('/api/lighting-presets', lightingPresetRoutes);
+app.use('/api/admin/background-subcategories', backgroundSubcategoryRoutes);
 app.use('/api/ai', aiRoutes);
 
 app.get('/api/health', (_req, res) => res.json({ status: 'ok', time: new Date().toISOString() }));

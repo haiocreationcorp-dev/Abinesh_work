@@ -85,3 +85,14 @@ export const getCharacterPresets = () => api.get('/assets/character-presets').th
 export const createCharacterPreset = (data) => api.post('/admin/character-presets', data).then((r) => r.data);
 export const updateCharacterPreset = (id, data) => api.put(`/admin/character-presets/${id}`, data).then((r) => r.data);
 export const deleteCharacterPreset = (id) => api.delete(`/admin/character-presets/${id}`).then((r) => r.data);
+
+// Admin-managed BACKGROUND subcategory registry (see backgroundSubcategoryController.js).
+export const getBackgroundSubcategories = () => api.get('/admin/background-subcategories').then((r) => r.data);
+export const createBackgroundSubcategory = (label) => api.post('/admin/background-subcategories', { label }).then((r) => r.data);
+export const updateBackgroundSubcategory = (id, label) => api.put(`/admin/background-subcategories/${id}`, { label }).then((r) => r.data);
+// Delete cascades to every BACKGROUND asset tagged with this subcategory; password is
+// required by the server when that count exceeds the bulk-delete threshold.
+export const deleteBackgroundSubcategory = (id, password) => api.delete(`/admin/background-subcategories/${id}`, { data: { password } }).then((r) => r.data);
+// Retro-move existing BACKGROUND assets into a subcategory (renames to its code + moves the
+// files into its folder + retags).
+export const assignAssetsToSubcategory = (id, assetIds) => api.post(`/admin/background-subcategories/${id}/assign-assets`, { assetIds }).then((r) => r.data);

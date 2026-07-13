@@ -114,7 +114,7 @@ function ActionMenu({ onRename, onDownload, onDelete }) {
   );
 }
 
-export default function AssetCard({ asset, category, onSelect, onDelete, onRename, isSelected, onToggleSelect }) {
+export default function AssetCard({ asset, category, onSelect, onDelete, onRename, isSelected, onToggleSelect, showFileMeta = true }) {
   const thumb = (asset.thumbnailPath || asset.filePath) + (asset.updatedAt ? `?v=${new Date(asset.updatedAt).getTime()}` : '');
   const isSelectable = !!onSelect;
   const { startDrag, moveOverlay, endDrag } = useDrag();
@@ -125,13 +125,14 @@ export default function AssetCard({ asset, category, onSelect, onDelete, onRenam
   const [preview, setPreview] = useState(false);
 
   useEffect(() => {
+    if (!showFileMeta) return; // editor cards don't show size/date — skip the HEAD lookup
     fetch(asset.filePath, { method: 'HEAD' })
       .then((r) => {
         const len = r.headers.get('content-length');
         if (len) setFileSize(parseInt(len, 10));
       })
       .catch(() => {});
-  }, [category, asset.filePath]);
+  }, [category, asset.filePath, showFileMeta]);
 
   useEffect(() => {
     if (category !== 'BUBBLE') return;
@@ -260,10 +261,12 @@ export default function AssetCard({ asset, category, onSelect, onDelete, onRenam
 
         <div style={styles.meta}>
           <span style={styles.metaName}>{asset.name}</span>
-          <div style={styles.metaRow}>
-            {fileSize != null && <span>{formatBytes(fileSize)}</span>}
-            {asset.createdAt && <span>{formatDate(asset.createdAt)}</span>}
-          </div>
+          {showFileMeta && (
+            <div style={styles.metaRow}>
+              {fileSize != null && <span>{formatBytes(fileSize)}</span>}
+              {asset.createdAt && <span>{formatDate(asset.createdAt)}</span>}
+            </div>
+          )}
         </div>
       </div>
     </div>

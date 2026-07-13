@@ -1,13 +1,16 @@
 import { useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import { LayoutGrid, List, ImageOff, UploadCloud } from 'lucide-react';
-import { getAssets, deleteAsset, deleteAssets, renameAsset } from '../../api/assets.js';
+import { getAssets, deleteAsset, deleteAssets, renameAsset, getBackgroundSubcategories, assignAssetsToSubcategory } from '../../api/assets.js';
 import AssetCard from './AssetCard.jsx';
 import Modal from '../ui/Modal.jsx';
 
 // Bulk-deleting more than this many at once requires the safety password below —
 // mirrors BULK_DELETE_PASSWORD_THRESHOLD in server/src/controllers/assetController.js.
 const BULK_DELETE_PASSWORD_THRESHOLD = 9;
-const PAGE_SIZE = 60;
+// Large enough that a whole subcategory folder (typically well under this) stays on one
+// page instead of spilling a few stragglers onto a second page; pagination still kicks in
+// as a safety cap for very large unfiltered libraries.
+const PAGE_SIZE = 250;
 
 function isToday(iso) {
   if (!iso) return false;
@@ -28,7 +31,7 @@ function SkeletonCard() {
 
 export default function AssetGrid({
   category, tags, search = '', partType, gender, view, poseType, eyeType, mouthType, costume,
-  onSelect, adminMode = false, onUploadClick,
+  onSelect, adminMode = false, onUploadClick, excludeTags,
 }) {
   const [assets, setAssets] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -38,10 +41,29 @@ export default function AssetGrid({
   const [confirmPasswordOpen, setConfirmPasswordOpen] = useState(false);
   const [bulkPassword, setBulkPassword] = useState('');
   const [bulkPasswordError, setBulkPasswordError] = useState('');
-  const [sortBy, setSortBy] = useState('newest');
+  const [sortBy, setSortBy] = useState('name');
   const [viewMode, setViewMode] = useState('grid');
   const [page, setPage] = useState(1);
+  const [subcats, setSubcats] = useState([]);
+  const [movingTo, setMovingTo] = useState(false);
   const selectAllRef = useRef(null);
+
+  // For the BACKGROUND retro-migration "Move to subcategory" bulk action.
+  useEffect(() => {
+    if (adminMode && category === 'BACKGROUND') getBackgroundSubcategories().then(setSubcats).catch(() => {});
+  }, [adminMode, category]);
+
+  const handleMoveToSubcategory = async (subId) => {
+    if (!subId || selected.size === 0) return;
+    setMovingTo(true);
+    try {
+      await assignAssetsToSubcategory(subId, Array.from(selected));
+      setSelected(new Set());
+      load();
+    } finally {
+      setMovingTo(false);
+    }
+  };
 
   const load = useCallback(() => {
     setLoading(true);
@@ -77,12 +99,16 @@ export default function AssetGrid({
   }, [selected.size, assets.length]);
 
   const sortedAssets = useMemo(() => {
-    const arr = [...assets];
+    // excludeTags: drop assets carrying any of these tags — used by the editor's
+    // "Uncategorized" background folder to hide anything already in a real subcategory.
+    let arr = excludeTags && excludeTags.length
+      ? assets.filter((a) => !(a.tags || []).some((t) => excludeTags.includes(t)))
+      : [...assets];
     if (sortBy === 'newest') arr.sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
     else if (sortBy === 'oldest') arr.sort((a, b) => new Date(a.createdAt || 0) - new Date(b.createdAt || 0));
     else if (sortBy === 'name') arr.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
     return arr;
-  }, [assets, sortBy]);
+  }, [assets, sortBy, excludeTags]);
 
   const totalPages = Math.max(1, Math.ceil(sortedAssets.length / PAGE_SIZE));
   const pagedAssets = adminMode ? sortedAssets.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE) : sortedAssets;
@@ -233,6 +259,7 @@ export default function AssetGrid({
             onRename={adminMode ? handleRename : undefined}
             isSelected={selected.has(asset.id)}
             onToggleSelect={adminMode ? handleToggleSelect : undefined}
+            showFileMeta={adminMode}
           />
         ))}
       </div>
@@ -248,6 +275,18 @@ export default function AssetGrid({
       {adminMode && selected.size > 0 && (
         <div style={styles.floatingBar}>
           <span style={styles.floatingBarText}>{selected.size} selected</span>
+          {category === 'BACKGROUND' && subcats.length > 0 && (
+            <select
+              value=""
+              disabled={movingTo}
+              onChange={(e) => { handleMoveToSubcategory(e.target.value); e.target.value = ''; }}
+              style={styles.moveSelect}
+              title="Move selected backgrounds into a subcategory"
+            >
+              <option value="">{movingTo ? 'Moving…' : 'Move to subcategory…'}</option>
+              {subcats.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
+            </select>
+          )}
           <button
             style={{ ...styles.deleteSelectedBtn, ...(bulkDeleting ? styles.deleteSelectedBtnDisabled : {}) }}
             onClick={handleBulkDelete}
@@ -343,4 +382,8 @@ const styles = {
     transition: 'opacity 0.12s',
   },
   deleteSelectedBtnDisabled: { opacity: 0.6, cursor: 'not-allowed' },
+  moveSelect: {
+    height: 32, padding: '0 10px', borderRadius: 999, border: 'none',
+    background: '#fff', color: '#111827', fontSize: 12.5, fontWeight: 600, cursor: 'pointer',
+  },
 };

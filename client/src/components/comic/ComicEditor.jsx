@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, Fragment } from 'react';
 import { useComic, LAYOUT_COUNT } from '../../context/ComicContext.jsx';
 import { useTheme } from '../../context/ThemeContext.jsx';
-import { BG_SUBCATEGORIES, VIEWS } from '../../constants/categories.js';
+import { VIEWS } from '../../constants/categories.js';
 import Panel from './Panel.jsx';
 import PanelLayoutPicker from './PanelLayoutPicker.jsx';
 import AssetGrid from '../library/AssetGrid.jsx';
@@ -9,7 +9,7 @@ import ExportControls from './ExportControls.jsx';
 import SpeechBubbleEditor from './SpeechBubble.jsx';
 import AIAssistantPanel from './AIAssistantPanel.jsx';
 import { AlignIcon, ColorSwatch, CustomSelect, FONTS, SIZES } from './BubbleUiKit.jsx';
-import { getAssets, getFacePartAlignmentsPublic, getCharacterPresets as fetchCharacterPresets, getExpressions } from '../../api/assets.js';
+import { getAssets, getFacePartAlignmentsPublic, getCharacterPresets as fetchCharacterPresets, getExpressions, getBackgroundSubcategories } from '../../api/assets.js';
 import { FACE_SECTIONS, FACE_CANVAS_W, FACE_CANVAS_H, classifyFacePart, matchesFaceSection, defaultPartOverlay, buildFaceFromLayout, resolveLayoutFilePaths } from '../../utils/faceLayout.js';
 import { SKIN_PRESETS } from '../../utils/skinPalette.js';
 import { recolorSkin } from '../../utils/recolorImage.js';
@@ -186,9 +186,9 @@ function IconExport() {
 }
 
 const SIDEBAR_ITEMS = [
+  { id: 'BACKGROUND', Icon: IconBackgrounds, label: 'Backgrounds' },
   { id: 'CHARACTER',  Icon: IconCharacters,  label: 'Characters' },
   { id: 'HAIR',       Icon: IconHairstyle,   label: 'Hair' },
-  { id: 'BACKGROUND', Icon: IconBackgrounds, label: 'Backgrounds' },
   { id: 'EXPRESSION', Icon: IconExpressions, label: 'Expressions' },
   { id: 'PROP',       Icon: IconProps,       label: 'Props' },
   { id: 'EFFECT',     Icon: IconEffects,     label: 'Effects' },
@@ -387,9 +387,11 @@ function ChangeLayoutPicker({ current, onPick, onClose }) {
 export default function ComicEditor({ readOnly = false, aiEnabled = true } = {}) {
   const { state, dispatch, activePage, activePagePanels, pageStart } = useComic();
   const { mode, toggle } = useTheme();
-  const [activeSidebar, setActiveSidebar] = useState('CHARACTER');
+  const [activeSidebar, setActiveSidebar] = useState('BACKGROUND');
   const [effectSub, setEffectSub] = useState(null);
+  // Background subcategory browsing: null = folder picker; a slug = inside that folder.
   const [bgSub, setBgSub] = useState(null);
+  const [bgSubcats, setBgSubcats] = useState([]);
   const [search, setSearch] = useState('');
   const [faceParts, setFaceParts] = useState([]);
   const [faceSection, setFaceSection] = useState('hairstyle');
@@ -816,6 +818,13 @@ export default function ComicEditor({ readOnly = false, aiEnabled = true } = {})
     }
   };
 
+  // Background subcategory folders (shown when the Backgrounds panel is open).
+  useEffect(() => {
+    if (activeSidebar === 'BACKGROUND' && bgSubcats.length === 0) {
+      getBackgroundSubcategories().then(setBgSubcats).catch(() => {});
+    }
+  }, [activeSidebar, bgSubcats.length]);
+
   const activePanelLightingOverlay = state.panels[activePanelIndex]?.data?.lightingOverlay || null;
   const toggleLightingOverlay = (id) => {
     dispatch({
@@ -1004,7 +1013,7 @@ export default function ComicEditor({ readOnly = false, aiEnabled = true } = {})
                 : activeSidebar === 'EFFECT' && effectSub
                   ? EFFECT_SUBCATEGORIES.find((s) => s.id === effectSub)?.label
                   : activeSidebar === 'BACKGROUND' && bgSub
-                    ? BG_SUBCATEGORIES.find((s) => s.id === bgSub)?.label
+                    ? (bgSubcats.find((s) => s.slug === bgSub)?.label || 'Backgrounds')
                     : activeItem?.label}
             </span>
             {activeSidebar === 'BUBBLE' ? (
@@ -1533,21 +1542,25 @@ export default function ComicEditor({ readOnly = false, aiEnabled = true } = {})
                 );
               })()
             )}
-            {activeSidebar === 'BACKGROUND' && !bgSub && (
+            {activeSidebar === 'EFFECT' && !effectSub && (
               <div style={styles.addPickerGrid}>
-                {BG_SUBCATEGORIES.map((sc) => (
-                  <button key={sc.id} style={styles.addPickerBtn} onClick={() => setBgSub(sc.id)}>
+                {EFFECT_SUBCATEGORIES.map((sc) => (
+                  <button key={sc.id} style={styles.addPickerBtn} onClick={() => setEffectSub(sc.id)}>
                     <span style={{ fontSize: 22 }}>{sc.icon}</span>
                     <span style={styles.addPickerLabel}>{sc.label}</span>
                   </button>
                 ))}
               </div>
             )}
-            {activeSidebar === 'EFFECT' && !effectSub && (
+            {activeSidebar === 'BACKGROUND' && !bgSub && (
               <div style={styles.addPickerGrid}>
-                {EFFECT_SUBCATEGORIES.map((sc) => (
-                  <button key={sc.id} style={styles.addPickerBtn} onClick={() => setEffectSub(sc.id)}>
-                    <span style={{ fontSize: 22 }}>{sc.icon}</span>
+                {bgSubcats.map((sc) => (
+                  <button key={sc.id} style={styles.addPickerBtn} onClick={() => { setBgSub(sc.slug); setSearch(''); }}>
+                    <span style={styles.bgFolderCode}>
+                      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z" />
+                      </svg>
+                    </span>
                     <span style={styles.addPickerLabel}>{sc.label}</span>
                   </button>
                 ))}
@@ -2526,6 +2539,10 @@ const styles = {
     alignItems: 'center', gap: 6,
   },
   addPickerLabel: { fontSize: 9, color: 'var(--t-text-muted)', fontWeight: 600, textAlign: 'center', textTransform: 'uppercase', letterSpacing: 0.5 },
+  bgFolderCode: {
+    width: 30, height: 30, borderRadius: 8, background: 'var(--t-accent-soft, rgba(249,115,22,0.12))',
+    color: 'var(--t-accent)', fontSize: 13, fontWeight: 800, display: 'flex', alignItems: 'center', justifyContent: 'center',
+  },
   addPickerBtnActive: {
     border: '1.5px solid var(--t-accent)', background: 'var(--t-accent-light)',
     boxShadow: '0 0 0 3px rgba(249,115,22,0.15)',

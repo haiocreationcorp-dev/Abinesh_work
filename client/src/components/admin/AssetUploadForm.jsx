@@ -1,9 +1,12 @@
 import { useState, useRef, useEffect } from 'react';
-import { uploadAsset, getAssetCategoryCounts } from '../../api/assets.js';
-import { BG_SUBCATEGORIES, VIEWS, FACE_PART_TYPES, GENDERS, POSE_TYPES, EYE_TYPES, MOUTH_TYPES } from '../../constants/categories.js';
+import {
+  uploadAsset, getAssetCategoryCounts,
+  getBackgroundSubcategories, createBackgroundSubcategory, updateBackgroundSubcategory, deleteBackgroundSubcategory,
+} from '../../api/assets.js';
+import { VIEWS, FACE_PART_TYPES, GENDERS, POSE_TYPES, EYE_TYPES, MOUTH_TYPES } from '../../constants/categories.js';
 import { useToast } from '../../context/ToastContext.jsx';
 import AssetCategorySidebar from './AssetCategorySidebar.jsx';
-import { Image, CheckCircle2, Lightbulb } from 'lucide-react';
+import { Image, CheckCircle2, Lightbulb, Plus, Pencil, Trash2, Check, X } from 'lucide-react';
 
 const DRAFT_KEY = 'bc_asset_upload_draft';
 const IMAGE_EXT_RE = /\.(svg|png|jpe?g|gif|webp)$/i;
@@ -83,6 +86,12 @@ export default function AssetUploadForm() {
   const [dimensions, setDimensions] = useState(null);
   const [draftStatus, setDraftStatus] = useState('saved'); // 'saved' | 'saving'
   const [counts, setCounts] = useState({});
+  // Admin-managed BACKGROUND subcategories (fetched from the server, add/rename/delete-able).
+  const [subcats, setSubcats] = useState([]);
+  const [addingSubcat, setAddingSubcat] = useState(false);
+  const [newSubcatLabel, setNewSubcatLabel] = useState('');
+  const [editingSubcatId, setEditingSubcatId] = useState(null);
+  const [editingSubcatLabel, setEditingSubcatLabel] = useState('');
   const fileRef = useRef(null);
   const isFirstRender = useRef(true);
 
@@ -92,6 +101,64 @@ export default function AssetUploadForm() {
 
   const refreshCounts = () => { getAssetCategoryCounts().then(setCounts).catch(() => {}); };
   useEffect(refreshCounts, []);
+
+  const refreshSubcats = () => { getBackgroundSubcategories().then(setSubcats).catch(() => {}); };
+  useEffect(refreshSubcats, []);
+
+  const handleAddSubcat = async () => {
+    const label = newSubcatLabel.trim();
+    if (!label) return;
+    try {
+      const created = await createBackgroundSubcategory(label);
+      setNewSubcatLabel('');
+      setAddingSubcat(false);
+      await refreshSubcats();
+      setBgSubcategory(created.slug); // auto-select the one just created
+    } catch (err) {
+      toast?.error(err.response?.data?.error || 'Could not add subcategory');
+    }
+  };
+
+  const handleRenameSubcat = async (id) => {
+    const label = editingSubcatLabel.trim();
+    if (!label) return;
+    try {
+      await updateBackgroundSubcategory(id, label);
+      setEditingSubcatId(null);
+      setEditingSubcatLabel('');
+      refreshSubcats();
+    } catch (err) {
+      toast?.error(err.response?.data?.error || 'Rename failed');
+    }
+  };
+
+  const handleDeleteSubcat = async (sc) => {
+    // First attempt with no password; the server tells us if assets are attached and a
+    // password is required (cascade delete of >9 background assets).
+    try {
+      const res = await deleteBackgroundSubcategory(sc.id);
+      if (bgSubcategory === sc.slug) setBgSubcategory('');
+      refreshSubcats();
+      refreshCounts();
+      toast?.success(res.deletedAssets ? `Deleted "${sc.label}" and ${res.deletedAssets} background(s)` : `Deleted "${sc.label}"`);
+    } catch (err) {
+      if (err.response?.status === 403 && err.response?.data?.needsPassword) {
+        const password = prompt(`"${sc.label}" has ${err.response.data.assetCount} background assets. Deleting it PERMANENTLY deletes all of them.\n\nEnter the bulk-delete password to confirm:`);
+        if (!password) return;
+        try {
+          const res = await deleteBackgroundSubcategory(sc.id, password);
+          if (bgSubcategory === sc.slug) setBgSubcategory('');
+          refreshSubcats();
+          refreshCounts();
+          toast?.success(`Deleted "${sc.label}" and ${res.deletedAssets} background(s)`);
+        } catch (err2) {
+          toast?.error(err2.response?.data?.error || 'Delete failed');
+        }
+      } else {
+        toast?.error(err.response?.data?.error || 'Delete failed');
+      }
+    }
+  };
 
   // Restore an unsaved draft on first mount (metadata fields only — File objects can't be serialized).
   useEffect(() => {
@@ -187,6 +254,7 @@ export default function AssetUploadForm() {
     fd.append('category', form.category);
     const allTags = [bgSubcategory, ...form.tags.split(',').map(t => t.trim())].filter(Boolean).join(',');
     fd.append('tags', allTags);
+    if (form.category === 'BACKGROUND' && bgSubcategory) fd.append('bgSubcategory', bgSubcategory);
     if (form.category === 'FACE_PART') {
       if (partType) fd.append('partType', partType);
       if (view) fd.append('view', view);
@@ -276,28 +344,54 @@ export default function AssetUploadForm() {
           <div className="card" style={styles.formCard}>
             <p style={styles.heading}>Asset Details</p>
             <div style={styles.formGrid}>
-              <div className="form-group" style={styles.spanTwo}>
-                <label>Asset Name *</label>
-                <input
-                  required
-                  className="asset-form-input"
-                  value={form.name}
-                  onChange={(e) => setForm({ ...form, name: e.target.value })}
-                  placeholder="e.g. Cartoon Boy Standing"
-                  maxLength={100}
-                />
-                <p style={styles.charCount}>{form.name.length}/100</p>
-              </div>
+              {(() => {
+                const autoNamed = form.category === 'BACKGROUND' && !!bgSubcategory;
+                return (
+                  <div className="form-group" style={styles.spanTwo}>
+                    <label>Asset Name {autoNamed ? '(auto)' : '*'}</label>
+                    <input
+                      required={!autoNamed}
+                      disabled={autoNamed}
+                      className="asset-form-input"
+                      value={autoNamed ? '' : form.name}
+                      onChange={(e) => setForm({ ...form, name: e.target.value })}
+                      placeholder={autoNamed ? 'Auto-named per subcategory, e.g. A22' : 'e.g. Cartoon Boy Standing'}
+                      maxLength={100}
+                    />
+                    {!autoNamed && <p style={styles.charCount}>{form.name.length}/100</p>}
+                  </div>
+                );
+              })()}
               {showGender && <PillGroup label="Gender" value={gender} onChange={setGender} options={GENDERS} optional />}
               {showView && <PillGroup label="View" value={view} onChange={setView} options={VIEWS} />}
 
               {form.category === 'BACKGROUND' && (
-                <div className="form-group">
+                <div className="form-group" style={styles.spanTwo}>
                   <label>Subcategory</label>
-                  <select className="asset-form-input" value={bgSubcategory} onChange={(e) => setBgSubcategory(e.target.value)}>
-                    <option value="">— None —</option>
-                    {BG_SUBCATEGORIES.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
-                  </select>
+                  {addingSubcat ? (
+                    <div style={styles.subcatAddRow}>
+                      <input
+                        autoFocus
+                        className="asset-form-input"
+                        value={newSubcatLabel}
+                        onChange={(e) => setNewSubcatLabel(e.target.value)}
+                        onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleAddSubcat(); } if (e.key === 'Escape') { setAddingSubcat(false); setNewSubcatLabel(''); } }}
+                        placeholder="New subcategory name…"
+                      />
+                      <button type="button" style={styles.iconBtn} title="Add" onClick={handleAddSubcat}><Check size={14} /></button>
+                      <button type="button" style={styles.iconBtn} title="Cancel" onClick={() => { setAddingSubcat(false); setNewSubcatLabel(''); }}><X size={14} /></button>
+                    </div>
+                  ) : (
+                    <div style={styles.subcatAddRow}>
+                      <select className="asset-form-input" value={bgSubcategory} onChange={(e) => setBgSubcategory(e.target.value)}>
+                        <option value="">— None —</option>
+                        {subcats.map((s) => <option key={s.id} value={s.slug}>{s.label}</option>)}
+                      </select>
+                      <button type="button" className="btn btn-outline btn-sm" style={{ whiteSpace: 'nowrap' }} onClick={() => setAddingSubcat(true)}>
+                        <Plus size={14} /> New
+                      </button>
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -359,6 +453,40 @@ export default function AssetUploadForm() {
               </div>
             </div>
           </div>
+
+          {form.category === 'BACKGROUND' && (
+            <div className="card" style={styles.formCard}>
+              <p style={styles.heading}>Manage Subcategories</p>
+              <div style={styles.subcatList}>
+                {subcats.length === 0 && <p className="text-sm text-muted" style={{ margin: 0 }}>No subcategories yet.</p>}
+                {subcats.map((sc) => (
+                  <div key={sc.id} style={styles.subcatRow}>
+                    {editingSubcatId === sc.id ? (
+                      <>
+                        <input
+                          autoFocus
+                          className="asset-form-input"
+                          style={{ flex: 1 }}
+                          value={editingSubcatLabel}
+                          onChange={(e) => setEditingSubcatLabel(e.target.value)}
+                          onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleRenameSubcat(sc.id); } if (e.key === 'Escape') setEditingSubcatId(null); }}
+                        />
+                        <button type="button" style={styles.iconBtn} title="Save" onClick={() => handleRenameSubcat(sc.id)}><Check size={14} /></button>
+                        <button type="button" style={styles.iconBtn} title="Cancel" onClick={() => setEditingSubcatId(null)}><X size={14} /></button>
+                      </>
+                    ) : (
+                      <>
+                        <span style={styles.subcatName}>{sc.label}</span>
+                        <button type="button" style={styles.iconBtn} title="Rename" onClick={() => { setEditingSubcatId(sc.id); setEditingSubcatLabel(sc.label); }}><Pencil size={13} /></button>
+                        <button type="button" style={{ ...styles.iconBtn, color: '#DC2626' }} title="Delete" onClick={() => handleDeleteSubcat(sc)}><Trash2 size={13} /></button>
+                      </>
+                    )}
+                  </div>
+                ))}
+              </div>
+              <p style={styles.hintSmall}>Deleting a subcategory permanently deletes every background tagged to it.</p>
+            </div>
+          )}
 
           {error && <p className="form-error">{error}</p>}
           {msg && <p style={styles.success}>{msg}</p>}
@@ -443,6 +571,16 @@ const styles = {
   pillRow: { display: 'flex', gap: 8, flexWrap: 'wrap' },
   pill: { flex: '1 1 100px', padding: '9px 14px', textAlign: 'center', borderRadius: 'var(--radius-sm)', border: '1.5px solid var(--border)', background: '#fff', color: 'var(--dark)', fontSize: 13, fontWeight: 600, cursor: 'pointer' },
   pillActive: { borderColor: 'var(--edit-primary)', background: 'var(--primary-light)', color: 'var(--edit-primary)' },
+
+  subcatAddRow: { display: 'flex', gap: 6, alignItems: 'center' },
+  iconBtn: {
+    width: 30, height: 30, borderRadius: 7, border: '1px solid var(--border)', background: '#fff',
+    color: 'var(--mid)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+  },
+  subcatList: { display: 'flex', flexDirection: 'column', gap: 6 },
+  subcatRow: { display: 'flex', alignItems: 'center', gap: 6, padding: '6px 8px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)' },
+  subcatName: { flex: 1, fontSize: 13, fontWeight: 600, color: 'var(--dark)' },
+  hintSmall: { fontSize: 11.5, color: 'var(--mid)', margin: '8px 0 0' },
 
   tipBox: { ...{ gridColumn: '1 / -1' }, display: 'flex', alignItems: 'center', gap: 10, background: 'var(--nav-light)', borderRadius: 'var(--radius-sm)', padding: '10px 14px', fontSize: 12.5, color: 'var(--nav-text)' },
 

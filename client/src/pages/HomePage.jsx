@@ -13,7 +13,7 @@ export default function HomePage() {
             <Link to="/dashboard"><button className="btn btn-primary">Go to Dashboard</button></Link>
           ) : (
             <>
-              <Link to="/login"><button className="btn btn-outline" style={{ color: '#fff', borderColor: '#fff' }}>Login</button></Link>
+              <Link to="/login"><button className="btn btn-primary">Login</button></Link>
               <Link to="/register"><button className="btn btn-secondary">Get Started</button></Link>
             </>
           )}

@@ -190,10 +190,19 @@ export default function AssetCard({ asset, category, onSelect, onDelete, onRenam
   // inside it with the trim-to-content math below, which is for cutout art (Props,
   // Characters, …) that has empty padding around the actual artwork.
   const isBackground = category === 'BACKGROUND';
+  // Sound cards (CLANG!, CLICK!, …) use the same solid-card, wide-shape treatment as
+  // Backgrounds — cutout SFX art on a checkerboard read as "broken" (transparency
+  // showing through), unlike Props/Effects where the checker pattern is expected.
+  const isSound = category === 'SOUND';
+  const isBgShaped = isBackground || isSound;
 
   let imgStyle;
   if (isBackground) {
     imgStyle = { width: '100%', height: '100%', objectFit: 'cover', pointerEvents: 'none' };
+  } else if (isSound) {
+    // contain, not cover — Sound art is a cutout burst shape (not a full-frame photo like
+    // Background), so it needs to fit inside the wide card without being cropped.
+    imgStyle = { width: '100%', height: '100%', objectFit: 'contain', pointerEvents: 'none' };
   } else if (trim) {
     const { minX, minY, maxX, maxY, nw, nh } = trim;
     const cw = maxX - minX;
@@ -226,10 +235,11 @@ export default function AssetCard({ asset, category, onSelect, onDelete, onRenam
       <div
         style={{
           ...styles.card,
-          // Backgrounds sit inside a small gray mat (var(--t-bg3), same tone as the panel's
-          // buttons) with a small gap around the photo, rounded corners on the outer edge —
-          // instead of the image running edge-to-edge with no visible container.
-          ...(isBackground ? { border: 'none', borderRadius: 8, background: 'var(--t-bg3)', padding: 4 } : {}),
+          // Backgrounds (and Sound, which shares the same treatment) sit inside a small gray
+          // mat (var(--t-bg3), same tone as the panel's buttons) with a small gap around the
+          // art, rounded corners on the outer edge — instead of the image running edge-to-edge
+          // with no visible container.
+          ...(isBgShaped ? { border: 'none', borderRadius: 8, background: 'var(--t-bg3)', padding: 4 } : {}),
           ...cardBorder,
           ...(hovering && !isSelected ? { boxShadow: 'var(--shadow-lg)', transform: 'translateY(-3px) scale(1.02)' } : {}),
         }}
@@ -241,12 +251,11 @@ export default function AssetCard({ asset, category, onSelect, onDelete, onRenam
       >
         {asset.isNew && <span style={styles.newBadge}>NEW</span>}
 
-        {/* Backgrounds are always opaque full-frame photos — the transparency checker
-            pattern only makes sense for asset types that actually have cut-out alpha
-            (Props, Effects, Characters, …), so skip it here for a clean image-only look.
-            They also get a landscape (not square) box so a wide scene photo fills the
-            card edge-to-edge via object-fit:cover instead of being cropped to a square. */}
-        <div className={category === 'BACKGROUND' ? undefined : 'checkered-bg'} style={isBackground ? styles.thumbWide : styles.thumb}>
+        {/* Backgrounds are always opaque full-frame photos, and Sound gets the same treatment
+            for a cleaner look — the transparency checker pattern only makes sense for asset
+            types where the checker itself is expected/useful (Props, Effects, Characters, …).
+            Both also get a landscape (not square) box instead of a square crop. */}
+        <div className={isBgShaped ? undefined : 'checkered-bg'} style={isBgShaped ? styles.thumbWide : styles.thumb}>
           <img
             src={bubbleSrc || thumb}
             alt={asset.name}

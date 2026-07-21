@@ -959,21 +959,19 @@ export default function ComicEditor({ readOnly = false, aiEnabled = true } = {})
   };
 
   // Background subcategory folders (shown when the Backgrounds panel is open).
-  // Defaults to the "Nature" folder so images load immediately instead of an empty picker.
-  // Runs every time the panel opens (not just once) — toggleSidebar resets bgSub to null
-  // on each open, so the Nature default has to be re-applied each time too, not just when
-  // bgSubcats is still empty.
+  // Defaults to whichever folder is first (admin-controlled sortOrder) so images load
+  // immediately instead of an empty picker. Runs every time the panel opens (not just
+  // once) — toggleSidebar resets bgSub to null on each open, so the default has to be
+  // re-applied each time too, not just when bgSubcats is still empty.
   useEffect(() => {
     if (activeSidebar !== 'BACKGROUND') return;
     if (bgSubcats.length === 0) {
       getBackgroundSubcategories().then((cats) => {
         setBgSubcats(cats);
-        const nature = cats.find((sc) => sc.label?.toLowerCase() === 'nature');
-        if (nature) setBgSub((cur) => cur ?? nature.slug);
+        if (cats[0]) setBgSub((cur) => cur ?? cats[0].slug);
       }).catch(() => {});
     } else {
-      const nature = bgSubcats.find((sc) => sc.label?.toLowerCase() === 'nature');
-      if (nature) setBgSub((cur) => cur ?? nature.slug);
+      if (bgSubcats[0]) setBgSub((cur) => cur ?? bgSubcats[0].slug);
     }
   }, [activeSidebar, bgSubcats]);
 
@@ -1832,6 +1830,7 @@ export default function ComicEditor({ readOnly = false, aiEnabled = true } = {})
                   search={activeSidebar === 'BACKGROUND' ? undefined : (search || undefined)}
                   onSelect={handleAssetSelect}
                   activeAssetId={activeSidebar === 'BACKGROUND' ? state.panels[activePanelIndex]?.data?.background?.assetId : undefined}
+                  shuffle={activeSidebar === 'BACKGROUND'}
                 />
               </>
             )}

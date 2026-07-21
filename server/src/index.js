@@ -34,7 +34,10 @@ const TUNNEL_ORIGIN_PATTERN = /^https:\/\/[a-z0-9-]+\.trycloudflare\.com$/;
 app.use(cors({
   origin: (origin, cb) => {
     if (!origin || origin === process.env.CLIENT_URL || LAN_ORIGIN_PATTERN.test(origin) || TUNNEL_ORIGIN_PATTERN.test(origin)) cb(null, true);
-    else cb(new Error('Not allowed by CORS'));
+    else {
+      console.error(`[CORS] Rejected origin: "${origin}" — CLIENT_URL is: "${process.env.CLIENT_URL}"`);
+      cb(new Error('Not allowed by CORS'));
+    }
   },
   credentials: true,
 }));

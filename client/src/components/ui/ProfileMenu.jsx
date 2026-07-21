@@ -221,7 +221,7 @@ export default function ProfileMenu() {
 
           <div style={styles.divider} />
 
-          <button className="btn btn-outline btn-sm w-full" onClick={logout}>
+          <button className="btn btn-danger btn-sm w-full" style={{ justifyContent: 'center' }} onClick={logout}>
             Logout
           </button>
         </div>
@@ -291,7 +291,11 @@ const styles = {
   hint: { fontSize: 11, color: 'var(--mid)', marginTop: 6 },
   greetingRow: { display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, marginTop: 14 },
   greeting: { fontSize: 16, fontWeight: 700, color: 'var(--dark)' },
-  iconBtn: { display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--mid)', padding: 4 },
+  iconBtn: {
+    display: 'flex', alignItems: 'center', justifyContent: 'center',
+    color: 'var(--surface)', background: 'var(--dark)',
+    width: 24, height: 24, borderRadius: '50%', padding: 0, flexShrink: 0,
+  },
   editRow: { display: 'flex', alignItems: 'center', gap: 4, marginTop: 14 },
   nameInput: { flex: 1, fontSize: 13, width: '100%', boxSizing: 'border-box' },
   infoRow: { display: 'flex', justifyContent: 'space-between', fontSize: 12, color: 'var(--mid)', padding: '2px 0' },

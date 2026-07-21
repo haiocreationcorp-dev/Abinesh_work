@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import { login } from '../api/auth.js';
 import { useAuth } from '../context/AuthContext.jsx';
 
@@ -32,7 +32,7 @@ export default function AdminLoginPage() {
   return (
     <div style={styles.root}>
       <div className="card" style={styles.card}>
-        <h1 style={styles.title}>BharathComic</h1>
+        <img src="/tool-icons/bharathcomic-wordmark.png" alt="BharathComic" style={styles.brandLogo} draggable={false} />
         <h2 style={styles.sub}>🔐 Admin Sign In</h2>
         <form onSubmit={handleSubmit} autoComplete="off">
           <div className="form-group">
@@ -48,6 +48,9 @@ export default function AdminLoginPage() {
             {loading ? 'Signing in…' : 'Sign In'}
           </button>
         </form>
+        <p style={{ textAlign: 'center', marginTop: 12 }}>
+          <Link to="/forgot-password" style={{ color: 'var(--primary)', fontSize: 13, textDecoration: 'none' }}>Forgot password?</Link>
+        </p>
       </div>
     </div>
   );
@@ -56,6 +59,6 @@ export default function AdminLoginPage() {
 const styles = {
   root: { minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--light)' },
   card: { width: '100%', maxWidth: 400, padding: 36 },
-  title: { fontFamily: 'var(--font-display)', fontSize: 32, color: 'var(--primary)', textAlign: 'center', letterSpacing: 1 },
+  brandLogo: { display: 'block', height: 70, width: 'auto', margin: '0 auto', objectFit: 'contain' },
   sub: { fontSize: 20, fontWeight: 600, margin: '8px 0 24px', textAlign: 'center' },
 };

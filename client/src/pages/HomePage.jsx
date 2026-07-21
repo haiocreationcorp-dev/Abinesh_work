@@ -7,7 +7,7 @@ export default function HomePage() {
   return (
     <div style={styles.root}>
       <nav style={styles.nav}>
-        <span style={styles.brand}>BharathComic</span>
+        <img src="/tool-icons/bharathcomic-wordmark.png" alt="BharathComic" style={styles.brandLogo} draggable={false} />
         <div style={{ display: 'flex', gap: 12 }}>
           {user ? (
             <Link to="/dashboard"><button className="btn btn-primary">Go to Dashboard</button></Link>
@@ -42,7 +42,7 @@ export default function HomePage() {
             <div key={f.title} style={styles.feature}>
               <div style={styles.featureIcon}>{f.icon}</div>
               <strong>{f.title}</strong>
-              <p style={{ fontSize: 13, color: '#94a3b8', marginTop: 4 }}>{f.desc}</p>
+              <p style={{ fontSize: 13, color: '#a3a3a3', marginTop: 4 }}>{f.desc}</p>
             </div>
           ))}
         </div>
@@ -52,13 +52,15 @@ export default function HomePage() {
 }
 
 const styles = {
-  root: { minHeight: '100vh', background: 'linear-gradient(135deg, #1a1a2e 0%, #2a2a4a 100%)', color: '#fff' },
+  // Same near-black palette as the comic editor's dark theme (ThemeContext.jsx DARK) —
+  // base #000, elevated surfaces #1a1a1a, orange accent.
+  root: { minHeight: '100vh', background: '#000000', color: '#fff' },
   nav: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 40px', height: 64 },
-  brand: { fontFamily: 'var(--font-display)', fontSize: 28, color: '#a78bfa', letterSpacing: 1 },
+  brandLogo: { display: 'block', height: 70, width: 'auto', objectFit: 'contain' },
   hero: { maxWidth: 900, margin: '0 auto', padding: '100px 24px 60px', textAlign: 'center' },
-  title: { fontFamily: 'Bangers, cursive', fontSize: 72, lineHeight: 1.1, letterSpacing: 2, color: '#f8f9ff' },
-  sub: { fontSize: 18, color: '#94a3b8', marginTop: 20, lineHeight: 1.7 },
+  title: { fontFamily: 'Bangers, cursive', fontSize: 72, lineHeight: 1.1, letterSpacing: 2, color: '#ffffff' },
+  sub: { fontSize: 18, color: '#a3a3a3', marginTop: 20, lineHeight: 1.7 },
   features: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 20, marginTop: 80, textAlign: 'left' },
-  feature: { background: 'rgba(255,255,255,0.05)', borderRadius: 12, padding: 20, border: '1px solid rgba(167,139,250,0.2)' },
+  feature: { background: '#1a1a1a', borderRadius: 12, padding: 20, border: '1px solid #2a2a2a' },
   featureIcon: { fontSize: 28, marginBottom: 10 },
 };

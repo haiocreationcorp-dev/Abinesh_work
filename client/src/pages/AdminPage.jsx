@@ -172,7 +172,9 @@ export default function AdminPage() {
           </button>
         </div>
 
-        <Link to="/dashboard" style={styles.brandCenter}>BharathComic</Link>
+        <Link to="/dashboard" style={styles.brandCenter}>
+          <img src="/tool-icons/bharathcomic-wordmark.png" alt="BharathComic" style={styles.brandLogo} draggable={false} />
+        </Link>
 
         <div style={styles.rightGroup}>
           <div className="admin-search" style={styles.searchWrap} title="Coming soon">
@@ -362,7 +364,8 @@ const styles = {
   },
   navBtnActive: { background: '#fff', color: 'var(--nav-primary)' },
   chevron: { fontSize: 10 },
-  brandCenter: { fontFamily: 'var(--font-display)', fontSize: 26, color: '#fff', letterSpacing: 0.5 },
+  brandCenter: { display: 'flex', alignItems: 'center' },
+  brandLogo: { display: 'block', height: 70, width: 'auto', objectFit: 'contain' },
   rightGroup: { display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' },
   searchWrap: {
     display: 'flex', alignItems: 'center', gap: 8, background: 'rgba(255,255,255,0.15)',

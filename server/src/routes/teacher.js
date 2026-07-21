@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const {
   listStudents, listStudentComics, getStudentComic,
+  resetStudentPassword, lockStudent, unlockStudent,
   createClass, listClasses, deleteClass, updateEnrollment, toggleClassAI,
   createTask, listTasks, listTaskSubmissions, gradeSubmission,
 } = require('../controllers/teacherController');
@@ -13,6 +14,9 @@ router.use(teacherAuth);
 router.get('/students', asyncHandler(listStudents));
 router.get('/students/:studentId/comics', asyncHandler(listStudentComics));
 router.get('/students/:studentId/comics/:comicId', asyncHandler(getStudentComic));
+router.post('/students/:studentId/reset-password', asyncHandler(resetStudentPassword));
+router.post('/students/:studentId/lock', asyncHandler(lockStudent));
+router.post('/students/:studentId/unlock', asyncHandler(unlockStudent));
 
 router.post('/classes', asyncHandler(requireActiveSubscription), asyncHandler(createClass));
 router.get('/classes', asyncHandler(listClasses));

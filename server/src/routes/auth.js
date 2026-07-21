@@ -3,9 +3,18 @@ const router = express.Router();
 const multer = require('multer');
 const path = require('path');
 const { register, login, me, institutionLookup, updateProfile, uploadAvatar } = require('../controllers/authController');
+const { forgotPassword, verifyResetOtp, resetPassword, forceChangePassword } = require('../controllers/passwordResetController');
 const auth = require('../middleware/auth');
 const adminAuth = require('../middleware/adminAuth');
 const { touch, getClientIP, getActive, getActiveIPs } = require('../middleware/presence');
+const { ipRateLimit } = require('../middleware/rateLimit');
+
+// Per-account lock (User.failedLoginCount/lockedUntil, handled inside the login controller)
+// covers repeated wrong-password attempts against one account. This IP-based layer covers
+// the complementary case — many different accounts probed rapidly from one IP (credential
+// stuffing) — which the per-account lock alone wouldn't catch.
+const loginIpLimit = ipRateLimit('login', { windowMs: 15 * 60 * 1000, max: 20 });
+const forgotPasswordIpLimit = ipRateLimit('forgot-password', { windowMs: 15 * 60 * 1000, max: 10 });
 
 const AVATAR_EXTS = ['.png', '.jpg', '.jpeg', '.webp', '.gif'];
 const avatarUpload = multer({
@@ -20,7 +29,13 @@ const avatarUpload = multer({
 
 router.get('/institution-lookup/:code', institutionLookup);
 router.post('/register', register);
-router.post('/login', login);
+router.post('/login', loginIpLimit, login);
+
+// Email-OTP password recovery (Admin / Institution Chief / Teacher) — all public.
+router.post('/forgot-password', forgotPasswordIpLimit, forgotPassword);
+router.post('/verify-reset-otp', verifyResetOtp);
+router.post('/reset-password', resetPassword);
+router.post('/force-change-password', auth, forceChangePassword);
 router.get('/me', auth, me);
 router.patch('/me', auth, updateProfile);
 router.post('/me/avatar', auth, avatarUpload.single('file'), uploadAvatar);

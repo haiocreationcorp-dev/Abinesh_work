@@ -46,7 +46,7 @@ export default function LoginPage() {
         return;
       }
       saveSession(token, user);
-      navigate('/dashboard');
+      navigate(user.mustChangePassword ? '/create-new-password' : '/dashboard');
     } catch (err) {
       setError(err.response?.data?.error || 'Login failed');
     } finally {
@@ -59,7 +59,7 @@ export default function LoginPage() {
   return (
     <div style={styles.root}>
       <div className="card" style={styles.card}>
-        <h1 style={styles.title}>BharathComic</h1>
+        <img src="/tool-icons/bharathcomic-wordmark.png" alt="BharathComic" style={styles.brandLogo} draggable={false} />
 
         {step === 'choice' && (
           <>
@@ -130,6 +130,14 @@ export default function LoginPage() {
                 {loading ? 'Signing in…' : 'Sign In'}
               </button>
             </form>
+            {/* Students recover through their teacher — no self-service email OTP for them */}
+            {step === 'student' ? (
+              <p style={styles.forgotNote}>Forgot your password? Please contact your class teacher.</p>
+            ) : (
+              <p style={styles.forgotWrap}>
+                <Link to="/forgot-password" style={styles.forgotLink}>Forgot password?</Link>
+              </p>
+            )}
             <button type="button" onClick={goBack} style={styles.backLink}>← Back</button>
           </>
         )}
@@ -145,7 +153,7 @@ export default function LoginPage() {
 const styles = {
   root: { minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--light)' },
   card: { width: '100%', maxWidth: 400, padding: 36 },
-  title: { fontFamily: 'var(--font-display)', fontSize: 32, color: 'var(--primary)', textAlign: 'center', letterSpacing: 1 },
+  brandLogo: { display: 'block', height: 70, width: 'auto', margin: '0 auto', objectFit: 'contain' },
   sub: { fontSize: 20, fontWeight: 600, margin: '8px 0 24px', textAlign: 'center' },
   footer: { textAlign: 'center', marginTop: 20, fontSize: 13, color: 'var(--mid)' },
 
@@ -163,6 +171,9 @@ const styles = {
     display: 'block', margin: '16px auto 0', background: 'none', border: 'none',
     color: 'var(--mid)', fontSize: 13, cursor: 'pointer', textAlign: 'center', width: '100%',
   },
+  forgotWrap: { textAlign: 'center', marginTop: 12 },
+  forgotLink: { color: 'var(--primary)', fontSize: 13, textDecoration: 'none' },
+  forgotNote: { textAlign: 'center', marginTop: 12, fontSize: 12.5, color: 'var(--mid)', lineHeight: 1.5 },
   eyeBtn: {
     position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)',
     background: 'none', border: 'none', cursor: 'pointer', fontSize: 16, padding: 0,

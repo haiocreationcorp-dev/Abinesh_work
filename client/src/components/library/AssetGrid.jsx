@@ -31,7 +31,7 @@ function SkeletonCard() {
 
 export default function AssetGrid({
   category, tags, search = '', partType, gender, view, poseType, eyeType, mouthType, costume,
-  onSelect, adminMode = false, onUploadClick, excludeTags,
+  onSelect, adminMode = false, onUploadClick, excludeTags, activeAssetId,
 }) {
   const [assets, setAssets] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -260,6 +260,7 @@ export default function AssetGrid({
             isSelected={selected.has(asset.id)}
             onToggleSelect={adminMode ? handleToggleSelect : undefined}
             showFileMeta={adminMode}
+            isActive={activeAssetId != null && asset.id === activeAssetId}
           />
         ))}
       </div>
@@ -362,8 +363,8 @@ const styles = {
     display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6,
     padding: '56px 12px', textAlign: 'center',
   },
-  emptyTitle: { fontSize: 15, fontWeight: 700, color: 'var(--dark)', marginTop: 4 },
-  emptySub: { fontSize: 12.5, color: 'var(--mid)' },
+  emptyTitle: { fontSize: 15, fontWeight: 700, color: 'var(--dark)', marginTop: 8 },
+  emptySub: { fontSize: 12.5, color: 'var(--mid)', maxWidth: 220, lineHeight: 1.5 },
   error: { display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8, padding: 12, color: 'var(--danger)', fontSize: 12, textAlign: 'center' },
   retryBtn: { background: 'var(--action-primary)', color: '#fff', border: 'none', borderRadius: 6, padding: '5px 14px', fontSize: 12, cursor: 'pointer' },
   pagination: { display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 12, marginTop: 20 },

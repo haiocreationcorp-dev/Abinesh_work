@@ -1,6 +1,5 @@
 import { useState, useEffect, useRef, Fragment } from 'react';
 import { useComic, LAYOUT_COUNT } from '../../context/ComicContext.jsx';
-import { useTheme } from '../../context/ThemeContext.jsx';
 import { VIEWS } from '../../constants/categories.js';
 import Panel from './Panel.jsx';
 import PanelLayoutPicker from './PanelLayoutPicker.jsx';
@@ -14,6 +13,7 @@ import { FACE_SECTIONS, FACE_CANVAS_W, FACE_CANVAS_H, classifyFacePart, matchesF
 import { SKIN_PRESETS } from '../../utils/skinPalette.js';
 import { recolorSkin } from '../../utils/recolorImage.js';
 import { genId } from '../../utils/id.js';
+import { renderPage, pageStartIndex } from '../../utils/comicRenderer.js';
 
 // ── SVG icon components ───────────────────────────────────────────────────────
 function IconCharacters() {
@@ -119,6 +119,15 @@ function IconHairstyle() {
     </svg>
   );
 }
+function IconHelp() {
+  return (
+    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="12" cy="12" r="9"/>
+      <path d="M9.5 9a2.5 2.5 0 0 1 5 0c0 2-2.5 2.2-2.5 4.5"/>
+      <circle cx="12" cy="17" r="0.5" fill="currentColor" stroke="none"/>
+    </svg>
+  );
+}
 function IconBack() {
   return (
     <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
@@ -144,16 +153,6 @@ function IconText() {
       <polyline points="4 7 4 4 20 4 20 7"/>
       <line x1="9" y1="20" x2="15" y2="20"/>
       <line x1="12" y1="4" x2="12" y2="20"/>
-    </svg>
-  );
-}
-function IconLayout() {
-  return (
-    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-      <rect x="3" y="3" width="7" height="7" rx="1"/>
-      <rect x="14" y="3" width="7" height="7" rx="1"/>
-      <rect x="14" y="14" width="7" height="7" rx="1"/>
-      <rect x="3" y="14" width="7" height="7" rx="1"/>
     </svg>
   );
 }
@@ -186,18 +185,47 @@ function IconExport() {
 }
 
 const SIDEBAR_ITEMS = [
-  { id: 'BACKGROUND', Icon: IconBackgrounds, label: 'Backgrounds' },
-  { id: 'CHARACTER',  Icon: IconCharacters,  label: 'Characters' },
-  { id: 'HAIR',       Icon: IconHairstyle,   label: 'Hair' },
-  { id: 'EXPRESSION', Icon: IconExpressions, label: 'Expressions' },
-  { id: 'PROP',       Icon: IconProps,       label: 'Props' },
-  { id: 'EFFECT',     Icon: IconEffects,     label: 'Effects' },
-  { id: 'COSTUME',    Icon: IconCostumes,    label: 'Costumes' },
-  { id: 'SOUND',      Icon: IconSound,       label: 'Sound' },
-  { id: 'BUBBLE',     Icon: IconText,        label: 'Text' },
-  { id: 'LAYOUT',     Icon: IconLayout,      label: 'Layout' },
-  { id: 'AI',         Icon: IconAI,          label: 'AI Tools' },
+  { id: 'BACKGROUND',    Icon: IconBackgrounds, label: 'Backgrounds' },
+  { id: 'CHARACTER',     Icon: IconCharacters,  label: 'Characters' },
+  { id: 'EXPRESSION',    Icon: IconExpressions, label: 'Expressions' },
+  { id: 'BUBBLE',        Icon: IconText,        label: 'Text' },
+  { id: 'SPEECH_BUBBLE', Icon: IconText,        label: 'Speech Bubble' },
+  { id: 'SOUND',         Icon: IconSound,       label: 'Sound' },
+  { id: 'AI',            Icon: IconAI,          label: 'AI Tools' },
+  { id: 'PROP',          Icon: IconProps,       label: 'Props' },
+  { id: 'EFFECT',        Icon: IconEffects,     label: 'Effects' },
+  { id: 'COSTUME',       Icon: IconCostumes,    label: 'Costumes' },
+  { id: 'HELP',          Icon: IconHelp,        label: 'Help' },
 ];
+
+// New illustrated tool icons (lossless WebP in client/public/tool-icons/). Items without an
+// entry (SOUND, LAYOUT — no artwork supplied) keep their original inline-SVG icon.
+const TOOL_ICON = {
+  BACKGROUND: '/tool-icons/background.webp',
+  CHARACTER:  '/tool-icons/characters.webp',
+  HELP:       '/tool-icons/help.webp',
+  EXPRESSION: '/tool-icons/expression.webp',
+  PROP:       '/tool-icons/props.webp',
+  EFFECT:     '/tool-icons/effects.webp',
+  COSTUME:    '/tool-icons/costume.webp',
+  SOUND:      '/tool-icons/sound.webp',
+  BUBBLE:        '/tool-icons/text.webp',
+  SPEECH_BUBBLE: '/tool-icons/bubbles.webp',
+  AI:         '/tool-icons/ai.webp',
+};
+
+// Icons for the CHARACTER customization sub-menu tools (keyed by their tool id). `face` has
+// no dedicated swap artwork, so it reuses the Characters icon.
+const SUBTOOL_ICON = {
+  face:       '/tool-icons/characters.webp',
+  outfit:     '/tool-icons/costume.webp',
+  pose:       '/tool-icons/poses.webp',
+  expression: '/tool-icons/expression.webp',
+  hairstyle:  '/tool-icons/hair-style.webp',
+  skinColor:  '/tool-icons/face-colour.webp',
+  eyeColor:   '/tool-icons/eye-colour.webp',
+  hairColor:  '/tool-icons/hair-colour.webp',
+};
 
 const ASSET_IDS = new Set(['BACKGROUND', 'EXPRESSION', 'PROP', 'EFFECT', 'COSTUME', 'SOUND']);
 
@@ -268,7 +296,17 @@ const LAYOUT_CANVAS = {
   '4':    { cols: 2, pw: 296, ph: 165 },
 };
 
-function LayoutThumb({ layout, active }) {
+// True when a panel has no background and no placed items — used to keep the page-strip
+// thumbnail on the themed LayoutThumb placeholder instead of the real (white-canvas) render,
+// which looks like a plain white box against the dark-mode strip for a genuinely blank page.
+const EMPTY_ARRAY_KEYS = ['characters', 'faces', 'characterPresets', 'props', 'effects', 'costumes', 'sounds', 'speechBubbles', 'narrationBoxes', 'bubbles'];
+function isPanelEmpty(data) {
+  if (!data) return true;
+  if (data.background) return false;
+  return EMPTY_ARRAY_KEYS.every((k) => !data[k] || data[k].length === 0);
+}
+
+function LayoutThumb({ layout, active, empty, mildLines = true }) {
   const previews = {
     single: [[1]],
     '2h':   [[0.5, 0.5]],
@@ -277,24 +315,65 @@ function LayoutThumb({ layout, active }) {
   };
   const rows = previews[layout] || [[1]];
   const W = 42, H = 30;
+  const lineColor = active ? '#F97316' : (mildLines ? 'rgba(249,115,22,0.4)' : 'var(--t-border)');
   return (
-    <svg width={W} height={H}>
-      {rows.map((cols, ri) => {
-        const rh = H / rows.length;
-        let x = 0;
-        return cols.map((w, ci) => {
-          const cw = w * W;
-          const rect = (
-            <rect key={`${ri}-${ci}`} x={x + 1} y={ri * rh + 1} width={cw - 2} height={rh - 2}
-              rx={2} fill={active ? 'rgba(249,115,22,0.35)' : 'rgba(249,115,22,0.10)'}
-              stroke={active ? '#F97316' : '#888'} strokeWidth={1} />
-          );
-          x += cw;
-          return rect;
-        });
-      })}
-    </svg>
+    <>
+      <svg width="100%" height="100%" viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none">
+        {/* Outer frame — always drawn, so a single-panel preview stays visible even when its
+            fill matches the surrounding button/tile background (both currently var(--t-bg3)). */}
+        <rect x={0.5} y={0.5} width={W - 1} height={H - 1} fill="var(--t-bg3)"
+          stroke={lineColor} strokeWidth={1} />
+        {/* Internal dividers only — plain <line>s on the shared internal edges, not full
+            rects, so their stroke doesn't double up with the outer frame's stroke on edges
+            that coincide (which made those edges look darker than Single's single stroke). */}
+        {rows.length > 1 && (
+          <line x1={0} y1={H / 2} x2={W} y2={H / 2}
+            stroke={lineColor} strokeWidth={1} />
+        )}
+        {rows[0]?.length > 1 && (
+          <line x1={W / 2} y1={0} x2={W / 2} y2={H} stroke={lineColor} strokeWidth={1} />
+        )}
+      </svg>
+      {/* Empty-page hint — same icon-badge + language as the panel's own "Add a Background"
+          empty state, so an unstarted page reads the same way here. */}
+      {empty && (
+        <div style={{
+          position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
+          pointerEvents: 'none',
+        }}>
+          <div style={{
+            width: 22, height: 22, borderRadius: 7,
+            background: 'var(--t-bg2)', border: '1px solid var(--t-text-faint)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+          }}>
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--t-text-faint)"
+              strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+              <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+            </svg>
+          </div>
+        </div>
+      )}
+    </>
   );
+}
+
+// Renders a page's real content (background/characters/bubbles) via the same offscreen
+// canvas pipeline used for PNG/PDF export (comicRenderer.js), then crops/downscales it onto
+// a small canvas sized for the page-strip tile — cropped to fill (like CSS `object-fit:
+// cover`) rather than letterboxed, so it matches how the <img> tile displays it with no
+// white bars. Storing a full-res export-quality canvas per tile would also be wasteful.
+const THUMB_W = 160, THUMB_H = 130;
+async function renderPageThumb(panels, layout) {
+  const full = await renderPage(panels, layout);
+  const small = document.createElement('canvas');
+  small.width = THUMB_W; small.height = THUMB_H;
+  const ctx = small.getContext('2d');
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'high';
+  const scale = Math.max(THUMB_W / full.width, THUMB_H / full.height);
+  const dw = full.width * scale, dh = full.height * scale;
+  ctx.drawImage(full, (THUMB_W - dw) / 2, (THUMB_H - dh) / 2, dw, dh);
+  return small.toDataURL('image/png');
 }
 
 // BODY_POSE thumbnail — used by both the Outfit and Pose character tools. BODY_POSE
@@ -386,12 +465,32 @@ function ChangeLayoutPicker({ current, onPick, onClose }) {
 
 export default function ComicEditor({ readOnly = false, aiEnabled = true } = {}) {
   const { state, dispatch, activePage, activePagePanels, pageStart } = useComic();
-  const { mode, toggle } = useTheme();
   const [activeSidebar, setActiveSidebar] = useState('BACKGROUND');
   const [effectSub, setEffectSub] = useState(null);
   // Background subcategory browsing: null = folder picker; a slug = inside that folder.
   const [bgSub, setBgSub] = useState(null);
   const [bgSubcats, setBgSubcats] = useState([]);
+  // Hover tooltip for the label-less sidebar tool icons — fixed-positioned so the
+  // scrolling icon rail never clips it. { label, top, left } | null.
+  const [iconTip, setIconTip] = useState(null);
+  // Which rail icon is currently hovered — lifts it upward, same motion as hovering an
+  // asset card (AssetCard.jsx's translateY(-3px) lift).
+  const [hoveredIcon, setHoveredIcon] = useState(null);
+  // The tool rail scrolls internally (scrollbar hidden); the ▲/▼ page arrows drive it.
+  const railScrollRef = useRef(null);
+  const scrollRail = (dir) => {
+    const el = railScrollRef.current;
+    if (el) el.scrollBy({ top: dir * el.clientHeight * 0.8, behavior: 'smooth' });
+  };
+  // Background subcategory chip row scrolls horizontally; the ‹ › arrows drive it.
+  // Each click advances by exactly the row's own visible width — chips are sized via
+  // flex-basis to fit exactly 3 per view (see styles.bgChip), so one clientWidth-worth
+  // of scroll always pages precisely 3 buttons, regardless of panel width/breakpoint.
+  const bgChipScrollRef = useRef(null);
+  const scrollBgChips = (dir) => {
+    const el = bgChipScrollRef.current;
+    if (el) el.scrollBy({ left: dir * el.clientWidth, behavior: 'smooth' });
+  };
   const [search, setSearch] = useState('');
   const [faceParts, setFaceParts] = useState([]);
   const [faceSection, setFaceSection] = useState('hairstyle');
@@ -414,20 +513,16 @@ export default function ComicEditor({ readOnly = false, aiEnabled = true } = {})
   const [thumbMenu, setThumbMenu] = useState(null); // page index whose ⋮ menu is open
   const [changeLayoutFor, setChangeLayoutFor] = useState(null); // page index for layout picker
   const [zoom, setZoom] = useState(125);
-  const [showZoomMenu, setShowZoomMenu] = useState(false);
+  const [zoomSliderOpen, setZoomSliderOpen] = useState(false);
+  const [zoomDragging, setZoomDragging] = useState(false);
   const [showOpacityPop, setShowOpacityPop] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
-  const [showTitle, setShowTitle] = useState(true);
-  const [editingTitle, setEditingTitle] = useState(false);
-  const [titleDraft, setTitleDraft] = useState('');
-  const [titleSaved, setTitleSaved] = useState(false);
-  const titleSavedTimerRef = useRef(null);
-  const [textTab, setTextTab] = useState('bubble');
+  const [pageThumbs, setPageThumbs] = useState({}); // { [pageId]: dataUrl } — real rendered page-strip previews
   const thumbScrollRef = useRef(null);
   const canvasAreaRef = useRef(null);
   const panState = useRef(null); // { x, y, scrollLeft, scrollTop }
 
-  const ZOOM_PRESETS = [50, 75, 100, 125, 150, 200];
+  const ZOOM_MIN = 50, ZOOM_MAX = 140;
 
   // Close thumb menu on outside click
   useEffect(() => {
@@ -451,6 +546,51 @@ export default function ComicEditor({ readOnly = false, aiEnabled = true } = {})
       thumbScrollRef.current.scrollLeft = thumbScrollRef.current.scrollWidth;
     }
   }, [state.pages.length]);
+
+  // Keep the active page's tile scrolled into view — e.g. arrow-key navigation can jump to
+  // a page whose tile is currently scrolled out of the strip's visible area.
+  useEffect(() => {
+    const container = thumbScrollRef.current;
+    if (!container) return;
+    const activeTile = container.querySelector(`[data-page-idx="${state.activePageIndex}"]`);
+    if (activeTile) activeTile.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'smooth' });
+  }, [state.activePageIndex]);
+
+  // Live page-strip thumbnail for the active page — re-renders (debounced) whenever its
+  // content changes, so the strip shows the real background/characters instead of a stale icon.
+  useEffect(() => {
+    const page = state.pages[state.activePageIndex];
+    if (!page) return;
+    const timer = setTimeout(() => {
+      const start = pageStartIndex(state.pages, state.activePageIndex);
+      const panels = state.panels.slice(start, start + (LAYOUT_COUNT[page.layout] || 1));
+      renderPageThumb(panels, page.layout).then((url) => {
+        setPageThumbs((prev) => ({ ...prev, [page.id]: url }));
+      }).catch(() => {});
+    }, 500);
+    return () => clearTimeout(timer);
+  }, [state.panels, state.activePageIndex, state.pages]);
+
+  // Lazily fill in thumbnails for every other page (new pages, or on first mount) — one at a
+  // time so we don't burst-fire a pile of concurrent image/network loads via renderPage().
+  useEffect(() => {
+    let cancelled = false;
+    const missing = state.pages.filter((p) => !(p.id in pageThumbs));
+    if (missing.length === 0) return;
+    (async () => {
+      for (const page of missing) {
+        if (cancelled) return;
+        const idx = state.pages.findIndex((p) => p.id === page.id);
+        const start = pageStartIndex(state.pages, idx);
+        const panels = state.panels.slice(start, start + (LAYOUT_COUNT[page.layout] || 1));
+        try {
+          const url = await renderPageThumb(panels, page.layout);
+          if (!cancelled) setPageThumbs((prev) => ({ ...prev, [page.id]: url }));
+        } catch { /* leave LayoutThumb fallback in place */ }
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [state.pages]);
 
   // Canvas drag-to-pan
   useEffect(() => {
@@ -569,9 +709,9 @@ export default function ComicEditor({ readOnly = false, aiEnabled = true } = {})
   // Currently-active customization tool (Outfit/Pose/.../Skin Color/Hair Color)
   const selectedCharacterTool = [...CHARACTER_DIMENSIONS, CHARACTER_SKIN_TOOL, CHARACTER_EYE_TOOL, ...CHARACTER_COLOR_TOOLS].find((t) => t.id === characterMenu) || null;
 
-  // Load the FACE_PART library once, when the Face/Hair tool or Hairstyle character menu is opened
+  // Load the FACE_PART library once, when the Face tool or Hairstyle character menu is opened
   useEffect(() => {
-    const needFaceParts = activeSidebar === 'FACE' || activeSidebar === 'HAIR' || (activeSidebar === 'CHARACTER' && (characterMenu === 'hairstyle' || characterMenu === 'expression' || characterMenu === 'face'));
+    const needFaceParts = activeSidebar === 'FACE' || (activeSidebar === 'CHARACTER' && (characterMenu === 'hairstyle' || characterMenu === 'expression' || characterMenu === 'face'));
     if (needFaceParts && faceParts.length === 0) {
       getAssets({ category: 'FACE_PART' }).then(setFaceParts).catch(() => setFaceParts([]));
     }
@@ -819,11 +959,23 @@ export default function ComicEditor({ readOnly = false, aiEnabled = true } = {})
   };
 
   // Background subcategory folders (shown when the Backgrounds panel is open).
+  // Defaults to the "Nature" folder so images load immediately instead of an empty picker.
+  // Runs every time the panel opens (not just once) — toggleSidebar resets bgSub to null
+  // on each open, so the Nature default has to be re-applied each time too, not just when
+  // bgSubcats is still empty.
   useEffect(() => {
-    if (activeSidebar === 'BACKGROUND' && bgSubcats.length === 0) {
-      getBackgroundSubcategories().then(setBgSubcats).catch(() => {});
+    if (activeSidebar !== 'BACKGROUND') return;
+    if (bgSubcats.length === 0) {
+      getBackgroundSubcategories().then((cats) => {
+        setBgSubcats(cats);
+        const nature = cats.find((sc) => sc.label?.toLowerCase() === 'nature');
+        if (nature) setBgSub((cur) => cur ?? nature.slug);
+      }).catch(() => {});
+    } else {
+      const nature = bgSubcats.find((sc) => sc.label?.toLowerCase() === 'nature');
+      if (nature) setBgSub((cur) => cur ?? nature.slug);
     }
-  }, [activeSidebar, bgSubcats.length]);
+  }, [activeSidebar, bgSubcats]);
 
   const activePanelLightingOverlay = state.panels[activePanelIndex]?.data?.lightingOverlay || null;
   const toggleLightingOverlay = (id) => {
@@ -854,7 +1006,7 @@ export default function ComicEditor({ readOnly = false, aiEnabled = true } = {})
       handleFaceAssetSelect(asset);
     } else if (activeSidebar === 'BACKGROUND') {
       dispatch({ type: 'SET_BACKGROUND', panelIndex: activePanelIndex, background: { assetId: asset.id, filePath: asset.filePath } });
-    } else if (activeSidebar === 'BUBBLE') {
+    } else if (activeSidebar === 'SPEECH_BUBBLE') {
       dispatch({ type: 'ADD_PANEL_BUBBLE', panelIndex: activePanelIndex, asset });
     } else if (['PROP', 'EFFECT', 'COSTUME', 'SOUND'].includes(activeSidebar)) {
       dispatch({ type: 'ADD_PROP_TO_PANEL', panelIndex: activePanelIndex, asset, kind: activeSidebar.toLowerCase() + 's' });
@@ -940,15 +1092,20 @@ export default function ComicEditor({ readOnly = false, aiEnabled = true } = {})
 
       {/* ── Far-left icon bar ── */}
       <aside style={styles.iconBar}>
+        <div ref={railScrollRef} className="bg-chip-scroll" style={styles.railScroll}>
         {activeSidebar === 'CHARACTER' ? (
           <>
             <button
-              style={{ ...styles.iconBtn, ...(readOnly ? { opacity: 0.35, cursor: 'not-allowed' } : {}) }}
+              style={{
+                ...styles.iconBtn,
+                ...(hoveredIcon === 'back' ? styles.iconBtnHover : {}),
+                ...(readOnly ? { opacity: 0.35, cursor: 'not-allowed' } : {}),
+              }}
               onClick={readOnly ? undefined : () => { setActiveSidebar(null); setCharacterMenu(null); }}
-              title={readOnly ? 'Editing disabled — subscription expired' : 'Back'}
+              onMouseEnter={(e) => { const r = e.currentTarget.getBoundingClientRect(); setIconTip({ label: 'Back', top: r.top + r.height / 2, left: r.right }); setHoveredIcon('back'); }}
+              onMouseLeave={() => { setIconTip(null); setHoveredIcon(null); }}
             >
-              <IconBack />
-              <span style={styles.iconLabel}>Back</span>
+              <span style={styles.iconImg}><IconBack /></span>
             </button>
             {[...CHARACTER_DIMENSIONS, CHARACTER_SKIN_TOOL, CHARACTER_EYE_TOOL, ...CHARACTER_COLOR_TOOLS].map((item) => {
               const Icon = item.Icon || IconColorDrop;
@@ -958,53 +1115,69 @@ export default function ComicEditor({ readOnly = false, aiEnabled = true } = {})
                   style={{
                     ...styles.iconBtn,
                     ...(characterMenu === item.id ? styles.iconBtnActive : {}),
+                    ...(hoveredIcon === item.id ? styles.iconBtnHover : {}),
                     ...(readOnly ? { opacity: 0.35, cursor: 'not-allowed' } : {}),
                   }}
                   onClick={readOnly ? undefined : () => setCharacterMenu((prev) => (prev === item.id ? null : item.id))}
-                  title={readOnly ? 'Editing disabled — subscription expired' : item.label}
+                  onMouseEnter={(e) => { const r = e.currentTarget.getBoundingClientRect(); setIconTip({ label: item.label, top: r.top + r.height / 2, left: r.right }); setHoveredIcon(item.id); }}
+                  onMouseLeave={() => { setIconTip(null); setHoveredIcon(null); }}
                 >
-                  <Icon />
-                  <span style={styles.iconLabel}>{item.label}</span>
+                  {SUBTOOL_ICON[item.id]
+                    ? <img src={SUBTOOL_ICON[item.id]} alt={item.label} style={styles.iconImg} />
+                    : <span style={styles.iconImg}><Icon /></span>}
                 </button>
               );
             })}
           </>
         ) : (
-          SIDEBAR_ITEMS.filter((item) => item.id !== 'AI' || aiEnabled).map((item) => (
-            <button
-              key={item.id}
-              style={{
-                ...styles.iconBtn,
-                ...(activeSidebar === item.id ? styles.iconBtnActive : {}),
-                ...(readOnly ? { opacity: 0.35, cursor: 'not-allowed' } : {}),
-              }}
-              onClick={readOnly ? undefined : () => toggleSidebar(item.id)}
-              title={readOnly ? 'Editing disabled — subscription expired' : item.label}
-            >
-              <item.Icon />
-              <span style={styles.iconLabel}>{item.label}</span>
-            </button>
-          ))
+          SIDEBAR_ITEMS.filter((item) => item.id !== 'AI' || aiEnabled).map((item) => {
+            const isActive = activeSidebar === item.id;
+            return (
+              <button
+                key={item.id}
+                style={{
+                  ...styles.iconBtn,
+                  ...(isActive ? styles.iconBtnActive : {}),
+                  ...(hoveredIcon === item.id ? styles.iconBtnHover : {}),
+                  ...(readOnly ? { opacity: 0.35, cursor: 'not-allowed' } : {}),
+                }}
+                onClick={readOnly ? undefined : () => toggleSidebar(item.id)}
+                title={readOnly ? 'Editing disabled — subscription expired' : undefined}
+                onMouseEnter={(e) => {
+                  const r = e.currentTarget.getBoundingClientRect();
+                  setIconTip({ label: item.label, top: r.top + r.height / 2, left: r.right });
+                  setHoveredIcon(item.id);
+                }}
+                onMouseLeave={() => { setIconTip(null); setHoveredIcon(null); }}
+              >
+                {TOOL_ICON[item.id]
+                  ? <img src={TOOL_ICON[item.id]} alt={item.label} style={styles.iconImg} />
+                  : <span style={styles.iconImg}><item.Icon /></span>}
+              </button>
+            );
+          })
         )}
+        </div>
 
-        <div style={{ flex: 1 }} />
-        <div style={styles.themeToggleWrap}>
-          <button
-            style={{ ...styles.themeCircle, ...(mode === 'dark' ? styles.themeCircleActive : {}) }}
-            onClick={() => mode !== 'dark' && toggle()}
-            title="Dark mode"
-          >🌙</button>
-          <button
-            style={{ ...styles.themeCircle, ...(mode === 'light' ? styles.themeCircleActive : {}) }}
-            onClick={() => mode !== 'light' && toggle()}
-            title="Light mode"
-          >☀️</button>
+        {/* Up/down page arrows — flip through the tool rail instead of scrolling it */}
+        <div style={styles.railArrows}>
+          <button style={styles.railArrowBtn} title="Scroll up" onClick={() => scrollRail(-1)}>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="18 15 12 9 6 15" /></svg>
+          </button>
+          <button style={styles.railArrowBtn} title="Scroll down" onClick={() => scrollRail(1)}>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9" /></svg>
+          </button>
         </div>
       </aside>
 
+      {/* Hover tooltip for the label-less sidebar tool icons */}
+      {iconTip && (
+        <div style={{ ...styles.iconTip, top: iconTip.top, left: iconTip.left + 8 }}>{iconTip.label}</div>
+      )}
+
       {/* ── Expandable panel ── */}
       {activeSidebar && !readOnly && (
-        <aside style={styles.expandPanel}>
+        <aside className="editor-expand-panel" style={styles.expandPanel}>
           {/* Header: title + filter icon */}
           <div style={styles.expandHeader}>
             <span style={styles.expandTitle}>
@@ -1014,24 +1187,60 @@ export default function ComicEditor({ readOnly = false, aiEnabled = true } = {})
                   ? EFFECT_SUBCATEGORIES.find((s) => s.id === effectSub)?.label
                   : activeSidebar === 'BACKGROUND' && bgSub
                     ? (bgSubcats.find((s) => s.slug === bgSub)?.label || 'Backgrounds')
-                    : activeItem?.label}
+                    : activeSidebar === 'LAYOUT'
+                      ? 'Layout'
+                      : activeSidebar === 'LAYERS'
+                        ? 'Layers'
+                        : activeSidebar === 'STICKERS'
+                          ? 'Stickers'
+                          : activeItem?.label}
             </span>
-            {activeSidebar === 'BUBBLE' ? (
-              <button style={styles.headerFilterBtn} title="Back" onClick={handleSidebarBack}>
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                  strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                  <polyline points="15 18 9 12 15 6"/>
-                </svg>
-              </button>
-            ) : (
-              <button style={styles.headerFilterBtn} title="Back" onClick={handleSidebarBack}>
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                  strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                  <polyline points="15 18 9 12 15 6"/>
-                </svg>
-              </button>
-            )}
+            <button style={styles.headerFilterBtn} title="Back" onClick={handleSidebarBack}>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="15 18 9 12 15 6"/>
+              </svg>
+            </button>
           </div>
+
+          {/* Backgrounds' category slider + "No Background" stay fixed above the scrollable
+              asset grid — they used to live inside expandContent and scrolled away with the
+              images, which also hid them mid-scroll. */}
+          {activeSidebar === 'BACKGROUND' && (
+            <div style={styles.expandFixedTop}>
+              <div style={styles.bgChipSlider}>
+                <button style={styles.bgChipArrowBtn} title="Scroll left" onClick={() => scrollBgChips(-1)}>
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+                    <polyline points="15 18 9 12 15 6" />
+                  </svg>
+                </button>
+                <div ref={bgChipScrollRef} className="bg-chip-scroll" style={styles.bgChipRow}>
+                  {bgSubcats.map((sc) => (
+                    <button
+                      key={sc.id}
+                      style={sc.slug === bgSub ? { ...styles.bgChip, ...styles.bgChipActive } : styles.bgChip}
+                      onClick={() => { setBgSub(sc.slug); setSearch(''); }}
+                    >
+                      {sc.label}
+                    </button>
+                  ))}
+                </div>
+                <button style={styles.bgChipArrowBtn} title="Scroll right" onClick={() => scrollBgChips(1)}>
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+                    <polyline points="9 18 15 12 9 6" />
+                  </svg>
+                </button>
+              </div>
+              <button
+                style={styles.noBgPanelBtn}
+                title="Remove this panel's background"
+                onClick={readOnly ? undefined : () => dispatch({ type: 'SET_BACKGROUND', panelIndex: activePanelIndex, background: null })}
+              >
+                <img src="/tool-icons/no-background.webp" alt="" style={{ width: 16, height: 16, objectFit: 'contain' }} />
+                No Background
+              </button>
+            </div>
+          )}
 
           <div style={styles.expandContent}>
             {activeSidebar === 'FACE' && (
@@ -1066,26 +1275,11 @@ export default function ComicEditor({ readOnly = false, aiEnabled = true } = {})
                 )}
               </>
             )}
-            {activeSidebar === 'HAIR' && (
-              <>
-                {!selectedFace ? (
-                  <p style={styles.overlayHint}>Select a face in the panel first, then pick a hairstyle to swap.</p>
-                ) : (
-                  <>
-                    <p style={{ ...styles.overlayHint, marginBottom: 8 }}>Swapping hair on "{selectedFace.name}"</p>
-                    <div style={styles.faceLibGrid}>
-                      {faceParts.filter((a) => matchesFaceSection(a, 'hairstyle')).map((asset) => (
-                        <button key={asset.id} title={asset.name} onClick={() => handleSwapHairstyle(asset)} style={styles.faceLibThumb}>
-                          <img src={asset.filePath} alt={asset.name} draggable={false} style={{ width: '100%', height: '100%', objectFit: 'contain', display: 'block' }} />
-                        </button>
-                      ))}
-                      {faceParts.filter((a) => matchesFaceSection(a, 'hairstyle')).length === 0 && (
-                        <p style={styles.overlayHint}>No hairstyles uploaded yet. Upload FACE_PART assets with type "Hairstyle" in the admin panel.</p>
-                      )}
-                    </div>
-                  </>
-                )}
-              </>
+            {activeSidebar === 'LAYERS' && (
+              <p style={styles.overlayHint}>Layer controls are coming soon.</p>
+            )}
+            {activeSidebar === 'STICKERS' && (
+              <p style={styles.overlayHint}>Stickers are coming soon.</p>
             )}
             {activeSidebar === 'CHARACTER' && (
               !characterMenu ? (
@@ -1542,33 +1736,22 @@ export default function ComicEditor({ readOnly = false, aiEnabled = true } = {})
                 );
               })()
             )}
-            {activeSidebar === 'EFFECT' && !effectSub && (
-              <div style={styles.addPickerGrid}>
+            {activeSidebar === 'EFFECT' && (
+              <div style={styles.effectTabRow}>
                 {EFFECT_SUBCATEGORIES.map((sc) => (
-                  <button key={sc.id} style={styles.addPickerBtn} onClick={() => setEffectSub(sc.id)}>
-                    <span style={{ fontSize: 22 }}>{sc.icon}</span>
-                    <span style={styles.addPickerLabel}>{sc.label}</span>
-                  </button>
-                ))}
-              </div>
-            )}
-            {activeSidebar === 'BACKGROUND' && !bgSub && (
-              <div style={styles.addPickerGrid}>
-                {bgSubcats.map((sc) => (
-                  <button key={sc.id} style={styles.addPickerBtn} onClick={() => { setBgSub(sc.slug); setSearch(''); }}>
-                    <span style={styles.bgFolderCode}>
-                      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                        <path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z" />
-                      </svg>
-                    </span>
-                    <span style={styles.addPickerLabel}>{sc.label}</span>
+                  <button
+                    key={sc.id}
+                    style={sc.id === effectSub ? { ...styles.effectTab, ...styles.effectTabActive } : styles.effectTab}
+                    onClick={() => setEffectSub(sc.id)}
+                  >
+                    {sc.label}
                   </button>
                 ))}
               </div>
             )}
             {activeSidebar === 'EFFECT' && effectSub && effectSubMeta?.filters && (
               <>
-                <p style={styles.overlayHint}>Tap an effect to apply it directly over the panel. Tap again to remove it.</p>
+                <p style={styles.overlayHint}>Pick an effect to add it! Tap it again to take it away.</p>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, padding: '2px 0' }}>
                   {effectSubMeta.filters.map((f) => {
                     const active = activePanelLightingOverlay === f.id;
@@ -1595,7 +1778,7 @@ export default function ComicEditor({ readOnly = false, aiEnabled = true } = {})
             )}
             {activeSidebar === 'EFFECT' && effectSub === 'mood' && effectSubMeta?.modes && (
               <>
-                <p style={styles.overlayHint}>Tap a mode to apply a CSS filter to the background image. Tap again to remove.</p>
+                <p style={styles.overlayHint}>Pick a mood to color your scene! Tap it again to take it away.</p>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, padding: '2px 0' }}>
                   {effectSubMeta.modes.map((m) => {
                     const active = activePanelBgMode === m.id;
@@ -1622,165 +1805,122 @@ export default function ComicEditor({ readOnly = false, aiEnabled = true } = {})
             )}
             {ASSET_IDS.has(activeSidebar) && (activeSidebar !== 'EFFECT' || (effectSub && !effectSubMeta?.filters && !effectSubMeta?.modes)) && (activeSidebar !== 'BACKGROUND' || bgSub) && (
               <>
-                {activeSidebar === 'BACKGROUND' && (
-                  <button
-                    style={styles.clearBgBtn}
-                    onClick={() => dispatch({ type: 'SET_BACKGROUND', panelIndex: activePanelIndex, background: null })}
-                  >
-                    <span style={{ fontSize: 16 }}>⊘</span> No Background
-                  </button>
-                )}
-                {/* Search row: input with icon + filter button */}
-                <div style={styles.searchRow}>
-                  <div style={styles.searchInputWrap}>
-                    <input
-                      style={styles.searchInput}
-                      placeholder={`Search ${activeItem?.label?.toLowerCase()}…`}
-                      value={search}
-                      onChange={(e) => setSearch(e.target.value)}
-                    />
-                    <span style={styles.searchIcon}>
-                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                        strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-                        <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
-                      </svg>
-                    </span>
-                  </div>
+                {/* Search row: input with icon + filter button — skipped for Backgrounds,
+                    where a folder was already picked and there's nothing else to filter. */}
+                {activeSidebar !== 'BACKGROUND' && (
+                  <div style={styles.searchRow}>
+                    <div style={styles.searchInputWrap}>
+                      <input
+                        style={styles.searchInput}
+                        placeholder={`Search ${activeItem?.label?.toLowerCase()}…`}
+                        value={search}
+                        onChange={(e) => setSearch(e.target.value)}
+                      />
+                      <span style={styles.searchIcon}>
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                          strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                          <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+                        </svg>
+                      </span>
+                    </div>
 
-                </div>
+                  </div>
+                )}
                 <AssetGrid
                   category={activeSidebar}
                   tags={activeSidebar === 'EFFECT' ? effectSub : activeSidebar === 'BACKGROUND' ? bgSub : undefined}
-                  search={search || undefined}
+                  search={activeSidebar === 'BACKGROUND' ? undefined : (search || undefined)}
                   onSelect={handleAssetSelect}
+                  activeAssetId={activeSidebar === 'BACKGROUND' ? state.panels[activePanelIndex]?.data?.background?.assetId : undefined}
                 />
               </>
             )}
-            {activeSidebar === 'BUBBLE' && (() => {
+            {/* Text — narration box settings only, no shared tab switcher with Speech Bubble */}
+            {activeSidebar === 'BUBBLE' && (
+              <SpeechBubbleEditor panelIndex={activePanelIndex} hideBubbles />
+            )}
+            {/* Speech Bubble — bubble shape picker + styling, fully independent panel */}
+            {activeSidebar === 'SPEECH_BUBBLE' && (() => {
               const selBubble = state.activeSelection?.kind === 'PLACED_BUBBLE'
                 ? (state.panels[state.activeSelection.panelIndex]?.data?.bubbles || []).find((b) => b.instanceId === state.activeSelection.instanceId)
                 : null;
-              const btnBase = { height: 30, borderRadius: 6, border: '1.5px solid #e5e7eb', background: '#fff', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' };
-              const activeStyle = { border: '1.5px solid #F97316', color: '#F97316', background: 'rgba(249,115,22,0.07)' };
+              const ts = selBubble?.textStyle || {};
+              const pi2 = state.activeSelection?.panelIndex ?? activePanelIndex;
+              const updTs = (patch) => { if (!selBubble) return; dispatch({ type: 'UPDATE_PANEL_BUBBLE', panelIndex: pi2, instanceId: selBubble.instanceId, updates: { textStyle: { ...ts, ...patch } } }); };
+              const updB  = (patch) => { if (!selBubble) return; dispatch({ type: 'UPDATE_PANEL_BUBBLE', panelIndex: pi2, instanceId: selBubble.instanceId, updates: patch }); };
+              const activeAlign = ts.textAlign || 'center';
+              const fmtBtn = { width: 36, height: 36, borderRadius: 8, border: '1.5px solid #e5e7eb', background: '#fff', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.12s', flexShrink: 0, padding: 0 };
               return (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 7, padding: '2px 2px 6px' }}>
+                  {/* Bubble shapes grid */}
+                  <AssetGrid category="BUBBLE" onSelect={handleAssetSelect} />
+                  <div style={{ borderTop: '1.5px solid #f0f0f0', margin: '1px 0' }} />
 
-                  {/* ── Tab switcher ── */}
-                  <div style={{ display: 'flex', background: '#F3F4F6', borderRadius: 14, padding: 4, margin: '2px 0 14px', gap: 2 }}>
-                    {[
-                      { id: 'narration', label: 'Narration box', icon: (
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
-                      )},
-                      { id: 'bubble', label: 'Bubbles', icon: (
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
-                      )},
-                    ].map(({ id, label, icon }) => {
-                      const isActive = textTab === id;
-                      return (
-                        <button key={id} onClick={() => setTextTab(id)} style={{
-                          flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
-                          padding: '10px 6px', border: 'none', cursor: 'pointer', borderRadius: 10,
-                          background: isActive ? '#fff' : 'transparent',
-                          boxShadow: isActive ? '0 1px 4px rgba(0,0,0,0.10)' : 'none',
-                          fontWeight: isActive ? 700 : 500,
-                          fontSize: 14,
-                          color: isActive ? '#111827' : '#6B7280',
-                          transition: 'all 0.15s',
-                        }}>
-                          <span style={{ color: isActive ? '#F97316' : '#9CA3AF', display: 'flex' }}>{icon}</span>
-                          {label}
-                        </button>
-                      );
-                    })}
+                  {/* Status hint */}
+                  {selBubble
+                    ? <p style={{ fontSize: 11, color: '#F97316', fontWeight: 700, margin: 0, letterSpacing: '0.01em' }}>✦ Editing selected bubble</p>
+                    : <p style={{ fontSize: 11, color: '#9CA3AF', margin: 0 }}>Select a bubble on the canvas to edit its style</p>
+                  }
+
+                  {/* ── Font + Size ── */}
+                  <div>
+                    <div style={{ display: 'flex', gap: 14, marginBottom: 5 }}>
+                      <span style={{ fontSize: 10, fontWeight: 700, color: '#9CA3AF', letterSpacing: '0.05em', textTransform: 'uppercase', flex: 1 }}>Font</span>
+                      <span style={{ fontSize: 10, fontWeight: 700, color: '#9CA3AF', letterSpacing: '0.05em', textTransform: 'uppercase', width: 92 }}>Size</span>
+                    </div>
+                    <div style={{ display: 'flex', gap: 8 }}>
+                      <CustomSelect
+                        value={ts.fontFamily || "'Comic Sans MS', cursive"}
+                        onChange={(v) => updTs({ fontFamily: v })}
+                        options={FONTS}
+                      />
+                      <div style={{ width: 92, flexShrink: 0 }}>
+                        <CustomSelect
+                          value={ts.fontSize || 16}
+                          onChange={(v) => updTs({ fontSize: Number(v) })}
+                          options={SIZES.map((n) => ({ value: n, label: String(n) }))}
+                        />
+                      </div>
+                    </div>
                   </div>
 
-                  {/* ── Narration box tab ── */}
-                  {textTab === 'narration' && (
-                    <SpeechBubbleEditor panelIndex={activePanelIndex} hideBubbles />
-                  )}
+                  {/* ── Colors + Thickness ── */}
+                  <div style={{ display: 'flex', alignItems: 'flex-end', gap: 0, background: '#f9fafb', borderRadius: 14, padding: '10px 12px', border: '1.5px solid #f0f0f0' }}>
+                    <div style={{ display: 'flex', gap: 14, flex: 1 }}>
+                      <ColorSwatch label="Font" value={ts.color || '#000000'} onChange={(v) => updTs({ color: v })} />
+                      <ColorSwatch label="Fill" value={selBubble?.fillColor || '#ffffff'} onChange={(v) => updB({ fillColor: v })} />
+                      <ColorSwatch label="Border" value={selBubble?.strokeColor || '#000000'} onChange={(v) => updB({ strokeColor: v })} />
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 5 }}>
+                      <span style={{ fontSize: 10, fontWeight: 700, color: '#9CA3AF', letterSpacing: '0.05em', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>Width</span>
+                      <select
+                        value={selBubble?.strokeWidth || 2}
+                        onChange={(e) => updB({ strokeWidth: Number(e.target.value) })}
+                        style={{ height: 36, width: 58, padding: '0 4px', borderRadius: 10, border: '1.5px solid #e5e7eb', fontSize: 12, fontWeight: 700, color: '#111827', background: '#fff', cursor: 'pointer', textAlign: 'center' }}
+                      >
+                        {[1,2,3,4,5,6,7,8,9,10].map((n) => <option key={n} value={n}>{n}px</option>)}
+                      </select>
+                    </div>
+                  </div>
 
-                  {/* ── Bubbles tab ── */}
-                  {textTab === 'bubble' && (() => {
-                    const ts = selBubble?.textStyle || {};
-                    const pi2 = state.activeSelection?.panelIndex ?? activePanelIndex;
-                    const updTs = (patch) => { if (!selBubble) return; dispatch({ type: 'UPDATE_PANEL_BUBBLE', panelIndex: pi2, instanceId: selBubble.instanceId, updates: { textStyle: { ...ts, ...patch } } }); };
-                    const updB  = (patch) => { if (!selBubble) return; dispatch({ type: 'UPDATE_PANEL_BUBBLE', panelIndex: pi2, instanceId: selBubble.instanceId, updates: patch }); };
-                    const activeAlign = ts.textAlign || 'center';
-                    const fmtBtn = { width: 36, height: 36, borderRadius: 8, border: '1.5px solid #e5e7eb', background: '#fff', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.12s', flexShrink: 0, padding: 0 };
-                    return (
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: 7, padding: '2px 2px 6px' }}>
-                        {/* Bubble shapes grid */}
-                        <AssetGrid category="BUBBLE" onSelect={handleAssetSelect} />
-                        <div style={{ borderTop: '1.5px solid #f0f0f0', margin: '1px 0' }} />
-
-                        {/* Status hint */}
-                        {selBubble
-                          ? <p style={{ fontSize: 11, color: '#F97316', fontWeight: 700, margin: 0, letterSpacing: '0.01em' }}>✦ Editing selected bubble</p>
-                          : <p style={{ fontSize: 11, color: '#9CA3AF', margin: 0 }}>Select a bubble on the canvas to edit its style</p>
-                        }
-
-                        {/* ── Font + Size ── */}
-                        <div>
-                          <div style={{ display: 'flex', gap: 14, marginBottom: 5 }}>
-                            <span style={{ fontSize: 10, fontWeight: 700, color: '#9CA3AF', letterSpacing: '0.05em', textTransform: 'uppercase', flex: 1 }}>Font</span>
-                            <span style={{ fontSize: 10, fontWeight: 700, color: '#9CA3AF', letterSpacing: '0.05em', textTransform: 'uppercase', width: 92 }}>Size</span>
-                          </div>
-                          <div style={{ display: 'flex', gap: 8 }}>
-                            <CustomSelect
-                              value={ts.fontFamily || "'Comic Sans MS', cursive"}
-                              onChange={(v) => updTs({ fontFamily: v })}
-                              options={FONTS}
-                            />
-                            <div style={{ width: 92, flexShrink: 0 }}>
-                              <CustomSelect
-                                value={ts.fontSize || 16}
-                                onChange={(v) => updTs({ fontSize: Number(v) })}
-                                options={SIZES.map((n) => ({ value: n, label: String(n) }))}
-                              />
-                            </div>
-                          </div>
-                        </div>
-
-                        {/* ── Colors + Thickness ── */}
-                        <div style={{ display: 'flex', alignItems: 'flex-end', gap: 0, background: '#f9fafb', borderRadius: 14, padding: '10px 12px', border: '1.5px solid #f0f0f0' }}>
-                          <div style={{ display: 'flex', gap: 14, flex: 1 }}>
-                            <ColorSwatch label="Font" value={ts.color || '#000000'} onChange={(v) => updTs({ color: v })} />
-                            <ColorSwatch label="Fill" value={selBubble?.fillColor || '#ffffff'} onChange={(v) => updB({ fillColor: v })} />
-                            <ColorSwatch label="Border" value={selBubble?.strokeColor || '#000000'} onChange={(v) => updB({ strokeColor: v })} />
-                          </div>
-                          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 5 }}>
-                            <span style={{ fontSize: 10, fontWeight: 700, color: '#9CA3AF', letterSpacing: '0.05em', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>Width</span>
-                            <select
-                              value={selBubble?.strokeWidth || 2}
-                              onChange={(e) => updB({ strokeWidth: Number(e.target.value) })}
-                              style={{ height: 36, width: 58, padding: '0 4px', borderRadius: 10, border: '1.5px solid #e5e7eb', fontSize: 12, fontWeight: 700, color: '#111827', background: '#fff', cursor: 'pointer', textAlign: 'center' }}
-                            >
-                              {[1,2,3,4,5,6,7,8,9,10].map((n) => <option key={n} value={n}>{n}px</option>)}
-                            </select>
-                          </div>
-                        </div>
-
-                        {/* ── Formatting toolbar: B I | align ── */}
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                          <button onMouseDown={(e) => e.preventDefault()} onClick={() => updTs({ bold: !ts.bold })}
-                            style={{ ...fmtBtn, borderColor: ts.bold ? '#F97316' : '#e5e7eb', color: ts.bold ? '#F97316' : '#374151', background: ts.bold ? 'rgba(249,115,22,0.07)' : '#fff' }}>
-                            <b style={{ fontSize: 15, lineHeight: 1 }}>B</b>
-                          </button>
-                          <button onMouseDown={(e) => e.preventDefault()} onClick={() => updTs({ italic: !ts.italic })}
-                            style={{ ...fmtBtn, borderColor: ts.italic ? '#F97316' : '#e5e7eb', color: ts.italic ? '#F97316' : '#374151', background: ts.italic ? 'rgba(249,115,22,0.07)' : '#fff' }}>
-                            <em style={{ fontSize: 15, fontStyle: 'italic', lineHeight: 1 }}>I</em>
-                          </button>
-                          <div style={{ width: 1, height: 22, background: '#e5e7eb', margin: '0 2px', flexShrink: 0 }} />
-                          {['left', 'center', 'right', 'justify'].map((a) => (
-                            <button key={a} onMouseDown={(e) => e.preventDefault()} onClick={() => updTs({ textAlign: a })}
-                              style={{ ...fmtBtn, borderColor: activeAlign === a ? '#F97316' : '#e5e7eb', color: activeAlign === a ? '#F97316' : '#374151', background: activeAlign === a ? 'rgba(249,115,22,0.07)' : '#fff' }}>
-                              <AlignIcon id={a} />
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-                    );
-                  })()}
+                  {/* ── Formatting toolbar: B I | align ── */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                    <button onMouseDown={(e) => e.preventDefault()} onClick={() => updTs({ bold: !ts.bold })}
+                      style={{ ...fmtBtn, borderColor: ts.bold ? '#F97316' : '#e5e7eb', color: ts.bold ? '#F97316' : '#374151', background: ts.bold ? 'rgba(249,115,22,0.07)' : '#fff' }}>
+                      <b style={{ fontSize: 15, lineHeight: 1 }}>B</b>
+                    </button>
+                    <button onMouseDown={(e) => e.preventDefault()} onClick={() => updTs({ italic: !ts.italic })}
+                      style={{ ...fmtBtn, borderColor: ts.italic ? '#F97316' : '#e5e7eb', color: ts.italic ? '#F97316' : '#374151', background: ts.italic ? 'rgba(249,115,22,0.07)' : '#fff' }}>
+                      <em style={{ fontSize: 15, fontStyle: 'italic', lineHeight: 1 }}>I</em>
+                    </button>
+                    <div style={{ width: 1, height: 22, background: '#e5e7eb', margin: '0 2px', flexShrink: 0 }} />
+                    {['left', 'center', 'right', 'justify'].map((a) => (
+                      <button key={a} onMouseDown={(e) => e.preventDefault()} onClick={() => updTs({ textAlign: a })}
+                        style={{ ...fmtBtn, borderColor: activeAlign === a ? '#F97316' : '#e5e7eb', color: activeAlign === a ? '#F97316' : '#374151', background: activeAlign === a ? 'rgba(249,115,22,0.07)' : '#fff' }}>
+                        <AlignIcon id={a} />
+                      </button>
+                    ))}
+                  </div>
                 </div>
               );
             })()}
@@ -1797,6 +1937,7 @@ export default function ComicEditor({ readOnly = false, aiEnabled = true } = {})
               </>
             )}
           </div>
+          <div style={styles.expandBottomMask} />
         </aside>
       )}
 
@@ -1806,128 +1947,145 @@ export default function ComicEditor({ readOnly = false, aiEnabled = true } = {})
         {/* Canvas toolbar — full-width strip: title left, tools right */}
         <div style={styles.canvasToolbar}>
 
-          {/* LEFT: T toggle */}
+          {/* LEFT: reserved for panel title/context. No Background moved into the
+              Backgrounds panel itself (contextual — only relevant while working with backgrounds). */}
           <div style={styles.toolbarLeft}>
-            <button
-              style={{ ...styles.toolBtn, color: showTitle ? '#F97316' : 'var(--t-text-muted)' }}
-              title={showTitle ? 'Hide title' : 'Show title'}
-              onClick={() => setShowTitle((v) => !v)}
-            >
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M4 7V4h16v3"/><path d="M9 20h6"/><path d="M12 4v16"/>
-              </svg>
-            </button>
+            {[
+              { id: 'LAYERS',   label: 'Layers',   icon: 'layers.webp',   clickable: true },
+              { id: 'STICKERS', label: 'Stickers', icon: 'stickers.webp', clickable: true },
+              { id: 'upload',   label: 'Upload',   icon: 'upload.webp',   clickable: false },
+            ].map((item) => (
+              <button
+                key={item.id}
+                style={{
+                  ...styles.toolBtnLg,
+                  ...(hoveredIcon === item.id ? styles.iconBtnHover : {}),
+                  ...(activeSidebar === item.id ? styles.toolBtnLgActive : {}),
+                }}
+                onClick={item.clickable ? () => toggleSidebar(item.id) : undefined}
+                onMouseEnter={(e) => {
+                  const r = e.currentTarget.getBoundingClientRect();
+                  setIconTip({ label: item.label, top: r.top, left: r.right });
+                  setHoveredIcon(item.id);
+                }}
+                onMouseLeave={() => { setIconTip(null); setHoveredIcon(null); }}
+              >
+                <img src={`/tool-icons/${item.icon}`} alt={item.label} style={styles.toolBtnLgImg} draggable={false} />
+              </button>
+            ))}
           </div>
-
-          {/* CENTER: Comic title — absolutely centered in the ribbon */}
-          {showTitle && (() => {
-            const doCommit = () => {
-              dispatch({ type: 'SET_TITLE', title: titleDraft.trim() || 'Untitled Comic' });
-              setEditingTitle(false);
-              if (titleSavedTimerRef.current) clearTimeout(titleSavedTimerRef.current);
-              setTitleSaved(true);
-              titleSavedTimerRef.current = setTimeout(() => setTitleSaved(false), 1800);
-            };
-            return (
-              <div style={styles.toolbarCenter}>
-                {editingTitle ? (
-                  <input
-                    autoFocus
-                    style={styles.titleInput}
-                    value={titleDraft}
-                    placeholder="Title of the comic..."
-                    maxLength={120}
-                    onChange={(e) => setTitleDraft(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') doCommit();
-                      if (e.key === 'Escape') setEditingTitle(false);
-                    }}
-                    onBlur={doCommit}
-                  />
-                ) : (
-                  <span
-                    style={styles.titleDisplay}
-                    onClick={() => { setTitleDraft(state.title || ''); setEditingTitle(true); }}
-                    title="Click to edit title"
-                  >
-                    {state.title || 'Untitled Comic'}
-                  </span>
-                )}
-              </div>
-            );
-          })()}
 
           {/* RIGHT: Tool buttons */}
           <div style={styles.toolbarRight}>
-            {/* Delete + Flip + Crop — only shown when an item is selected */}
-            {state.activeSelection && (
-            <>
-              <button
-                style={{ ...styles.toolBtn, color: '#ef4444' }}
-                title="Delete selected"
-                onClick={() => {
-                  const { kind, instanceId, panelIndex: pi } = state.activeSelection;
-                  if (kind === 'CHARACTER') dispatch({ type: 'REMOVE_CHARACTER', panelIndex: pi, instanceId });
-                  else if (kind === 'CHARACTER_PRESET') dispatch({ type: 'REMOVE_CHARACTER_PRESET', panelIndex: pi, instanceId });
-                  else if (kind === 'BUBBLE') dispatch({ type: 'REMOVE_BUBBLE', panelIndex: pi, instanceId });
-                  else if (kind === 'PLACED_BUBBLE') dispatch({ type: 'REMOVE_PANEL_BUBBLE', panelIndex: pi, instanceId });
-                  else dispatch({ type: 'REMOVE_PLACED_ITEM', panelIndex: pi, instanceId, kind: kind.toLowerCase() + 's' });
-                  dispatch({ type: 'SET_ACTIVE_SELECTION', selection: null });
-                }}
-              >
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-                  <polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/>
-                </svg>
-              </button>
-              {state.activeSelection.kind === 'PLACED_BUBBLE' && (() => {
-                const panel = state.panels[state.activeSelection.panelIndex];
-                const bub = (panel?.data?.bubbles || []).find((b) => b.instanceId === state.activeSelection.instanceId);
-                return (
-                  <button style={styles.toolBtn} title="Flip horizontal"
-                    onClick={() => bub && dispatch({ type: 'UPDATE_PANEL_BUBBLE', panelIndex: state.activeSelection.panelIndex, instanceId: state.activeSelection.instanceId, updates: { flipX: !bub.flipX } })}>
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-                      <path d="M7 8L2 12l5 4"/><path d="M17 8l5 4-5 4"/><line x1="12" y1="3" x2="12" y2="21" strokeDasharray="3 2"/>
-                    </svg>
-                  </button>
-                );
-              })()}
-              {(state.activeSelection.kind === 'CHARACTER' || state.activeSelection.kind === 'CHARACTER_PRESET') && (() => {
-                const panel = state.panels[state.activeSelection.panelIndex];
-                const isPreset = state.activeSelection.kind === 'CHARACTER_PRESET';
-                const item = isPreset
-                  ? panel?.data?.characterPresets?.find((c) => c.instanceId === state.activeSelection.instanceId)
-                  : panel?.data?.characters?.find((c) => c.instanceId === state.activeSelection.instanceId);
-                const updateType = isPreset ? 'UPDATE_CHARACTER_PRESET' : 'UPDATE_CHARACTER';
-                return (
-                  <>
-                    <button
-                      style={styles.toolBtn}
-                      title="Flip horizontal"
-                      onClick={() => item && dispatch({ type: updateType, panelIndex: state.activeSelection.panelIndex, instanceId: state.activeSelection.instanceId, updates: { flipX: !item.flipX } })}
-                    >
-                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-                        <path d="M7 8L2 12l5 4"/>
-                        <path d="M17 8l5 4-5 4"/>
-                        <line x1="12" y1="3" x2="12" y2="21" strokeDasharray="3 2"/>
-                      </svg>
-                    </button>
-                    <button
-                      style={{ ...styles.toolBtn, color: state.activeSelection.cropping ? '#F97316' : 'var(--t-text-muted)', background: state.activeSelection.cropping ? 'rgba(249,115,22,0.10)' : 'none' }}
-                      title={state.activeSelection.cropping ? 'Exit crop' : 'Crop'}
-                      onClick={() => dispatch({ type: 'TOGGLE_CROP_MODE' })}
-                    >
-                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-                        <path d="M6 2v14a2 2 0 0 0 2 2h14"/>
-                        <path d="M18 22V8a2 2 0 0 0-2-2H2"/>
-                      </svg>
-                    </button>
-                  </>
-                );
-              })()}
-            </>
-          )}
+            {/* Flip — only shown when a selection supports it (contextual, unlike Crop/Delete below) */}
+            {state.activeSelection?.kind === 'PLACED_BUBBLE' && (() => {
+              const panel = state.panels[state.activeSelection.panelIndex];
+              const bub = (panel?.data?.bubbles || []).find((b) => b.instanceId === state.activeSelection.instanceId);
+              return (
+                <button style={styles.toolBtn} title="Flip horizontal"
+                  onClick={() => bub && dispatch({ type: 'UPDATE_PANEL_BUBBLE', panelIndex: state.activeSelection.panelIndex, instanceId: state.activeSelection.instanceId, updates: { flipX: !bub.flipX } })}>
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M7 8L2 12l5 4"/><path d="M17 8l5 4-5 4"/><line x1="12" y1="3" x2="12" y2="21" strokeDasharray="3 2"/>
+                  </svg>
+                </button>
+              );
+            })()}
+            {(state.activeSelection?.kind === 'CHARACTER' || state.activeSelection?.kind === 'CHARACTER_PRESET') && (() => {
+              const panel = state.panels[state.activeSelection.panelIndex];
+              const isPreset = state.activeSelection.kind === 'CHARACTER_PRESET';
+              const item = isPreset
+                ? panel?.data?.characterPresets?.find((c) => c.instanceId === state.activeSelection.instanceId)
+                : panel?.data?.characters?.find((c) => c.instanceId === state.activeSelection.instanceId);
+              const updateType = isPreset ? 'UPDATE_CHARACTER_PRESET' : 'UPDATE_CHARACTER';
+              return (
+                <button
+                  style={styles.toolBtn}
+                  title="Flip horizontal"
+                  onClick={() => item && dispatch({ type: updateType, panelIndex: state.activeSelection.panelIndex, instanceId: state.activeSelection.instanceId, updates: { flipX: !item.flipX } })}
+                >
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M7 8L2 12l5 4"/>
+                    <path d="M17 8l5 4-5 4"/>
+                    <line x1="12" y1="3" x2="12" y2="21" strokeDasharray="3 2"/>
+                  </svg>
+                </button>
+              );
+            })()}
 
-          {/* Opacity icon — click to open popup */}
+            {/* Crop — always visible; disabled unless the current selection supports cropping */}
+            {(() => {
+              const canCrop = state.activeSelection?.kind === 'CHARACTER' || state.activeSelection?.kind === 'CHARACTER_PRESET';
+              return (
+                <button
+                  style={{
+                    ...styles.toolBtn,
+                    color: !canCrop ? 'var(--t-text-faint)' : state.activeSelection.cropping ? '#F97316' : 'var(--t-text-muted)',
+                    background: canCrop && state.activeSelection.cropping ? 'rgba(249,115,22,0.10)' : 'none',
+                    opacity: canCrop ? 1 : 0.4, cursor: canCrop ? 'pointer' : 'not-allowed',
+                  }}
+                  title={!canCrop ? 'Select a character to crop' : state.activeSelection.cropping ? 'Exit crop' : 'Crop'}
+                  disabled={!canCrop}
+                  onClick={() => canCrop && dispatch({ type: 'TOGGLE_CROP_MODE' })}
+                >
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M6 2v14a2 2 0 0 0 2 2h14"/>
+                    <path d="M18 22V8a2 2 0 0 0-2-2H2"/>
+                  </svg>
+                </button>
+              );
+            })()}
+
+            {/* Delete — always visible. With a canvas item selected, deletes that item;
+                otherwise falls back to deleting the active PAGE — the only way to delete a
+                page on touch devices, which have no keyboard Delete key to trigger the
+                existing per-tile onKeyDown handler below. */}
+            {(() => {
+              const hasPages = state.pages.length > 0;
+              const canDelete = !!state.activeSelection || hasPages;
+              const label = state.activeSelection ? 'Delete selected' : hasPages ? 'Delete current page' : 'Nothing to delete';
+              return (
+                <button
+                  style={{
+                    ...styles.toolBtn,
+                    color: canDelete ? '#ef4444' : 'var(--t-text-faint)',
+                    opacity: canDelete ? 1 : 0.4, cursor: canDelete ? 'pointer' : 'not-allowed',
+                  }}
+                  title={label}
+                  disabled={!canDelete}
+                  onClick={() => {
+                    if (state.activeSelection) {
+                      // Mirrors the keyboard-Delete switch in Panel.jsx exactly — every
+                      // selectable kind needs its own real reducer action; PROP/EFFECT/
+                      // COSTUME/SOUND are the only ones that use the generic
+                      // REMOVE_PLACED_ITEM (keyed by kind + 's'). Falling through to that
+                      // generic path for a kind like NARRATION (whose items live under
+                      // data.narrationBoxes, not data.narrations) throws — filtering
+                      // `undefined` crashes the render and whites out the screen.
+                      const { kind, instanceId, panelIndex: pi } = state.activeSelection;
+                      if (kind === 'CHARACTER') dispatch({ type: 'REMOVE_CHARACTER', panelIndex: pi, instanceId });
+                      else if (kind === 'FACE') dispatch({ type: 'REMOVE_FACE', panelIndex: pi, instanceId });
+                      else if (kind === 'CHARACTER_PRESET') dispatch({ type: 'REMOVE_CHARACTER_PRESET', panelIndex: pi, instanceId });
+                      else if (kind === 'BUBBLE') dispatch({ type: 'REMOVE_BUBBLE', panelIndex: pi, instanceId });
+                      else if (kind === 'PLACED_BUBBLE') dispatch({ type: 'REMOVE_PANEL_BUBBLE', panelIndex: pi, instanceId });
+                      else if (kind === 'NARRATION') dispatch({ type: 'REMOVE_NARRATION_BOX', panelIndex: pi, instanceId });
+                      else if (kind === 'BACKGROUND') dispatch({ type: 'SET_BACKGROUND', panelIndex: pi, background: null });
+                      else if (['PROP', 'EFFECT', 'COSTUME', 'SOUND'].includes(kind)) dispatch({ type: 'REMOVE_PLACED_ITEM', panelIndex: pi, instanceId, kind: kind.toLowerCase() + 's' });
+                      dispatch({ type: 'SET_ACTIVE_SELECTION', selection: null });
+                    } else if (hasPages) {
+                      dispatch({ type: 'REMOVE_PAGE', pageIndex: state.activePageIndex });
+                    }
+                  }}
+                >
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                    <polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/>
+                  </svg>
+                </button>
+              );
+            })()}
+
+            <div style={styles.toolDivider} />
+
+            {/* Opacity icon — click to open popup */}
           <div style={{ position: 'relative' }}>
             <button
               style={styles.toolBtn}
@@ -1994,6 +2152,19 @@ export default function ComicEditor({ readOnly = false, aiEnabled = true } = {})
           </div>
 
           <button
+            style={{ ...styles.toolBtn, ...(activeSidebar === 'LAYOUT' ? styles.toolBtnActive : {}) }}
+            title="Page layout"
+            onClick={() => toggleSidebar('LAYOUT')}
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+              <rect x="3" y="3" width="7" height="7" rx="1"/>
+              <rect x="14" y="3" width="7" height="7" rx="1"/>
+              <rect x="14" y="14" width="7" height="7" rx="1"/>
+              <rect x="3" y="14" width="7" height="7" rx="1"/>
+            </svg>
+          </button>
+
+          <button
             style={styles.toolBtn}
             title="Fullscreen (Esc to exit)"
             onClick={() => setIsFullscreen(true)}
@@ -2008,59 +2179,74 @@ export default function ComicEditor({ readOnly = false, aiEnabled = true } = {})
 
           <div style={styles.toolDivider} />
 
-          {/* Zoom pill + dropdown */}
-          <div
-            style={{ position: 'relative' }}
-            onBlur={(e) => { if (!e.currentTarget.contains(e.relatedTarget)) setShowZoomMenu(false); }}
+          <span
+            style={{ fontSize: 13, fontWeight: 600, color: 'var(--t-text)', minWidth: 34, textAlign: 'right', cursor: 'default' }}
+            onMouseEnter={() => setZoomSliderOpen(true)}
+            onMouseLeave={() => setZoomSliderOpen(false)}
           >
-            <div style={styles.zoomPill} onClick={() => setShowZoomMenu((v) => !v)} tabIndex={0}>
-              <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--t-text)' }}>{zoom}%</span>
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
-                <polyline points="6 9 12 15 18 9"/>
-              </svg>
-            </div>
-            {showZoomMenu && (
-              <div style={styles.zoomMenu}>
-                {ZOOM_PRESETS.map((z) => (
-                  <button
-                    key={z}
-                    style={{ ...styles.zoomMenuItem, ...(zoom === z ? styles.zoomMenuItemActive : {}) }}
-                    onMouseDown={() => { setZoom(z); setShowZoomMenu(false); }}
-                  >
-                    {z}%{z === 125 ? ' (default)' : ''}
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
+            {zoom}%
+          </span>
 
-          <button style={styles.toolBtn} onClick={() => dispatch({ type: 'UNDO' })} title="Undo">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M9 14L4 9l5-5"/>
-              <path d="M4 9h11a5 5 0 0 1 0 10h-1"/>
-            </svg>
-          </button>
-          <button style={styles.toolBtn} onClick={() => dispatch({ type: 'REDO' })} title="Redo">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M15 14l5-5-5-5"/>
-              <path d="M20 9H9a5 5 0 0 0 0 10h1"/>
-            </svg>
-          </button>
-            {titleSaved && (
-              <>
-                <style>{`@keyframes bc-check-pop { 0%{opacity:0;transform:scale(0.6)} 20%{opacity:1;transform:scale(1)} 75%{opacity:1} 100%{opacity:0} }`}</style>
-                <span style={{ display:'inline-flex', alignItems:'center', animation:'bc-check-pop 1.8s ease forwards', pointerEvents:'none' }}>
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#22c55e" strokeWidth="2.8" strokeLinecap="round" strokeLinejoin="round">
-                    <polyline points="20 6 9 17 4 12"/>
-                  </svg>
-                </span>
-              </>
-            )}
+            {/* Undo/Redo now live in the page header (ComicEditorPage). */}
           </div>{/* end toolbarRight */}
         </div>{/* end canvasToolbar */}
 
+        {/* Zoom slider — docked to the canvas's top-right corner, only shown while hovering
+            the "140%" readout (or actively dragging the thumb, so moving off it mid-drag
+            doesn't yank the slider away). */}
+        {(zoomSliderOpen || zoomDragging) && (
+        <div
+          style={styles.zoomSliderDock}
+          onMouseEnter={() => setZoomSliderOpen(true)}
+          onMouseLeave={() => setZoomSliderOpen(false)}
+        >
+          <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--t-text-muted)' }}>{ZOOM_MAX}%</div>
+          {/* Vertical track — top = ZOOM_MAX, bottom = ZOOM_MIN (standard zoom-slider orientation) */}
+          <div
+            style={{ position: 'relative', width: 28, height: 240, cursor: 'pointer', userSelect: 'none', touchAction: 'none' }}
+            onPointerDown={(e) => {
+              e.preventDefault();
+              setZoomDragging(true);
+              const rect = e.currentTarget.getBoundingClientRect();
+              const update = (ev) => {
+                const frac = Math.max(0, Math.min(1, (ev.clientY - rect.top) / rect.height));
+                setZoom(Math.round(ZOOM_MAX - frac * (ZOOM_MAX - ZOOM_MIN)));
+              };
+              update(e.nativeEvent ?? e);
+              const onUp = () => {
+                setZoomDragging(false);
+                window.removeEventListener('pointermove', update); window.removeEventListener('pointerup', onUp);
+              };
+              window.addEventListener('pointermove', update);
+              window.addEventListener('pointerup', onUp);
+            }}
+          >
+            {/* Track */}
+            <div style={{ position: 'absolute', left: '50%', top: 0, bottom: 0, width: 6, transform: 'translateX(-50%)', borderRadius: 999, background: 'var(--t-bg3)' }}>
+              <div style={{
+                position: 'absolute', bottom: 0, left: 0, width: '100%', borderRadius: 999, background: '#F97316',
+                height: `${((zoom - ZOOM_MIN) / (ZOOM_MAX - ZOOM_MIN)) * 100}%`,
+              }} />
+            </div>
+            {/* Thumb */}
+            <div style={{
+              position: 'absolute', left: '50%',
+              top: `calc(${1 - (zoom - ZOOM_MIN) / (ZOOM_MAX - ZOOM_MIN)} * (100% - 20px))`,
+              transform: 'translateX(-50%)',
+              width: 20, height: 20, borderRadius: '50%',
+              background: '#F97316', border: '3px solid #fff',
+              boxShadow: '0 2px 8px rgba(249,115,22,0.5)',
+              pointerEvents: 'none',
+            }} />
+          </div>
+          <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--t-text-muted)' }}>{ZOOM_MIN}%</div>
+          <button style={styles.zoomResetBtn} onMouseDown={() => setZoom(125)}>Reset</button>
+        </div>
+        )}
+
         {/* Canvas area */}
         <div
+          className="editor-themed-scroll"
           style={styles.canvasArea}
           id="comic-canvas"
           ref={canvasAreaRef}
@@ -2128,11 +2314,24 @@ export default function ComicEditor({ readOnly = false, aiEnabled = true } = {})
         {/* ── Bottom page strip ── */}
         <div style={styles.pageStrip}>
 
-          {/* Fixed left: label */}
-          <span style={styles.stripLabel}>PAGES</span>
+          {/* Fixed left: label + pill "Add Page" button stacked underneath */}
+          <div style={styles.stripLeftCol}>
+            <span style={styles.stripLabel}>PAGES</span>
+            <button
+              style={styles.addPagePill}
+              onClick={() => setInsertPickerAt(state.pages.length)}
+              title="Add page"
+            >
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round">
+                <line x1="12" y1="5" x2="12" y2="19"/>
+                <line x1="5" y1="12" x2="19" y2="12"/>
+              </svg>
+              Add Page
+            </button>
+          </div>
 
           {/* Scrollable thumbnails */}
-          <div ref={thumbScrollRef} style={styles.thumbScroll}>
+          <div ref={thumbScrollRef} className="bg-chip-scroll" style={styles.thumbScroll}>
             {state.pages.map((page, i) => (
               <Fragment key={page.id}>
                 {/* Hover gap */}
@@ -2171,6 +2370,7 @@ export default function ComicEditor({ readOnly = false, aiEnabled = true } = {})
                 <div
                   draggable
                   tabIndex={0}
+                  data-page-idx={i}
                   style={{
                     ...styles.pageThumb,
                     ...(i === state.activePageIndex ? styles.pageThumbActive : {}),
@@ -2198,31 +2398,22 @@ export default function ComicEditor({ readOnly = false, aiEnabled = true } = {})
                   }}
                   onDragEnd={() => { setDragIdx(null); setDragOverIdx(null); }}
                 >
-                  <LayoutThumb layout={page.layout} active={i === state.activePageIndex} />
-                  <span style={{ ...styles.pageNum, color: i === state.activePageIndex ? 'var(--t-accent)' : 'var(--t-text-faint)' }}>{i + 1}</span>
+                  {(() => {
+                    const start = pageStartIndex(state.pages, i);
+                    const pagePanels = state.panels.slice(start, start + (LAYOUT_COUNT[page.layout] || 1));
+                    const pageEmpty = pagePanels.every((p) => isPanelEmpty(p.data));
+                    return pageThumbs[page.id] && !pageEmpty ? (
+                      <img src={pageThumbs[page.id]} alt="" style={styles.pageThumbImg} draggable={false} />
+                    ) : (
+                      <LayoutThumb layout={page.layout} active={i === state.activePageIndex} empty={pageEmpty} mildLines={false} />
+                    );
+                  })()}
+                  <span style={{ ...styles.pageNum, ...(i === state.activePageIndex ? styles.pageNumActive : {}) }}>{i + 1}</span>
                 </div>
               </Fragment>
             ))}
           </div>
 
-          {/* Fixed right: Add page button */}
-          <button
-            style={{ ...styles.addPageBtn, ...(state.pages.length === 0 ? styles.addPageBtnEmpty : {}) }}
-            onClick={() => setInsertPickerAt(state.pages.length)}
-            title="Add page"
-          >
-            <div style={{ ...styles.addPagePlus, ...(state.pages.length === 0 ? styles.addPagePlusEmpty : {}) }}>
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
-                <line x1="12" y1="5" x2="12" y2="19"/>
-                <line x1="5" y1="12" x2="19" y2="12"/>
-              </svg>
-            </div>
-            {state.pages.length === 0 ? (
-              <span style={{ fontSize: 10, color: 'var(--t-accent)', textTransform: 'uppercase', letterSpacing: 0.5, fontWeight: 800 }}>Tap to start</span>
-            ) : (
-              <span style={{ fontSize: 10, color: 'var(--t-text-faint)', textTransform: 'uppercase', letterSpacing: 0.5, fontWeight: 600 }}>Add Page</span>
-            )}
-          </button>
         </div>
 
         {/* Layout picker for new page */}
@@ -2330,23 +2521,61 @@ const styles = {
 
   iconBar: {
     width: 'var(--editor-icon-bar-w)', background: 'var(--t-icon-bar)', display: 'flex', flexDirection: 'column',
-    alignItems: 'stretch', paddingTop: 12, paddingBottom: 8, gap: 0,
-    overflowY: 'auto', flexShrink: 0,
+    alignItems: 'stretch', paddingTop: 12, paddingBottom: 0, gap: 0,
+    overflow: 'hidden', flexShrink: 0,
     borderRight: '1px solid var(--t-border2)',
-    boxShadow: '2px 0 8px rgba(0,0,0,0.05)',
+    // Right-edge shadow (existing) plus a bottom-inset shadow where the rail meets the
+    // page strip below it — same emboss language used across the other panel seams.
+    boxShadow: '2px 0 8px rgba(0,0,0,0.05), inset 0 -10px 14px -10px var(--t-emboss-shadow)',
   },
+  // Inner tool list: scrollable by mouse wheel/touch, plus the ▲/▼ arrows below; the
+  // scrollbar itself stays hidden (see .bg-chip-scroll in index.css) for a clean look.
+  // scrollSnapType keeps it from resting mid-icon (a partial icon peeking at the edge) —
+  // it always settles on a full tile.
+  railScroll: {
+    flex: 1, minHeight: 0, overflowY: 'auto', overflowX: 'hidden',
+    display: 'flex', flexDirection: 'column', alignItems: 'stretch',
+    scrollbarWidth: 'none', scrollSnapType: 'y proximity',
+  },
+  railArrows: {
+    display: 'flex', flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,
+    borderTop: '1px solid var(--t-border2)', flexShrink: 0, padding: '8px 0',
+  },
+  railArrowBtn: {
+    width: 26, height: 26, borderRadius: '50%',
+    display: 'flex', alignItems: 'center', justifyContent: 'center',
+    background: 'var(--t-bg3)', border: '1px solid var(--t-border)',
+    cursor: 'pointer', color: 'var(--t-text-muted)',
+    transition: 'background 0.15s, color 0.15s',
+  },
+  // Icon-only tile, centered — name is hidden and only shown via the hover tooltip.
+  // scrollSnapAlign pairs with railScroll's scrollSnapType so the rail never rests with
+  // a tile half-scrolled out of view.
   iconBtn: {
-    width: '100%', padding: '10px 4px 8px', background: 'none', border: 'none',
+    width: '100%', padding: '4px 2px', background: 'none', border: 'none',
     borderLeft: '4px solid transparent',
     cursor: 'pointer', display: 'flex', flexDirection: 'column',
-    alignItems: 'center', gap: 5, color: 'var(--t-text-muted)',
+    alignItems: 'center', justifyContent: 'center', gap: 0, color: 'var(--t-text-muted)',
+    transform: 'translateY(0)', transition: 'transform 0.15s ease',
+    scrollSnapAlign: 'start',
   },
   iconBtnActive: {
     borderLeft: '4px solid var(--t-accent)',
     background: 'var(--t-accent-light)',
     color: 'var(--t-accent)',
   },
+  // Lifts the icon upward on hover — same motion as hovering an asset card.
+  iconBtnHover: { transform: 'translateY(-4px)' },
   iconLabel: { fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0, lineHeight: 1.2, textAlign: 'center' },
+  iconImg: {
+    width: 48, height: 48, objectFit: 'contain', flexShrink: 0,
+    display: 'flex', alignItems: 'center', justifyContent: 'center',
+  },
+  iconTip: {
+    position: 'fixed', transform: 'translateY(-50%)', zIndex: 1000, pointerEvents: 'none',
+    background: '#111827', color: '#fff', padding: '5px 10px', borderRadius: 6,
+    fontSize: 12, fontWeight: 600, whiteSpace: 'nowrap', boxShadow: '0 3px 10px rgba(0,0,0,0.25)',
+  },
 
   themeToggleWrap: {
     display: 'flex', gap: 8, padding: '10px 0', justifyContent: 'center', flexShrink: 0,
@@ -2365,21 +2594,55 @@ const styles = {
   expandPanel: {
     width: 'var(--editor-panel-w)', background: 'var(--t-surface)', display: 'flex', flexDirection: 'column',
     flexShrink: 0, borderRight: '1px solid var(--t-border)',
-    boxShadow: '2px 0 12px rgba(0,0,0,0.06)',
+    // Outward shadow (panel floats above the rail to its left) plus an inset shadow along
+    // the same left edge — reads as recessed/embossed where the rail meets the panel,
+    // matching the treatment used for the page strip and canvas area. box-shadow with no
+    // vertical offset already spans the element's full height uniformly (top to bottom),
+    // so a wider blur/spread here is what makes it visible for the panel's entire height,
+    // not just near the top.
+    boxShadow: '2px 0 12px rgba(0,0,0,0.06), inset 14px 0 18px -12px var(--t-emboss-shadow)',
+    position: 'relative',
+  },
+  // Masks the bottom of the scrollable asset grid at all times (not just once fully
+  // scrolled) — a solid strip in the panel's own background color, so a row is never
+  // flush against the panel edge whether you're mid-scroll or at the very end. Height
+  // matches the rail's ▲▼ arrow row (26px button + 8px top/bottom padding) so both
+  // side-by-side columns line up along the same bottom edge.
+  expandBottomMask: {
+    position: 'absolute', left: 0, right: 0, bottom: 0, height: 42,
+    background: 'var(--t-surface)', pointerEvents: 'none', zIndex: 5,
+    // Same border treatment as the rail's ▲▼ arrow row, so both bottom sections read
+    // consistently — a plain top separator, not an inset shadow like the panel's other
+    // seams (this one sits over scrolled content, so a shadow would double up oddly).
+    borderTop: '1px solid var(--t-border2)',
   },
   expandHeader: {
     display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-    padding: '16px 18px 14px', borderBottom: '1px solid var(--t-border)',
-    flexShrink: 0,
+    padding: '10px 14px 8px',
+    flexShrink: 0, position: 'relative',
   },
-  expandTitle: { fontSize: 22, fontWeight: 800, color: 'var(--t-text)', lineHeight: 1 },
+  expandTitle: { fontSize: 19, fontWeight: 800, color: 'var(--t-text)', lineHeight: 1 },
   headerFilterBtn: {
-    width: 36, height: 36, borderRadius: 10,
+    width: 31, height: 31, borderRadius: 9,
     background: 'var(--t-bg3)', border: '1px solid var(--t-border)',
     color: 'var(--t-text-muted)', cursor: 'pointer',
     display: 'flex', alignItems: 'center', justifyContent: 'center',
   },
-  expandContent: { flex: 1, overflowY: 'auto', padding: 12, display: 'flex', flexDirection: 'column', gap: 10 },
+  // Bottom padding must be at least as tall as expandBottomMask (42px) — otherwise, at
+  // true scroll-end, the mask overlaps and clips the bottom of the last row instead of
+  // sitting cleanly below it. The inset shadows render on this element's own boundary
+  // (fixed relative to the viewport, not the scrolled content), so they cut visibly into
+  // the top/bottom of the image grid itself as it scrolls beneath them, instead of only
+  // showing on the fixed sections above/below.
+  expandContent: {
+    flex: 1, overflowY: 'auto', padding: '12px 12px 46px', display: 'flex', flexDirection: 'column', gap: 10,
+    boxShadow: 'inset 0 10px 14px -10px var(--t-emboss-shadow), inset 0 -10px 14px -10px var(--t-emboss-shadow)',
+  },
+  // Fixed section between the header and the scrollable content — controls that shouldn't
+  // scroll away with the asset grid (e.g. Backgrounds' category slider + No Background).
+  expandFixedTop: {
+    flexShrink: 0, padding: '0 12px 8px', display: 'flex', flexDirection: 'column', gap: 8,
+  },
 
   /* Search row: input + filter button side by side */
   searchRow: { display: 'flex', gap: 8, alignItems: 'center', flexShrink: 0 },
@@ -2397,9 +2660,13 @@ const styles = {
   layoutHint: { fontSize: 11, color: 'var(--t-text-faint)', marginBottom: 4 },
 
   main: { flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', position: 'relative' },
+  // Same embossed/recessed treatment as pageStrip — the canvas reads as pressed into the
+  // surface below the toolbar and beside the rail/panel, instead of a flat, boundary-less
+  // fill between them.
   canvasArea: {
     flex: 1, display: 'flex',
     overflow: 'auto', padding: '50px 28px 28px', background: 'var(--t-canvas-bg)', position: 'relative',
+    boxShadow: 'inset 0 10px 16px -8px var(--t-emboss-shadow), inset 10px 0 16px -8px var(--t-emboss-shadow), inset 0 -10px 16px -8px var(--t-emboss-shadow)',
   },
   readOnlyBanner: {
     position: 'absolute', top: 0, left: 0, right: 0, zIndex: 50,
@@ -2417,7 +2684,16 @@ const styles = {
     zIndex: 500,
   },
   toolbarLeft: {
-    display: 'flex', alignItems: 'center', flexShrink: 0,
+    display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0,
+  },
+  toolTextBtn: {
+    display: 'flex', alignItems: 'center', gap: 7,
+    padding: '7px 14px', borderRadius: 9, border: '1px solid var(--t-border)',
+    background: 'var(--t-bg3)', color: 'var(--t-text)', cursor: 'pointer',
+    fontSize: 13, fontWeight: 600, whiteSpace: 'nowrap',
+  },
+  toolTextBtnActive: {
+    background: 'var(--t-accent-light)', borderColor: 'var(--t-accent)', color: 'var(--t-accent)',
   },
   toolbarCenter: {
     position: 'absolute', left: '50%', transform: 'translateX(-50%)',
@@ -2432,45 +2708,77 @@ const styles = {
     background: 'none', cursor: 'pointer', color: 'var(--t-text-muted)',
     display: 'flex', alignItems: 'center', justifyContent: 'center',
   },
-  toolDivider: { width: 1, height: 20, background: 'var(--t-border)', margin: '0 4px' },
-  zoomPill: {
-    display: 'flex', alignItems: 'center', gap: 4,
-    padding: '5px 10px', borderRadius: 7, cursor: 'pointer',
-    border: '1px solid var(--t-border)', background: 'var(--t-bg3)',
-    userSelect: 'none', color: 'var(--t-text-muted)',
+  toolBtnActive: { background: 'var(--t-accent-light)', color: 'var(--t-accent)' },
+  toolBtnImg: { width: 20, height: 20, objectFit: 'contain', userSelect: 'none' },
+  toolBtnLg: {
+    width: 30, height: 30, borderRadius: 7, border: 'none',
+    background: 'none', cursor: 'pointer', color: 'var(--t-text-muted)',
+    display: 'flex', alignItems: 'center', justifyContent: 'center',
+    transform: 'translateY(0)', transition: 'transform 0.15s ease',
   },
+  toolBtnLgImg: { width: 30, height: 30, objectFit: 'contain', userSelect: 'none', borderRadius: 5 },
+  toolBtnLgActive: { background: 'var(--t-accent-light)' },
+  toolDivider: { width: 1, height: 20, background: 'var(--t-border)', margin: '0 4px' },
 
   pageStrip: {
     height: 96, background: 'var(--t-strip-bg)', borderTop: '1px solid var(--t-border)',
-    display: 'flex', alignItems: 'center', paddingLeft: 16, paddingRight: 100, gap: 10,
+    display: 'flex', alignItems: 'center', paddingLeft: 16, paddingRight: 16, gap: 10,
+    // marginRight (not padding) structurally shrinks this row so it physically ends before
+    // the fixed "Powered by haio" watermark's screen position (bottom-right corner, ~110px
+    // footprint incl. its "POWERED BY" label) — a scrollable child can never scroll a tile
+    // into space outside its own box, unlike inner padding which the tile can still reach.
+    marginRight: 110,
     flexShrink: 0, overflow: 'hidden',
+    // Embossed look: a soft inset shadow along the top edge (recessed into the canvas above)
+    // and the left edge (recessed into the icon rail beside it), a matching one along the
+    // bottom (the strip's own lower boundary, same treatment as the rail's ▲▼ arrow row),
+    // plus a very faint highlight just below the top edge, like the strip is pressed into
+    // the surrounding surface. --t-emboss-shadow swaps to a gray tone in dark mode — a
+    // black shadow is invisible against that theme's near-black surfaces.
+    boxShadow: 'inset 0 10px 16px -8px var(--t-emboss-shadow), inset 10px 0 16px -8px var(--t-emboss-shadow), inset 0 -6px 10px -8px var(--t-emboss-shadow), inset 0 1px 0 rgba(255,255,255,0.05)',
   },
   thumbScroll: {
     flex: 1,
     display: 'flex', alignItems: 'center', gap: 10,
     overflowX: 'auto', overflowY: 'hidden',
     padding: '4px 4px',
-    scrollbarWidth: 'thin',
-    scrollbarColor: 'var(--t-border) transparent',
+    scrollbarWidth: 'none',
+  },
+  stripLeftCol: {
+    display: 'flex', flexDirection: 'column', alignItems: 'stretch', gap: 6,
+    flexShrink: 0, marginRight: 10,
   },
   stripLabel: {
-    fontSize: 11, fontWeight: 800, color: 'var(--t-text)',
-    textTransform: 'uppercase', letterSpacing: 1.5, flexShrink: 0, marginRight: 10,
-    paddingBottom: 3, borderBottom: '2.5px solid var(--t-accent)', lineHeight: 1.6,
+    fontSize: 13, fontWeight: 700, color: 'var(--t-text)',
+    lineHeight: 1.4,
+  },
+  addPagePill: {
+    display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+    background: 'var(--t-bg3)', border: 'none', borderRadius: 10,
+    padding: '7px 14px', cursor: 'pointer',
+    color: 'var(--t-accent)', fontSize: 12.5, fontWeight: 700, whiteSpace: 'nowrap',
   },
 
   pageThumb: {
     width: 80, height: 74, background: 'var(--t-bg3)', border: '1.5px solid var(--t-border)',
-    borderRadius: 8, cursor: 'pointer', display: 'flex', alignItems: 'center',
+    borderRadius: 10, cursor: 'pointer', display: 'flex', alignItems: 'center',
     justifyContent: 'center', position: 'relative', flexShrink: 0, outline: 'none',
-    boxShadow: '0 1px 4px rgba(0,0,0,0.06)',
+    overflow: 'hidden',
   },
-  pageThumbActive: { border: '2px solid var(--t-accent)', background: 'var(--t-accent-light)', boxShadow: '0 2px 8px rgba(249,115,22,0.18)' },
+  pageThumbActive: { border: '2px solid var(--t-accent)', boxShadow: '0 2px 8px rgba(249,115,22,0.25)' },
   pageThumbDragOver: { border: '2px solid var(--t-accent)', opacity: 0.65 },
-  pageNum: {
-    position: 'absolute', bottom: 4, left: 7,
-    fontSize: 10, fontWeight: 800, lineHeight: 1,
+  pageThumbImg: {
+    width: '100%', height: '100%', objectFit: 'cover', pointerEvents: 'none',
   },
+  pageNum: {
+    position: 'absolute', bottom: 5, left: 5,
+    minWidth: 16, height: 16, padding: '0 4px', borderRadius: 5,
+    display: 'flex', alignItems: 'center', justifyContent: 'center',
+    fontSize: 10, fontWeight: 800, lineHeight: 1,
+    background: 'var(--t-surface)', color: 'var(--t-text-muted)',
+    boxShadow: '0 1px 3px rgba(0,0,0,0.15)',
+  },
+  pageNumActive: { background: 'var(--t-accent)', color: '#fff' },
   thumbMenuBtn: {
     width: 20, height: 20, borderRadius: 4,
     background: 'var(--t-surface)', border: '1px solid var(--t-border)',
@@ -2489,29 +2797,6 @@ const styles = {
     borderRadius: 6, padding: '7px 10px', fontSize: 12, fontWeight: 600,
     color: '#ef4444', cursor: 'pointer', textAlign: 'left',
     display: 'flex', alignItems: 'center', gap: 7,
-  },
-
-  addPageBtn: {
-    width: 80, height: 74, background: 'none', border: '2px dashed var(--t-border)',
-    borderRadius: 8, cursor: 'pointer', display: 'flex', flexDirection: 'column',
-    alignItems: 'center', justifyContent: 'center', gap: 5, flexShrink: 0,
-    color: 'var(--t-text-muted)', transition: 'box-shadow 0.2s, border-color 0.2s',
-  },
-  addPageBtnEmpty: {
-    border: '2px solid var(--t-accent)',
-    background: 'var(--t-accent-light)',
-    boxShadow: '0 0 0 4px rgba(249,115,22,0.18), 0 0 20px rgba(249,115,22,0.25)',
-    color: 'var(--t-accent)',
-  },
-  addPagePlus: {
-    width: 28, height: 28, borderRadius: '50%',
-    border: '1.5px solid var(--t-border)', background: 'var(--t-bg3)',
-    display: 'flex', alignItems: 'center', justifyContent: 'center',
-    color: 'var(--t-text-muted)',
-  },
-  addPagePlusEmpty: {
-    border: '1.5px solid var(--t-accent)', background: 'var(--t-accent)',
-    color: '#fff',
   },
 
   emptyCanvas: {
@@ -2537,11 +2822,62 @@ const styles = {
     background: 'var(--t-bg3)', border: '1.5px solid var(--t-border)', borderRadius: 10,
     padding: '12px 6px', cursor: 'pointer', display: 'flex', flexDirection: 'column',
     alignItems: 'center', gap: 6,
+    boxShadow: '0 1px 3px rgba(0,0,0,0.3)',
   },
   addPickerLabel: { fontSize: 9, color: 'var(--t-text-muted)', fontWeight: 600, textAlign: 'center', textTransform: 'uppercase', letterSpacing: 0.5 },
-  bgFolderCode: {
-    width: 30, height: 30, borderRadius: 8, background: 'var(--t-accent-soft, rgba(249,115,22,0.12))',
-    color: 'var(--t-accent)', fontSize: 13, fontWeight: 800, display: 'flex', alignItems: 'center', justifyContent: 'center',
+  // Background subcategory row — single-line horizontal slider (variable count, admin-managed
+  // list) flanked by ‹ › arrow buttons. Each chip is its own rounded-square button (#1a1a1a
+  // via --t-bg3) with a visible black gap between them, rather than one shared gray track.
+  bgChipSlider: {
+    display: 'flex', alignItems: 'center', gap: 6,
+  },
+  bgChipArrowBtn: {
+    width: 25, height: 25, borderRadius: 7, border: 'none',
+    background: 'var(--t-bg3)', color: 'var(--t-text-muted)', cursor: 'pointer',
+    display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+    transition: 'background 0.15s, color 0.15s',
+  },
+  bgChipRow: {
+    display: 'flex', flexWrap: 'nowrap', gap: 6, overflowX: 'auto', scrollbarWidth: 'none',
+    flex: 1, minWidth: 0, scrollSnapType: 'x mandatory',
+  },
+  // Effects has a fixed, small category count (Lighting/Weather/Mood) — a segmented-tab
+  // bar (equal-width, flush together) instead of the variable-length Backgrounds slider.
+  effectTabRow: {
+    display: 'flex', background: 'var(--t-bg3)', border: '1px solid var(--t-border)',
+    borderRadius: 10, padding: 3, gap: 3, marginBottom: 10,
+  },
+  effectTab: {
+    flex: 1, background: 'none', border: 'none', borderRadius: 7,
+    padding: '8px 6px', cursor: 'pointer', color: 'var(--t-text-muted)',
+    fontSize: 12.5, fontWeight: 600, transition: 'background 0.15s, color 0.15s',
+  },
+  effectTabActive: {
+    background: 'var(--t-accent)', color: '#fff', fontWeight: 700,
+    boxShadow: '0 1px 3px rgba(0,0,0,0.15)',
+  },
+  // Width is derived from the row's own visible size (not a fixed px) so exactly 3 chips
+  // always fill the panel edge-to-edge with no 4th sliver peeking in, at any panel width /
+  // responsive breakpoint (--editor-panel-w changes at 1400px/1280px).
+  bgChip: {
+    display: 'flex', alignItems: 'center', justifyContent: 'center',
+    flex: '0 0 calc((100% - 12px) / 3)',
+    background: 'var(--t-bg3)', border: 'none', borderRadius: 9,
+    padding: '8px 6px', cursor: 'pointer', color: 'var(--t-text-muted)',
+    fontSize: 13, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+    transition: 'background 0.15s, color 0.15s', scrollSnapAlign: 'start',
+  },
+  bgChipActive: {
+    background: 'var(--t-accent)', color: '#fff', fontWeight: 700,
+    boxShadow: '0 1px 3px rgba(0,0,0,0.15)',
+  },
+  // "No Background" — moved here from the canvas toolbar since it's a background-specific
+  // action; only makes sense while the Backgrounds panel is open.
+  noBgPanelBtn: {
+    display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, width: '100%',
+    background: 'var(--t-bg3)', border: '1.5px dashed var(--t-border)', borderRadius: 10,
+    padding: '8px 12px', marginBottom: 0, cursor: 'pointer',
+    color: 'var(--t-text-muted)', fontSize: 13, fontWeight: 700,
   },
   addPickerBtnActive: {
     border: '1.5px solid var(--t-accent)', background: 'var(--t-accent-light)',
@@ -2589,27 +2925,16 @@ const styles = {
     color: 'var(--t-text-faint)', padding: '6px 0', fontSize: 11, cursor: 'pointer',
   },
 
-  clearBgBtn: {
-    width: '100%', background: 'var(--t-bg3)', border: '1px dashed var(--t-border)', borderRadius: 8,
-    color: 'var(--t-text-muted)', padding: '8px 12px', fontSize: 12, cursor: 'pointer',
-    display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0,
-  },
-
   /* Zoom dropdown */
-  zoomMenu: {
-    position: 'absolute', top: 'calc(100% + 6px)', right: 0,
+  zoomSliderDock: {
+    position: 'absolute', top: 12, right: 12, zIndex: 60,
     background: 'var(--t-surface)', border: '1px solid var(--t-border)',
-    borderRadius: 10, boxShadow: '0 8px 24px rgba(0,0,0,0.15)',
-    padding: 4, zIndex: 200, minWidth: 90,
-    display: 'flex', flexDirection: 'column', gap: 2,
+    borderRadius: 14, boxShadow: '0 4px 16px rgba(0,0,0,0.12)',
+    padding: '12px 10px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8,
   },
-  zoomMenuItem: {
-    width: '100%', background: 'none', border: 'none',
-    borderRadius: 7, padding: '7px 14px', fontSize: 13, fontWeight: 600,
-    color: 'var(--t-text)', cursor: 'pointer', textAlign: 'left',
-  },
-  zoomMenuItemActive: {
-    background: 'var(--t-accent-light)', color: 'var(--t-accent)',
+  zoomResetBtn: {
+    marginTop: 2, background: 'none', border: 'none',
+    fontSize: 12, fontWeight: 600, color: 'var(--t-accent)', cursor: 'pointer', padding: '2px 4px',
   },
 
   /* Fullscreen overlay */
@@ -2661,49 +2986,5 @@ const styles = {
     alignItems: 'center',
     justifyContent: 'center',
     gap: 8,
-  },
-  titleDisplay: {
-    fontSize: 15,
-    fontWeight: 700,
-    color: 'var(--t-text)',
-    cursor: 'text',
-    display: 'inline-block',
-    padding: '4px 10px',
-    borderRadius: 6,
-    borderBottom: '1.5px solid transparent',
-    transition: 'border-color 0.15s',
-    userSelect: 'none',
-    maxWidth: 440,
-    overflow: 'hidden',
-    whiteSpace: 'nowrap',
-    textOverflow: 'ellipsis',
-    pointerEvents: 'auto',
-    letterSpacing: 0.2,
-  },
-  titleInput: {
-    background: 'transparent',
-    border: 'none',
-    borderBottom: '2px solid #F97316',
-    borderRadius: 0,
-    padding: '4px 10px',
-    fontSize: 15,
-    fontWeight: 700,
-    color: 'var(--t-text)',
-    outline: 'none',
-    minWidth: 200,
-    maxWidth: 440,
-    textAlign: 'center',
-    pointerEvents: 'auto',
-    letterSpacing: 0.2,
-  },
-  titleOkBtn: {
-    background: '#F97316',
-    color: '#fff',
-    border: 'none',
-    borderRadius: 7,
-    padding: '5px 14px',
-    fontSize: 13,
-    fontWeight: 700,
-    cursor: 'pointer',
   },
 };

@@ -114,7 +114,7 @@ function ActionMenu({ onRename, onDownload, onDelete }) {
   );
 }
 
-export default function AssetCard({ asset, category, onSelect, onDelete, onRename, isSelected, onToggleSelect, showFileMeta = true }) {
+export default function AssetCard({ asset, category, onSelect, onDelete, onRename, isSelected, onToggleSelect, showFileMeta = true, isActive = false }) {
   const thumb = (asset.thumbnailPath || asset.filePath) + (asset.updatedAt ? `?v=${new Date(asset.updatedAt).getTime()}` : '');
   const isSelectable = !!onSelect;
   const { startDrag, moveOverlay, endDrag } = useDrag();
@@ -185,8 +185,16 @@ export default function AssetCard({ asset, category, onSelect, onDelete, onRenam
     a.remove();
   };
 
+  // Backgrounds are full-frame photos with no transparent margin to trim, and should fill
+  // the card edge-to-edge like a real thumbnail (no letterboxing) instead of being fit
+  // inside it with the trim-to-content math below, which is for cutout art (Props,
+  // Characters, …) that has empty padding around the actual artwork.
+  const isBackground = category === 'BACKGROUND';
+
   let imgStyle;
-  if (trim) {
+  if (isBackground) {
+    imgStyle = { width: '100%', height: '100%', objectFit: 'cover', pointerEvents: 'none' };
+  } else if (trim) {
     const { minX, minY, maxX, maxY, nw, nh } = trim;
     const cw = maxX - minX;
     const ch = maxY - minY;
@@ -202,9 +210,13 @@ export default function AssetCard({ asset, category, onSelect, onDelete, onRenam
     imgStyle = { width: '100%', height: '100%', objectFit: 'contain', pointerEvents: 'none' };
   }
 
+  // isActive = this asset is the one currently applied (e.g. the active panel's background) —
+  // same orange-border treatment as the active page thumbnail in the bottom pages strip.
   const cardBorder = isSelected
     ? { borderColor: 'var(--nav-primary)', boxShadow: '0 0 0 3px rgba(99,102,241,0.18)' }
-    : {};
+    : isActive
+      ? { border: '3px solid var(--t-accent)', boxShadow: '0 0 0 3px rgba(249,115,22,0.35), 0 2px 10px rgba(249,115,22,0.4)' }
+      : {};
 
   return (
     <div style={{ position: 'relative' }}>
@@ -214,18 +226,27 @@ export default function AssetCard({ asset, category, onSelect, onDelete, onRenam
       <div
         style={{
           ...styles.card,
+          // Backgrounds sit inside a small gray mat (var(--t-bg3), same tone as the panel's
+          // buttons) with a small gap around the photo, rounded corners on the outer edge —
+          // instead of the image running edge-to-edge with no visible container.
+          ...(isBackground ? { border: 'none', borderRadius: 8, background: 'var(--t-bg3)', padding: 4 } : {}),
           ...cardBorder,
           ...(hovering && !isSelected ? { boxShadow: 'var(--shadow-lg)', transform: 'translateY(-3px) scale(1.02)' } : {}),
         }}
         onClick={isSelectable ? () => onSelect(asset) : () => setPreview(true)}
         onMouseDown={handleMouseDown}
-        title={asset.name}
+        title={category === 'BACKGROUND' ? undefined : asset.name}
         onMouseEnter={() => setHovering(true)}
         onMouseLeave={() => setHovering(false)}
       >
         {asset.isNew && <span style={styles.newBadge}>NEW</span>}
 
-        <div className="checkered-bg" style={styles.thumb}>
+        {/* Backgrounds are always opaque full-frame photos — the transparency checker
+            pattern only makes sense for asset types that actually have cut-out alpha
+            (Props, Effects, Characters, …), so skip it here for a clean image-only look.
+            They also get a landscape (not square) box so a wide scene photo fills the
+            card edge-to-edge via object-fit:cover instead of being cropped to a square. */}
+        <div className={category === 'BACKGROUND' ? undefined : 'checkered-bg'} style={isBackground ? styles.thumbWide : styles.thumb}>
           <img
             src={bubbleSrc || thumb}
             alt={asset.name}
@@ -259,15 +280,20 @@ export default function AssetCard({ asset, category, onSelect, onDelete, onRenam
           )}
         </div>
 
-        <div style={styles.meta}>
-          <span style={styles.metaName}>{asset.name}</span>
-          {showFileMeta && (
-            <div style={styles.metaRow}>
-              {fileSize != null && <span>{formatBytes(fileSize)}</span>}
-              {asset.createdAt && <span>{formatDate(asset.createdAt)}</span>}
-            </div>
-          )}
-        </div>
+        {/* Backgrounds are named by an internal code (A01, D07, …) that's meaningless to
+            the person picking a scene — hide the label, image only. Every other category
+            keeps its name (it's the only way to tell similar-looking props/effects apart). */}
+        {category !== 'BACKGROUND' && (
+          <div style={styles.meta}>
+            <span style={styles.metaName}>{asset.name}</span>
+            {showFileMeta && (
+              <div style={styles.metaRow}>
+                {fileSize != null && <span>{formatBytes(fileSize)}</span>}
+                {asset.createdAt && <span>{formatDate(asset.createdAt)}</span>}
+              </div>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );
@@ -292,6 +318,13 @@ const styles = {
     width: '100%',
     position: 'relative',
     overflow: 'hidden',
+  },
+  thumbWide: {
+    aspectRatio: '16 / 9',
+    width: '100%',
+    position: 'relative',
+    overflow: 'hidden',
+    borderRadius: 5,
   },
   meta: {
     padding: '8px 10px 10px',

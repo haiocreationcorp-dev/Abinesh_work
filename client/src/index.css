@@ -7,23 +7,23 @@
 
 /* ── Comic Editor layout tokens — shrink on laptop screens ── */
 :root {
-  --editor-icon-bar-w: 100px;
-  --editor-panel-w: 360px;
-  --editor-app-name-size: 32px;
+  --editor-icon-bar-w: 84px;
+  --editor-panel-w: 460px;
+  --editor-app-name-size: 26px;
   --editor-top-bar-h: 64px;
 }
 @media (max-width: 1400px) {
   :root {
-    --editor-icon-bar-w: 96px;
-    --editor-panel-w: 320px;
-    --editor-app-name-size: 28px;
+    --editor-icon-bar-w: 78px;
+    --editor-panel-w: 400px;
+    --editor-app-name-size: 24px;
   }
 }
 @media (max-width: 1280px) {
   :root {
-    --editor-icon-bar-w: 90px;
-    --editor-panel-w: 290px;
-    --editor-app-name-size: 24px;
+    --editor-icon-bar-w: 72px;
+    --editor-panel-w: 340px;
+    --editor-app-name-size: 22px;
     --editor-top-bar-h: 58px;
   }
 }
@@ -483,4 +483,47 @@ textarea.asset-form-input { height: auto; padding: 12px 16px; }
   background-size: 16px 16px;
   background-color: var(--surface);
   border-radius: 12px;
+}
+
+.bg-chip-scroll::-webkit-scrollbar {
+  display: none;
+}
+
+/* Shared library components (AssetGrid, AssetCard) read the general --dark/--mid/--muted
+   theme tokens, which only flip via [data-theme="dark"] on <html> — a separate system from
+   the Comic Editor's own --t-* dark toggle (ThemeContext.jsx, deliberately kept independent).
+   Remap them here so text stays readable against the editor's own light/dark background
+   without touching AssetGrid.jsx itself or the general app theme. */
+.editor-expand-panel {
+  --dark: var(--t-text);
+  --mid: var(--t-text-muted);
+  --muted: var(--t-text-faint);
+}
+
+/* Themed scrollbar for the Comic Editor's scrollable regions — the browser default
+   (light gray) doesn't track the editor's own light/dark toggle, so it stands out
+   against the near-black dark theme. Firefox + WebKit variants. */
+.editor-expand-panel,
+.editor-expand-panel *,
+.editor-themed-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: var(--t-border) transparent;
+}
+.editor-expand-panel ::-webkit-scrollbar,
+.editor-themed-scroll::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+.editor-expand-panel ::-webkit-scrollbar-track,
+.editor-themed-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+.editor-expand-panel ::-webkit-scrollbar-thumb,
+.editor-themed-scroll::-webkit-scrollbar-thumb {
+  background: var(--t-border);
+  border-radius: 999px;
+}
+.editor-expand-panel ::-webkit-scrollbar-thumb:hover,
+.editor-themed-scroll::-webkit-scrollbar-thumb:hover {
+  background: var(--t-text-faint);
 }

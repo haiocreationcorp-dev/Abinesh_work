@@ -11,3 +11,6 @@ server/backups/
 Details from the old devices/
 # Off-site backup copy (contains .env secrets + a DB dump) — never commit this.
 Pendrive Content/
+# Source icon PNGs (~17MB). The optimized WebP versions in client/public/tool-icons/ are
+# what actually ship; keep the heavy originals out of the repo.
+Icons alpha/

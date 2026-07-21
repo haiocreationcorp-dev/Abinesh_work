@@ -12,6 +12,8 @@ import RotateDevicePrompt from './components/ui/RotateDevicePrompt.jsx';
 import HomePage from './pages/HomePage.jsx';
 import LoginPage from './pages/LoginPage.jsx';
 import RegisterPage from './pages/RegisterPage.jsx';
+import ForgotPasswordPage from './pages/ForgotPasswordPage.jsx';
+import CreateNewPasswordPage from './pages/CreateNewPasswordPage.jsx';
 import AdminLoginPage from './pages/AdminLoginPage.jsx';
 import ChiefLoginPage from './pages/ChiefLoginPage.jsx';
 import ChiefDashboardPage from './pages/ChiefDashboardPage.jsx';
@@ -38,8 +40,18 @@ export default function App() {
             <Route path="/" element={<HomePage />} />
             <Route path="/login" element={<LoginPage />} />
             <Route path="/register" element={<RegisterPage />} />
+            <Route path="/forgot-password" element={<ForgotPasswordPage />} />
             <Route path="/admin/login" element={<AdminLoginPage />} />
             <Route path="/chief/login" element={<ChiefLoginPage />} />
+
+            <Route
+              path="/create-new-password"
+              element={
+                <ProtectedRoute allowMustChangePassword>
+                  <CreateNewPasswordPage />
+                </ProtectedRoute>
+              }
+            />
 
             <Route
               path="/dashboard"

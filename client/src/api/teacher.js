@@ -3,6 +3,9 @@ import api from './client.js';
 export const listStudents = () => api.get('/teacher/students').then((r) => r.data);
 export const listStudentComics = (studentId) => api.get(`/teacher/students/${studentId}/comics`).then((r) => r.data);
 export const getStudentComic = (studentId, comicId) => api.get(`/teacher/students/${studentId}/comics/${comicId}`).then((r) => r.data);
+export const resetStudentPassword = (studentId) => api.post(`/teacher/students/${studentId}/reset-password`).then((r) => r.data);
+export const lockStudent = (studentId) => api.post(`/teacher/students/${studentId}/lock`).then((r) => r.data);
+export const unlockStudent = (studentId) => api.post(`/teacher/students/${studentId}/unlock`).then((r) => r.data);
 
 export const createTask = (data) => api.post('/teacher/tasks', data).then((r) => r.data);
 export const listTeacherTasks = () => api.get('/teacher/tasks').then((r) => r.data);

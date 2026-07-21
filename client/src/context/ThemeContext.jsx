@@ -2,23 +2,31 @@ import { createContext, useContext, useState, useEffect, useCallback } from 'rea
 
 const TOPBAR = 'linear-gradient(90deg, #FF8C00 0%, #FF5722 28%, #C2185B 62%, #7C3AED 100%)';
 
+// Two-tone dark theme: pure black for the rail/strip/panel body, and one gray for both the
+// canvas area (fills the whole space behind the comic pages) and actual buttons/chips
+// (--t-bg3), so the canvas reads as a distinct workspace against the black chrome around it.
+const DARK_BLACK = '#000000';
+const DARK_BTN_GRAY = '#1a1a1a';
 const DARK = {
   '--t-accent':        '#F97316',
-  '--t-accent-light':  'rgba(249,115,22,0.12)',
-  '--t-bg':            '#0a0a18',
-  '--t-bg2':           '#1a1a2e',
-  '--t-bg3':           '#1e1e3a',
-  '--t-surface':       '#111827',
-  '--t-border':        '#2a2a4a',
-  '--t-border2':       '#1a1a3a',
-  '--t-text':          '#e2e8f0',
-  '--t-text-muted':    '#94a3b8',
-  '--t-text-faint':    '#64748b',
-  '--t-icon-bar':      '#0d0d20',
-  '--t-canvas-bg':     '#181830',
-  '--t-strip-bg':      '#0d0d20',
-  '--t-panel-border':  '#3a3a5a',
-  '--t-panel-empty':   '#181830',
+  '--t-accent-light':  'rgba(249,115,22,0.18)',
+  '--t-bg':            DARK_BLACK,
+  '--t-bg2':           DARK_BLACK,
+  '--t-bg3':           DARK_BTN_GRAY,
+  '--t-surface':       DARK_BLACK,
+  '--t-border':        DARK_BLACK,
+  '--t-border2':       DARK_BLACK,
+  '--t-text':          '#ffffff',
+  '--t-text-muted':    '#a3a3a3',
+  '--t-text-faint':    '#777777',
+  '--t-icon-bar':      DARK_BLACK,
+  '--t-canvas-bg':     DARK_BTN_GRAY,
+  '--t-strip-bg':      DARK_BLACK,
+  '--t-panel-border':  DARK_BLACK,
+  '--t-panel-empty':   DARK_BLACK,
+  // A black inset shadow is invisible against this theme's near-black surfaces — use a
+  // mid-gray instead so embossed edges (e.g. the page strip) actually read as recessed.
+  '--t-emboss-shadow':  'rgba(120,120,120,0.35)',
   '--t-topbar':        TOPBAR,
 };
 
@@ -39,6 +47,7 @@ const LIGHT = {
   '--t-strip-bg':      '#ffffff',
   '--t-panel-border':  '#d1d5db',
   '--t-panel-empty':   '#ffffff',
+  '--t-emboss-shadow':  'rgba(0,0,0,0.35)',
   '--t-topbar':        TOPBAR,
 };
 

@@ -7,7 +7,9 @@
 :root {
   --font-comic: 'Comic Neue', cursive;
   --font-display: 'Plus Jakarta Sans', sans-serif;
-  --font-ui: 'Inter', sans-serif;
+  /* Site-wide UI/body font — set to the BharathComic wordmark font (Plus Jakarta Sans) so
+     the whole app matches the brand; Inter kept as a fallback. */
+  --font-ui: 'Plus Jakarta Sans', 'Inter', sans-serif;
   --font-family: var(--font-ui);
 
   --font-size-xs: 12px;

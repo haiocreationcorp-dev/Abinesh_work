@@ -1,9 +1,34 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { listComics, createComic, deleteComic } from '../api/comics.js';
+import { listComics, createComic, deleteComic, getComic } from '../api/comics.js';
 import { getAdminStats } from '../api/assets.js';
 import { useAuth } from '../context/AuthContext.jsx';
 import { LineChart, DonutChart, BarChart, Sparkline } from '../components/dashboard/Charts.jsx';
+import { renderPage } from '../utils/comicRenderer.js';
+import { comicEditorParam } from '../utils/comicUrl.js';
+
+// Real render of a comic's only page, shown instead of the palette placeholder — only
+// attempted for single-page comics, since that's the one case where "the first page" is
+// unambiguous and cheap (no need to fetch/slice multiple pages' worth of panels).
+function ComicThumb({ comic }) {
+  const [thumbUrl, setThumbUrl] = useState(null);
+
+  useEffect(() => {
+    if (comic.pages?.length !== 1) return;
+    let cancelled = false;
+    getComic(comic.id).then(async (full) => {
+      const layout = full.pages?.[0]?.layout || 'single';
+      const canvas = await renderPage(full.panels || [], layout);
+      if (!cancelled) setThumbUrl(canvas.toDataURL('image/png'));
+    }).catch(() => {});
+    return () => { cancelled = true; };
+  }, [comic.id, comic.pages]);
+
+  if (thumbUrl) {
+    return <img src={thumbUrl} alt="" style={styles.comicThumbImg} draggable={false} />;
+  }
+  return <span style={{ fontSize: 40 }}>🎨</span>;
+}
 
 // ── Icons (small inline SVGs, no icon library — consistent with the rest of the app) ──
 function IconBuilding() {
@@ -226,7 +251,7 @@ export default function DashboardPage() {
     setCreating(true);
     try {
       const comic = await createComic({ title: 'Untitled Comic' });
-      navigate(`/editor/${comic.id}`);
+      navigate(`/editor/${comicEditorParam(comic)}`);
     } catch (err) {
       setCreateError(err.response?.data?.error || 'Could not create comic. Please try again.');
       setCreating(false);
@@ -275,13 +300,13 @@ export default function DashboardPage() {
             key={comic.id}
             className="card"
             style={styles.comicCard}
-            onClick={() => navigate(`/editor/${comic.id}`)}
+            onClick={() => navigate(`/editor/${comicEditorParam(comic)}`)}
           >
             <div style={styles.comicThumb}>
-              <span style={{ fontSize: 40 }}>🎨</span>
+              <ComicThumb comic={comic} />
             </div>
             <div style={styles.comicInfo}>
-              <strong style={{ fontSize: 15 }}>{comic.title}</strong>
+              <strong style={styles.comicTitle}>{comic.title}</strong>
               <p className="text-sm text-muted">{comic.panels?.length ?? 0} panel(s)</p>
               <p className="text-sm text-muted">{new Date(comic.updatedAt).toLocaleDateString()}</p>
             </div>
@@ -454,8 +479,15 @@ const styles = {
   empty: { textAlign: 'center', padding: '80px 0', color: 'var(--mid)' },
   grid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 20 },
   comicCard: { cursor: 'pointer', transition: 'transform 0.2s, box-shadow 0.2s' },
-  comicThumb: { height: 140, background: 'var(--primary-light)', display: 'flex', alignItems: 'center', justifyContent: 'center' },
+  comicThumb: { height: 140, background: 'var(--primary-light)', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
+  comicThumbImg: { width: '100%', height: '100%', objectFit: 'cover' },
   comicInfo: { padding: '12px 12px 8px', display: 'flex', flexDirection: 'column', gap: 3 },
+  comicTitle: {
+    fontFamily: "'Alegreya', serif",
+    fontSize: 16, fontWeight: 700, color: 'var(--dark)',
+    textTransform: 'uppercase', letterSpacing: 1,
+    overflowWrap: 'break-word', whiteSpace: 'normal', textAlign: 'justify',
+  },
 
   sidebar: {
     flex: '0 0 auto',

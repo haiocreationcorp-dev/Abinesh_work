@@ -836,6 +836,42 @@ router.get('/users', adminAuth, async (_req, res) => {
   res.json(users);
 });
 
+// GET /api/admin/password-audit — every password reset of any kind (email-OTP,
+// teacher-issued, admin-issued, self-service post-temp-password change), newest first.
+// Unfiltered/unpaginated like GET /users above — filtering happens client-side, matching
+// ManageUsersPanel's pattern. Capped at 1000 rows as a sane upper bound for a browser table;
+// revisit with real server-side pagination if the audit table grows past that in practice.
+router.get('/password-audit', adminAuth, async (_req, res) => {
+  const rows = await prisma.passwordResetAudit.findMany({
+    include: {
+      user: { select: { id: true, name: true, email: true, role: true } },
+    },
+    orderBy: { createdAt: 'desc' },
+    take: 1000,
+  });
+
+  // performedBy is a plain userId string (no relation) — batch-resolve names in one query
+  // instead of N+1'ing a lookup per row.
+  const actorIds = [...new Set(rows.map((r) => r.performedBy))];
+  const actors = await prisma.user.findMany({
+    where: { id: { in: actorIds } },
+    select: { id: true, name: true, email: true },
+  });
+  const actorById = Object.fromEntries(actors.map((a) => [a.id, a]));
+
+  res.json(rows.map((r) => ({
+    id: r.id,
+    createdAt: r.createdAt,
+    method: r.method,
+    reason: r.reason,
+    ipAddress: r.ipAddress,
+    performedByRole: r.performedByRole,
+    user: r.user,
+    actor: actorById[r.performedBy] || null,
+    isSelf: r.performedBy === r.userId,
+  })));
+});
+
 // PATCH /api/admin/users/:id/disable — block/restore login access (checked at login time)
 router.patch('/users/:id/disable', adminAuth, async (req, res) => {
   const { disabled } = req.body;

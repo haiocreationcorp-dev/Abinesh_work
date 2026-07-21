@@ -10,12 +10,17 @@ const AVATAR_DIR = path.join(__dirname, '../../uploads/avatars');
 
 const sign = (user) =>
   jwt.sign(
-    { id: user.id, email: user.email, role: user.role, institutionId: user.institutionId },
+    {
+      id: user.id, email: user.email, role: user.role, institutionId: user.institutionId,
+      // Millisecond timestamp of the last password change; the auth middleware rejects any
+      // token whose value is older than the DB's, so a reset invalidates existing sessions.
+      pwc: user.passwordChangedAt ? new Date(user.passwordChangedAt).getTime() : 0,
+    },
     process.env.JWT_SECRET,
     { expiresIn: process.env.JWT_EXPIRES_IN || '7d' }
   );
 
-const safeUser = (u) => ({
+const safeUser = (u, mustChangePassword = false) => ({
   id: u.id, email: u.email, name: u.name, role: u.role, institutionId: u.institutionId,
   institutionName: u.institution?.name,
   institutionType: u.institution?.type,
@@ -26,7 +31,19 @@ const safeUser = (u) => ({
   // student academic fields
   gradeLevel: u.gradeLevel, section: u.section, rollNo: u.rollNo,
   department: u.department, year: u.year, gender: u.gender,
+  mustChangePassword,
 });
+
+// Re-checkable on every /me call (not a one-shot login flag) — true whenever a student has
+// an outstanding, unused, unexpired teacher-issued temp password. Cleared only by actually
+// completing POST /api/auth/force-change-password.
+const hasPendingStudentReset = async (user) => {
+  if (user.role !== 'STUDENT') return false;
+  const pending = await prisma.studentPasswordReset.findFirst({
+    where: { studentId: user.id, usedAt: null, expiresAt: { gt: new Date() } },
+  });
+  return !!pending;
+};
 
 // Public — lets the registration form know whether to render School or College fields
 // before the user has authenticated. Deliberately returns nothing beyond name/type.
@@ -71,24 +88,49 @@ const register = async (req, res) => {
   res.status(201).json({ token: sign(user), user: safeUser(user) });
 };
 
+const MAX_FAILED_LOGINS = 5;
+const LOGIN_LOCK_MS = 15 * 60 * 1000; // 15 minutes
+
 const login = async (req, res) => {
   const { email, password } = req.body;
   if (!email || !password) return res.status(400).json({ error: 'Email and password required' });
 
   const user = await prisma.user.findUnique({ where: { email }, include: { institution: true } });
+
+  // Account-lock check happens before the password compare — a locked account should reject
+  // immediately (and consistently) regardless of whether the submitted password is correct,
+  // otherwise the lock state itself could leak via response timing/content.
+  if (user?.lockedUntil && user.lockedUntil > new Date()) {
+    const minutesLeft = Math.ceil((user.lockedUntil.getTime() - Date.now()) / 60000);
+    return res.status(423).json({ error: `Too many failed attempts. Try again in ${minutesLeft} minute(s).` });
+  }
+
   if (!user || !(await bcrypt.compare(password, user.password))) {
+    if (user) {
+      const failedLoginCount = user.failedLoginCount + 1;
+      const data = { failedLoginCount };
+      if (failedLoginCount >= MAX_FAILED_LOGINS) data.lockedUntil = new Date(Date.now() + LOGIN_LOCK_MS);
+      await prisma.user.update({ where: { id: user.id }, data });
+    }
     return res.status(401).json({ error: 'Invalid credentials' });
   }
   if (user.disabled) {
     return res.status(403).json({ error: 'This account has been disabled. Contact your administrator.' });
   }
-  res.json({ token: sign(user), user: safeUser(user) });
+
+  const mustChangePassword = await hasPendingStudentReset(user);
+
+  await prisma.user.update({
+    where: { id: user.id },
+    data: { lastLoginAt: new Date(), failedLoginCount: 0, lockedUntil: null },
+  });
+  res.json({ token: sign(user), user: safeUser(user, mustChangePassword), mustChangePassword });
 };
 
 const me = async (req, res) => {
   const user = await prisma.user.findUnique({ where: { id: req.user.id }, include: { institution: true } });
   if (!user) return res.status(404).json({ error: 'User not found' });
-  res.json(safeUser(user));
+  res.json(safeUser(user, await hasPendingStudentReset(user)));
 };
 
 // PATCH /api/auth/me — self-service profile update (name + student academic fields)

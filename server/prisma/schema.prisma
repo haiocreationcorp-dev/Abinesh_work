@@ -112,13 +112,74 @@ model User {
   // Shared (school or college)
   rollNo        String?
   gender        Gender?
+  // Password recovery / session security
+  passwordChangedAt  DateTime  @default(now()) // bumped on every reset; embedded in JWT so old tokens are rejected immediately after a reset
+  emailVerified       Boolean   @default(false)
+  failedLoginCount    Int       @default(0)
+  lockedUntil         DateTime?
+  lastLoginAt         DateTime?
   comics        Comic[]
   tasksCreated  Task[]
   submissions   Submission[]
   classesCreated Class[]
   enrollments   ClassEnrollment[]
+  passwordResetTokens   PasswordResetToken[]
+  studentPasswordResetsReceived StudentPasswordReset[] @relation("StudentPasswordResetStudent")
+  studentPasswordResetsIssued   StudentPasswordReset[] @relation("StudentPasswordResetTeacher")
+  passwordResetAudits   PasswordResetAudit[]
   createdAt     DateTime     @default(now())
   updatedAt     DateTime     @updatedAt
+}
+
+// Email-OTP password recovery — used by ADMIN / INSTITUTION_CHIEF / TEACHER only.
+// Students never get a row here (see StudentPasswordReset instead).
+model PasswordResetToken {
+  id           String    @id @default(cuid())
+  userId       String
+  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  otpHash      String
+  purpose      String    // e.g. "LOGIN_RESET"
+  expiresAt    DateTime
+  usedAt       DateTime?
+  attemptCount Int       @default(0)
+  createdAt    DateTime  @default(now())
+
+  @@index([userId])
+}
+
+// One row per teacher-generated temporary password for a student. The plaintext temp
+// password is never stored — only its hash, returned once in the API response so the
+// teacher can relay it in person.
+model StudentPasswordReset {
+  id                    String    @id @default(cuid())
+  studentId             String
+  student               User      @relation("StudentPasswordResetStudent", fields: [studentId], references: [id], onDelete: Cascade)
+  teacherId             String
+  teacher               User      @relation("StudentPasswordResetTeacher", fields: [teacherId], references: [id], onDelete: Cascade)
+  temporaryPasswordHash String
+  expiresAt             DateTime
+  usedAt                DateTime?
+  createdAt             DateTime  @default(now())
+
+  @@index([studentId])
+}
+
+// Append-only audit trail for every password reset of any kind (email-OTP, teacher-issued,
+// admin-issued) — never updated or deleted after creation.
+model PasswordResetAudit {
+  id               String   @id @default(cuid())
+  userId           String
+  user             User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  performedBy      String   // userId of the actor (may equal userId for self-service resets)
+  performedByRole  Role
+  method           String   // "EMAIL_OTP" | "TEACHER_RESET" | "ADMIN_RESET"
+  reason           String?
+  ipAddress        String?
+  createdAt        DateTime @default(now())
+
+  @@index([userId])
+  @@index([performedBy])
+  @@index([createdAt])
 }
 
 model Institution {

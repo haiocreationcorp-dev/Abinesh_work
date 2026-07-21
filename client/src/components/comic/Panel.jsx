@@ -639,6 +639,9 @@ export default function Panel({ panel, panelIndex, canvasW = 800, canvasH = 450,
           case 'NARRATION':
             d({ type: 'REMOVE_NARRATION_BOX', panelIndex: pi, instanceId: sel.instanceId });
             break;
+          case 'BACKGROUND':
+            d({ type: 'SET_BACKGROUND', panelIndex: pi, background: null });
+            break;
           default: break;
         }
         setSel(null);
@@ -656,10 +659,14 @@ export default function Panel({ panel, panelIndex, canvasW = 800, canvasH = 450,
     return () => document.removeEventListener('comic-deselect-all', onDeselectAll);
   }, []);
 
+  // Clicking the bare canvas (not any placed item) selects the background if one is set —
+  // so it can be deleted via the same Delete key / toolbar button as every other item —
+  // or deselects everything if there's no background to select.
   const deselect = (e) => {
     if (e.target !== canvasRef.current) return;
     if (comicState.activeSelection?.cropping) return; // never deselect while in crop mode
-    selectItem(null);
+    if (data.background) selectItem({ kind: 'BACKGROUND', instanceId: null });
+    else selectItem(null);
   };
 
   // Drag character/item to reposition — supports cross-panel move
@@ -873,7 +880,10 @@ export default function Panel({ panel, panelIndex, canvasW = 800, canvasH = 450,
       style={{
         ...styles.wrapper,
         borderRadius: 12,
-        border: previewMode ? 'none' : '2px dashed var(--t-panel-border)',
+        // Only the active panel gets a border — in a multi-panel layout (2/4-up) this is the
+        // only visual cue for which panel new items/edits are targeting. Single-panel layouts
+        // have just the one panel, so this stays invisible there (no other panel to compare to).
+        border: !previewMode && isActive ? '2px solid var(--t-accent)' : 'none',
         overflow: 'hidden',
         userSelect: 'none',
         outline: !previewMode && isDragOver ? '3px dashed var(--t-accent)' : undefined,
@@ -901,6 +911,12 @@ export default function Panel({ panel, panelIndex, canvasW = 800, canvasH = 450,
             flex: '1 1 0',
             minHeight: 0,
             touchAction: 'none',
+            // Selected-background highlight — same outline language as other selectable
+            // items (character/prop/bubble each get their own color); background fills the
+            // whole panel so the outline goes on the canvas container, inset so it doesn't
+            // get clipped by the panel's own rounded corners.
+            outline: selected?.kind === 'BACKGROUND' ? '2px solid #3b82f6' : 'none',
+            outlineOffset: selected?.kind === 'BACKGROUND' ? '-2px' : 0,
           }}
           data-panel-index={panelIndex}
           data-canvas-w={CANVAS_W}
@@ -947,15 +963,16 @@ export default function Panel({ panel, panelIndex, canvasW = 800, canvasH = 450,
 
           {!data.background && !previewMode && (
             <div data-export-hidden="true" style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }}>
-              <div style={styles.decorDots} />
-              <div style={styles.decorBlob} />
               <div style={styles.noBgHint}>
                 <div style={styles.noBgIcon}>
-                  <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                    strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-                    <line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" />
+                  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                    strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                    <rect x="3" y="3" width="18" height="18" rx="2" />
+                    <circle cx="8.5" cy="8.5" r="1.5" />
+                    <path d="m21 15-5-5L5 21" />
                   </svg>
                 </div>
+                <p style={styles.noBgText}>Add a Background</p>
               </div>
             </div>
           )}
@@ -2049,13 +2066,6 @@ function NarrationBoxOverlay({ box, isSelected, onSelect, onChange, onRemove, on
       )}
 
       {isSelected && (
-        <button
-          style={{ position: 'absolute', top: 2, right: 4, background: '#a855f7', color: '#fff', border: 'none', borderRadius: '50%', width: 18, height: 18, fontSize: 12, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2 }}
-          onClick={(e) => { e.stopPropagation(); onRemove(); }}
-        >×</button>
-      )}
-
-      {isSelected && (
         <AIQuickMenu
           style={{ top: '100%', right: 4, marginTop: 4 }}
           onOpenAI={onOpenAI}
@@ -2143,19 +2153,13 @@ function BubbleShape({ type, width, height, style: bs }) {
 const styles = {
   wrapper: { position: 'relative', borderRadius: 14 },
   canvas: { position: 'relative', border: '2px dashed var(--t-panel-border)', borderRadius: 12, overflow: 'hidden', userSelect: 'none' },
-  noBgHint: { position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', pointerEvents: 'none', zIndex: 1 },
-  noBgIcon: { width: 52, height: 52, borderRadius: 14, background: 'rgba(249,115,22,0.10)', color: 'var(--t-accent)', display: 'flex', alignItems: 'center', justifyContent: 'center' },
-  decorDots: {
-    position: 'absolute', top: 12, right: 12, width: 48, height: 48, pointerEvents: 'none', zIndex: 0,
-    backgroundImage: 'radial-gradient(circle, var(--t-panel-border) 1.5px, transparent 1.5px)',
-    backgroundSize: '8px 8px',
-    opacity: 0.6,
+  noBgHint: { position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 8, pointerEvents: 'none', zIndex: 1 },
+  noBgIcon: {
+    width: 44, height: 44, borderRadius: 12, background: 'var(--t-bg3)',
+    border: '1px solid var(--t-border)', color: 'var(--t-text-faint)',
+    display: 'flex', alignItems: 'center', justifyContent: 'center',
   },
-  decorBlob: {
-    position: 'absolute', bottom: 16, right: 16, width: 80, height: 80, pointerEvents: 'none', zIndex: 0,
-    background: 'radial-gradient(ellipse at center, rgba(249,115,22,0.08) 0%, transparent 70%)',
-    borderRadius: '50%',
-  },
+  noBgText: { fontSize: 12, fontWeight: 600, color: 'var(--t-text-faint)', margin: 0 },
   placed: { position: 'absolute', userSelect: 'none' },
   removeItem: { position: 'absolute', top: -10, right: -10, width: 20, height: 20, background: '#ef4444', color: '#fff', border: 'none', borderRadius: '50%', cursor: 'pointer', fontSize: 14, lineHeight: 1, zIndex: 11 },
   bubbleText: { position: 'absolute', top: 0, left: 0, right: 0, padding: '8px 14px', textAlign: 'center', pointerEvents: 'none', wordBreak: 'break-word' },

@@ -1,22 +1,82 @@
+const bcrypt = require('bcryptjs');
 const prisma = require('../config/prisma');
 const { generateJoinCode } = require('../utils/generateCode');
+const { generateTempPassword } = require('../utils/tempPassword');
+const { getClientIP } = require('../middleware/presence');
+
+const STUDENT_PASSWORD_RESET_TTL_MS = 24 * 60 * 60 * 1000; // 24h, per spec
 
 const listStudents = async (req, res) => {
   const students = await prisma.user.findMany({
     where: { institutionId: req.user.institutionId, role: 'STUDENT' },
-    select: { id: true, email: true, name: true, createdAt: true },
+    select: {
+      id: true, email: true, name: true, createdAt: true,
+      gradeLevel: true, section: true, rollNo: true, department: true, year: true,
+      disabled: true, lastLoginAt: true,
+    },
     orderBy: { createdAt: 'desc' },
   });
   res.json(students);
 };
 
 // Confirms the target user is a student in the same institution as the requesting teacher —
-// the actual cross-institution authorization boundary for every teacher→student lookup below.
+// the actual cross-institution authorization boundary for every teacher→student lookup below
+// (reused as-is for password reset/lock/unlock — teachers can manage any student in their own
+// institution, matching the same scope "My Students" already uses, not a stricter per-Class rule).
 const findStudentInInstitution = (studentId, institutionId) =>
   prisma.user.findFirst({
     where: { id: studentId, role: 'STUDENT', institutionId },
     select: { id: true, name: true, email: true },
   });
+
+// POST /api/teacher/students/:studentId/reset-password
+// Generates a temporary password, writes its hash directly to User.password (so it's live
+// immediately) and logs the reset in StudentPasswordReset + PasswordResetAudit. The
+// plaintext value is returned once in this response only — never stored or logged.
+const resetStudentPassword = async (req, res) => {
+  const student = await findStudentInInstitution(req.params.studentId, req.user.institutionId);
+  if (!student) return res.status(404).json({ error: 'Student not found' });
+
+  const tempPassword = generateTempPassword();
+  const hash = await bcrypt.hash(tempPassword, 10);
+
+  await prisma.$transaction([
+    prisma.user.update({ where: { id: student.id }, data: { password: hash, passwordChangedAt: new Date() } }),
+    prisma.studentPasswordReset.create({
+      data: {
+        studentId: student.id,
+        teacherId: req.user.id,
+        temporaryPasswordHash: hash,
+        expiresAt: new Date(Date.now() + STUDENT_PASSWORD_RESET_TTL_MS),
+      },
+    }),
+    prisma.passwordResetAudit.create({
+      data: {
+        userId: student.id,
+        performedBy: req.user.id,
+        performedByRole: 'TEACHER',
+        method: 'TEACHER_RESET',
+        ipAddress: getClientIP(req),
+      },
+    }),
+  ]);
+
+  res.json({ student: { id: student.id, name: student.name, email: student.email }, temporaryPassword: tempPassword });
+};
+
+const lockStudent = async (req, res) => {
+  const student = await findStudentInInstitution(req.params.studentId, req.user.institutionId);
+  if (!student) return res.status(404).json({ error: 'Student not found' });
+  const updated = await prisma.user.update({ where: { id: student.id }, data: { disabled: true } });
+  res.json({ id: updated.id, disabled: updated.disabled });
+};
+
+const unlockStudent = async (req, res) => {
+  const student = await findStudentInInstitution(req.params.studentId, req.user.institutionId);
+  if (!student) return res.status(404).json({ error: 'Student not found' });
+  const updated = await prisma.user.update({ where: { id: student.id }, data: { disabled: false, failedLoginCount: 0, lockedUntil: null } });
+  res.json({ id: updated.id, disabled: updated.disabled });
+};
 
 const listStudentComics = async (req, res) => {
   const student = await findStudentInInstitution(req.params.studentId, req.user.institutionId);
@@ -171,6 +231,7 @@ const gradeSubmission = async (req, res) => {
 
 module.exports = {
   listStudents, listStudentComics, getStudentComic,
+  resetStudentPassword, lockStudent, unlockStudent,
   createClass, listClasses, deleteClass, updateEnrollment, toggleClassAI,
   createTask, listTasks, listTaskSubmissions, gradeSubmission,
 };

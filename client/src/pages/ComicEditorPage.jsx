@@ -3,16 +3,23 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { getComic, updateComic } from '../api/comics.js';
 import { useComic } from '../context/ComicContext.jsx';
 import { useAuth } from '../context/AuthContext.jsx';
+import { useTheme } from '../context/ThemeContext.jsx';
 import { getAIStatus } from '../api/student.js';
 import ComicEditor from '../components/comic/ComicEditor.jsx';
 import { renderPage, pageStartIndex, RENDER_SCALE as EX_SCALE, LAYOUT_COUNT as EX_COUNT } from '../utils/comicRenderer.js';
+import { comicIdFromParam } from '../utils/comicUrl.js';
 
 const GRADIENT = 'var(--header-gradient)';
+// Above this character count, a centered title would start clipping inside titleBox's
+// maxWidth (46vw) — switch to left-anchored (starts after the brand logo) instead.
+const LONG_TITLE_THRESHOLD = 24;
 
 export default function ComicEditorPage() {
-  const { comicId } = useParams();
+  const { comicId: rawParam } = useParams();
+  const comicId = comicIdFromParam(rawParam);
   const { loadComic, state, dispatch } = useComic();
   const { isViewOnly, user } = useAuth();
+  const { mode, toggle } = useTheme();
   const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -20,8 +27,25 @@ export default function ComicEditorPage() {
   const [saveMsg, setSaveMsg] = useState('');
   const [showExportMenu, setShowExportMenu] = useState(false);
   const [exporting, setExporting] = useState(false);
-  const [countdown, setCountdown] = useState(10);
+  const AUTOSAVE_SECONDS = 300; // 5 minutes
+  const [countdown, setCountdown] = useState(AUTOSAVE_SECONDS);
+  const [editingTitle, setEditingTitle] = useState(false);
+  const [titleDraft, setTitleDraft] = useState('');
   const isDirtyRef = useRef(false);
+
+  // Comic title editing — lives in the header now (was in the canvas toolbar). Single
+  // source of truth is still ComicContext's state.title + SET_TITLE.
+  const commitTitle = () => {
+    dispatch({ type: 'SET_TITLE', title: titleDraft.trim() || 'Untitled Comic' });
+    setEditingTitle(false);
+  };
+  const startEditingTitle = () => {
+    if (isViewOnly) return;
+    setTitleDraft(state.title || '');
+    setEditingTitle(true);
+  };
+  const canUndo = (state.past?.length || 0) > 0;
+  const canRedo = (state.future?.length || 0) > 0;
 
   // Export current page as PNG
   const exportPNG = async () => {
@@ -164,7 +188,7 @@ export default function ComicEditorPage() {
 
   // Reset countdown whenever new changes come in
   useEffect(() => {
-    if (state.isDirty) setCountdown(10);
+    if (state.isDirty) setCountdown(AUTOSAVE_SECONDS);
   }, [state.isDirty]);
 
   // Countdown tick — saves at 0, resets after save
@@ -172,8 +196,8 @@ export default function ComicEditorPage() {
     if (isViewOnly) return;
     const id = setInterval(() => {
       setCountdown((c) => {
-        if (!isDirtyRef.current) return 10;
-        if (c <= 1) { handleSaveRef.current(); return 10; }
+        if (!isDirtyRef.current) return AUTOSAVE_SECONDS;
+        if (c <= 1) { handleSaveRef.current(); return AUTOSAVE_SECONDS; }
         return c - 1;
       });
     }, 1000);
@@ -214,25 +238,49 @@ export default function ComicEditorPage() {
       {/* ── Top Bar: full gradient ── */}
       <header style={styles.topBar}>
 
-        {/* Left: Back button */}
-        <button style={styles.backBtn} onClick={() => navigate('/dashboard')}>
-          <span style={styles.backArrow}>
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
-              stroke="#F97316" strokeWidth="2.8" strokeLinecap="round" strokeLinejoin="round">
-              <polyline points="15 18 9 12 15 6"/>
+        {/* Left: Back button + brand */}
+        <div style={styles.headerLeft}>
+          <button style={styles.backBtn} onClick={() => navigate('/dashboard')} title="Back to Dashboard">
+            <svg width="30" height="30" viewBox="0 0 40 40" fill="none">
+              <circle cx="20" cy="20" r="18" fill="#F97316"/>
+              <path d="M27 20 L13 20 M13 20 L19 14 M13 20 L19 26" stroke="#fff" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"/>
             </svg>
-          </span>
-          <span style={styles.backText}>Back to Dashboard</span>
-        </button>
-
-        {/* Center: App name */}
-        <div style={styles.titleArea}>
-          <span style={styles.star}>✦</span>
-          <span style={styles.appName}>BharathComic</span>
-          <span style={styles.star}>✦</span>
+          </button>
+          <div style={styles.brandWrap}>
+            <img src="/tool-icons/bharathcomic-wordmark.png" alt="BharathComic" style={styles.brandLogo} draggable={false} />
+          </div>
         </div>
 
-        {/* Right: Status + Save + Chevron */}
+        {/* Center: editable comic title — centered while short; long titles would clip
+            inside the centered box's maxWidth, so they switch to starting right after the
+            brand logo instead, growing rightward rather than being clipped. */}
+        <div style={(editingTitle ? titleDraft : state.title || '').length > LONG_TITLE_THRESHOLD ? styles.titleBoxLeft : styles.titleBox}>
+          {editingTitle ? (
+            <input
+              autoFocus
+              style={styles.titleInput}
+              value={titleDraft}
+              placeholder="Title of the comic…"
+              maxLength={140}
+              onChange={(e) => setTitleDraft(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') commitTitle(); if (e.key === 'Escape') setEditingTitle(false); }}
+              onBlur={commitTitle}
+            />
+          ) : (
+            <span style={styles.titleText} onClick={startEditingTitle} title="Click to edit title">
+              {state.title || 'Untitled Comic'}
+            </span>
+          )}
+          {!isViewOnly && !editingTitle && (
+            <button style={styles.titlePencil} onClick={startEditingTitle} title="Edit title">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/>
+              </svg>
+            </button>
+          )}
+        </div>
+
+        {/* Right: status + undo/redo + save + theme + export */}
         <div style={styles.topRight}>
           {isViewOnly ? (
             <span style={styles.statusText}>🔒 View only</span>
@@ -241,11 +289,32 @@ export default function ComicEditorPage() {
               <CloudSyncIcon dirty={state.isDirty} countdown={countdown} />
             </span>
           )}
+
+          {!isViewOnly && (
+            <div style={styles.undoRedoWrap}>
+              <button style={{ ...styles.roundIconBtn, opacity: canUndo ? 1 : 0.4 }} disabled={!canUndo} title="Undo" onClick={() => dispatch({ type: 'UNDO' })}>
+                <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><path d="M3 7v6h6"/><path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13"/></svg>
+              </button>
+              <button style={{ ...styles.roundIconBtn, opacity: canRedo ? 1 : 0.4 }} disabled={!canRedo} title="Redo" onClick={() => dispatch({ type: 'REDO' })}>
+                <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><path d="M21 7v6h-6"/><path d="M3 17a9 9 0 0 1 9-9 9 9 0 0 1 6 2.3L21 13"/></svg>
+              </button>
+            </div>
+          )}
+
           {!isViewOnly && (
             <button style={styles.saveBtn} onClick={handleSave}>
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.3" strokeLinecap="round" strokeLinejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
               Save
             </button>
           )}
+
+          <button
+            style={styles.themeToggleBtn}
+            onClick={toggle}
+            title={mode === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+          >
+            {mode === 'dark' ? '☀️' : '🌙'}
+          </button>
 
           {/* Export button + dropdown */}
           <div style={{ position: 'relative' }} onBlur={(e) => { if (!e.currentTarget.contains(e.relatedTarget)) setShowExportMenu(false); }}>
@@ -272,13 +341,6 @@ export default function ComicEditorPage() {
               </div>
             )}
           </div>
-
-          <button style={styles.chevronBtn} title="More options" onClick={() => setShowExportMenu(false)}>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
-              stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
-              <polyline points="6 9 12 15 18 9"/>
-            </svg>
-          </button>
         </div>
       </header>
 
@@ -426,75 +488,104 @@ const styles = {
     flexShrink: 0,
     gap: 12,
     position: 'relative',
+    // Casts a shadow down onto the editor body below — the header is a distinct colored
+    // bar (not a neutral --t-* surface), so it gets elevation via a drop shadow rather
+    // than the inset/recessed treatment used for the rail/panel/canvas seams beneath it.
+    boxShadow: '0 6px 14px -6px rgba(0,0,0,0.35)',
+    zIndex: 10,
   },
 
-  /* Back button — white pill on gradient */
+  /* Left group: back + brand */
+  headerLeft: { display: 'flex', alignItems: 'center', gap: 12, flexShrink: 0, zIndex: 1 },
+  // The icon itself is now a self-contained circular badge (ring + filled arrow), so the
+  // button wrapper is just a plain hit-area — no separate background/shadow behind it.
   backBtn: {
-    display: 'flex', alignItems: 'center', gap: 8,
-    background: 'rgba(255,255,255,0.95)',
-    border: 'none',
-    borderRadius: 24,
-    padding: '7px 16px 7px 10px',
-    cursor: 'pointer',
-    flexShrink: 0,
-    boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
-  },
-  backArrow: {
-    width: 26, height: 26, borderRadius: '50%',
-    background: 'rgba(249,115,22,0.12)',
     display: 'flex', alignItems: 'center', justifyContent: 'center',
-    flexShrink: 0,
+    width: 38, height: 38, background: 'none',
+    border: 'none', cursor: 'pointer', flexShrink: 0, padding: 0,
   },
-  backText: {
-    fontSize: 13, fontWeight: 700, color: '#1a1a2e', whiteSpace: 'nowrap',
-  },
-
-  /* Center title — absolutely centered so it's always in the middle */
-  titleArea: {
-    position: 'absolute',
-    left: '50%',
-    transform: 'translateX(-50%)',
-    display: 'flex', alignItems: 'center', gap: 10,
-    pointerEvents: 'none',
-  },
-  star: { fontSize: 14, color: 'rgba(255,255,255,0.8)', userSelect: 'none', flexShrink: 0 },
+  brandWrap: { display: 'flex', alignItems: 'center', gap: 8, whiteSpace: 'nowrap' },
+  star: { fontSize: 14, color: 'rgba(255,255,255,0.85)', userSelect: 'none', flexShrink: 0 },
   appName: {
     fontFamily: 'var(--font-display)',
     fontSize: 'var(--editor-app-name-size)',
-    letterSpacing: 3,
-    fontStyle: 'italic',
+    letterSpacing: 1.5, fontWeight: 800,
     color: '#ffffff',
     textShadow: '0 2px 12px rgba(0,0,0,0.25)',
-    userSelect: 'none',
-    whiteSpace: 'nowrap',
+    userSelect: 'none', whiteSpace: 'nowrap',
+  },
+  brandLogo: {
+    height: 'calc(var(--editor-top-bar-h) * 1.1)', width: 'auto', objectFit: 'contain',
+    userSelect: 'none', flexShrink: 0,
+  },
+
+  /* Center editable title box — shrinks to fit the title, doesn't pad out short ones */
+  titleBox: {
+    position: 'absolute', left: '50%', top: '50%', transform: 'translate(-50%, -50%)',
+    display: 'inline-flex', alignItems: 'center', gap: 5,
+    maxWidth: '46vw',
+  },
+  /* Long-title variant: sits in normal flex flow right after headerLeft (back button +
+     logo) instead of being centered — a 4-character gap (in `ch` units) stands in for the
+     "4-letter spacing" from the logo, and the title grows rightward instead of clipping. */
+  titleBoxLeft: {
+    position: 'static', marginLeft: '4ch',
+    display: 'inline-flex', alignItems: 'center', gap: 5,
+    maxWidth: '46vw', flexShrink: 1, minWidth: 0,
+  },
+  titleText: {
+    fontFamily: "'Alegreya', serif",
+    fontSize: 15, fontWeight: 700, color: '#fff', cursor: 'text',
+    textTransform: 'uppercase', letterSpacing: 1.5,
+    textShadow: '0 1px 0 rgba(255,255,255,0.35), 0 -1px 0 rgba(0,0,0,0.25), 1px 2px 3px rgba(0,0,0,0.45)',
+    overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+  },
+  titleInput: {
+    fontFamily: "'Alegreya', serif",
+    border: 'none', borderBottom: '1.5px solid rgba(255,255,255,0.6)', outline: 'none', background: 'transparent',
+    fontSize: 15, fontWeight: 700, color: '#fff', width: '40vw', maxWidth: 560,
+    textTransform: 'uppercase', letterSpacing: 1.5,
+  },
+  titlePencil: {
+    width: 20, height: 20, borderRadius: 6, border: 'none', flexShrink: 0,
+    background: 'none', color: 'rgba(255,255,255,0.8)', cursor: 'pointer',
+    display: 'flex', alignItems: 'center', justifyContent: 'center',
   },
 
   /* Right controls */
-  topRight: { display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 },
+  topRight: { display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0, zIndex: 1 },
   statusText: {
     fontSize: 12, color: 'rgba(255,255,255,0.95)', fontWeight: 500,
     whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: 6,
   },
-  saveBtn: {
-    background: '#F97316', color: '#fff', border: 'none',
-    borderRadius: 24, padding: '8px 26px',
-    fontSize: 14, fontWeight: 700, cursor: 'pointer',
-    boxShadow: '0 2px 12px rgba(0,0,0,0.2)', flexShrink: 0,
-  },
-  chevronBtn: {
-    width: 34, height: 34, borderRadius: '50%',
-    background: 'rgba(10,10,40,0.3)',
-    border: '1.5px solid rgba(255,255,255,0.25)',
+  undoRedoWrap: { display: 'flex', alignItems: 'center', gap: 4 },
+  roundIconBtn: {
+    width: 30, height: 30, borderRadius: '50%',
+    background: 'rgba(255,255,255,0.18)', border: '1.5px solid rgba(255,255,255,0.3)',
     color: '#fff', cursor: 'pointer', flexShrink: 0,
     display: 'flex', alignItems: 'center', justifyContent: 'center',
   },
+  saveBtn: {
+    display: 'flex', alignItems: 'center', gap: 5,
+    background: 'var(--action-primary)', color: '#fff', border: 'none',
+    borderRadius: 10, padding: '7px 12px',
+    fontSize: 13, fontWeight: 800, cursor: 'pointer',
+    boxShadow: '0 2px 12px rgba(0,0,0,0.2)', flexShrink: 0,
+  },
+  themeToggleBtn: {
+    width: 30, height: 30, borderRadius: '50%',
+    background: 'rgba(255,255,255,0.18)',
+    border: '1.5px solid rgba(255,255,255,0.3)',
+    cursor: 'pointer', flexShrink: 0, fontSize: 14, lineHeight: 1,
+    display: 'flex', alignItems: 'center', justifyContent: 'center',
+  },
   exportBtn: {
-    display: 'flex', alignItems: 'center', gap: 7,
-    background: 'rgba(10,10,40,0.3)',
-    border: '1.5px solid rgba(255,255,255,0.45)',
-    borderRadius: 24, padding: '7px 18px',
-    fontSize: 14, fontWeight: 700, color: '#fff',
-    cursor: 'pointer', flexShrink: 0,
+    display: 'flex', alignItems: 'center', gap: 5,
+    background: 'rgba(255,255,255,0.96)',
+    border: 'none',
+    borderRadius: 10, padding: '7px 12px',
+    fontSize: 13, fontWeight: 800, color: '#1a1a2e',
+    cursor: 'pointer', flexShrink: 0, boxShadow: '0 2px 10px rgba(0,0,0,0.15)',
   },
   exportMenu: {
     position: 'absolute', top: 'calc(100% + 8px)', right: 0,
@@ -527,12 +618,14 @@ const styles = {
     fontWeight: 700,
     letterSpacing: 1.2,
     textTransform: 'uppercase',
-    color: 'rgba(120,120,140,0.75)',
+    color: 'var(--t-text-faint)',
   },
   haioLogo: {
-    width: 56,
-    height: 56,
+    width: 46,
+    height: 46,
     objectFit: 'contain',
-    filter: 'drop-shadow(0 2px 8px rgba(0,0,0,0.2))',
+    // A soft, consistent drop-shadow on the badge itself (not a boxed card behind it) —
+    // matches the embossed/raised look used across the editor's other UI elements.
+    filter: 'drop-shadow(0 3px 6px rgba(0,0,0,0.25))',
   },
 };

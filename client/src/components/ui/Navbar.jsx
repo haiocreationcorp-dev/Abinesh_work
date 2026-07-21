@@ -63,6 +63,7 @@ export default function Navbar() {
 
   const roleLinks = [
     isChief && { to: '/chief/billing', label: 'Billing' },
+    isTeacher && { to: '/teacher/students', label: 'My Students' },
     isTeacher && { to: '/teacher/classes', label: 'My Classroom' },
     isTeacher && { to: '/teacher/tasks', label: 'Assign Task' },
     isStudent && { to: '/student/instructors', label: 'My Classroom' },
@@ -73,7 +74,9 @@ export default function Navbar() {
     <nav style={styles.nav}>
       <span className="navbar-welcome" style={styles.welcome}>Welcome back, {user?.name || 'Boss'}!</span>
 
-      <Link to="/dashboard" style={styles.brand}>BharathComic</Link>
+      <Link to="/dashboard" style={styles.brand}>
+        <img src="/tool-icons/bharathcomic-wordmark.png" alt="BharathComic" style={styles.brandLogo} draggable={false} />
+      </Link>
 
       <div style={styles.right}>
         {user && (
@@ -161,9 +164,10 @@ const styles = {
   welcome: { fontSize: 14, fontWeight: 600, color: 'rgba(255,255,255,0.85)', flex: '0 0 auto' },
   brand: {
     position: 'absolute', left: '50%', top: '50%', transform: 'translate(-50%, -50%)',
-    fontFamily: 'var(--font-display)', fontSize: 26, color: '#fff', letterSpacing: 1,
+    display: 'flex', alignItems: 'center',
     textDecoration: 'none',
   },
+  brandLogo: { display: 'block', height: 70, width: 'auto', objectFit: 'contain' },
   right: { display: 'flex', alignItems: 'center', gap: 12 },
   searchWrap: {
     display: 'flex', alignItems: 'center', gap: 8,

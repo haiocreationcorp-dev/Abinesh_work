@@ -1830,7 +1830,6 @@ export default function ComicEditor({ readOnly = false, aiEnabled = true } = {})
                   search={activeSidebar === 'BACKGROUND' ? undefined : (search || undefined)}
                   onSelect={handleAssetSelect}
                   activeAssetId={activeSidebar === 'BACKGROUND' ? state.panels[activePanelIndex]?.data?.background?.assetId : undefined}
-                  shuffle={activeSidebar === 'BACKGROUND'}
                 />
               </>
             )}

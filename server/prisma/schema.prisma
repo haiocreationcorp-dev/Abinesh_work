@@ -315,6 +315,12 @@ model Asset {
   costume         String?
   // BODY_POSE only.
   poseType        PoseType?
+  // Display order within the editor's asset picker (e.g. a background subcategory
+  // folder). Defaults to 0 for every existing/new asset — a one-time script assigns a
+  // shuffled sequence per folder so the randomized order becomes fixed/stable instead of
+  // re-shuffling on every load. Unrelated to createdAt (upload time) or name (A–Z sort),
+  // which the Admin Panel's asset library still uses for its own Newest/Oldest/A–Z sort.
+  sortOrder       Int           @default(0)
   createdAt       DateTime      @default(now())
   updatedAt       DateTime      @updatedAt
 }

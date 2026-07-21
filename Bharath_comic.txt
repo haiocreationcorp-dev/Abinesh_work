@@ -1,0 +1,323 @@
+================================================================================
+BHARATHCOMIC — SESSION WORK LOG
+================================================================================
+This file documents everything built, fixed, and troubleshot in this working
+session, in the order it happened. Commits referenced are on `main`:
+
+  b1bd1a6  (starting point — "Add manageable background subcategories")
+  5d07a29  Add password recovery, comic editor UI overhaul, and new background assets
+  c7d882a  Randomize background order, fix Sound card display, add CORS debug log
+  055bcc6  Hide Sound card labels and enlarge the artwork
+  ad9f1ba  Trim transparent margin from Sound artwork for a ~2x bigger render
+
+================================================================================
+1. COMIC EDITOR — TITLE BAR (client/src/pages/ComicEditorPage.jsx)
+================================================================================
+
+- Added an editable comic title in the gradient header bar ("The Unicorn"-style),
+  with a click-to-edit pencil icon. Backed by ComicContext's `state.title` +
+  `SET_TITLE` dispatch (pre-existing state, new UI).
+- Font: switched the title to 'Alegreya' (serif, loaded via Google Fonts in
+  client/index.html), bold, uppercase, letter-spaced, with a layered
+  text-shadow (light highlight + dark shadow) for an engraved/embossed look
+  against the orange-to-violet gradient bar.
+- Font size tuned down from 17px -> 15px per feedback.
+- Long-title handling: titles over 24 characters (LONG_TITLE_THRESHOLD) switch
+  from centered positioning to left-anchored, starting ~4 characters after the
+  brand logo (titleBoxLeft style, marginLeft: '4ch'), so long titles grow
+  rightward into open space instead of being clipped inside the centered box's
+  46vw max-width.
+- "Powered by" haio logo (bottom-right badge): resized several times per
+  feedback, settled back at its original 56x56 after a round of experimenting
+  smaller (34/42/46/50) — the image file itself (client/public/haio-logo.png,
+  2048x2048 PNG) was never broken, sizing was purely a CSS width/height change.
+
+================================================================================
+2. COMIC EDITOR URLs (client/src/utils/comicUrl.js — new file)
+================================================================================
+
+- Route changed from /editor/:rawId (bare cuid, e.g. "cmqyuurcf0004...") to a
+  slug+id combo, e.g. /editor/the-unicorn-industry-cmqyuurcf0004...
+- `comicEditorParam(comic)`: builds the slug from the title, appends the real
+  id as the last `-`-separated segment.
+- `comicIdFromParam(param)`: recovers the real id by splitting on the last `-`
+  (cuid ids contain no dashes, so this is always exact). Backward compatible
+  with old bare-id links.
+- Wired into DashboardPage.jsx's two navigate() calls (open comic, create
+  comic) and ComicEditorPage.jsx's useParams() destructuring.
+- Note: the browser address bar itself can't be hidden or blanked by the
+  app — this only makes the visible URL more readable, the id is still
+  present as a suffix (browsers don't allow JS to erase their own chrome).
+
+================================================================================
+3. COMIC EDITOR — TOP TOOLBAR ICONS (client/src/components/comic/ComicEditor.jsx)
+================================================================================
+
+- Source icons (Help, Layers, Stickers, Upload — user-supplied PNGs from
+  Downloads\icon\) converted to lossless WebP, resized to 128x128 to match
+  the existing tool-icons library convention, and placed in
+  client/public/tool-icons/ alongside the pre-existing set (background.webp,
+  characters.webp, etc.) — NOT in a separate top-bar/ subfolder (that was an
+  intermediate step, later consolidated).
+- "Hair" rail button (vertical SIDEBAR_ITEMS rail) replaced with "Help" —
+  the old Hair-specific hairstyle-swap panel/effect for plain placed faces
+  was removed as dead code (hairstyle swapping for CHARACTER presets, a
+  separate code path, is unaffected).
+- Layers / Stickers / Upload added to the canvas toolbar's left side
+  (previously an empty placeholder div). Sizing iterated several times:
+  34px -> 50px -> 30px button, icon 20px -> 34px -> 22px -> 26px -> 30px
+  (final: 30x30 button, 30x30 icon, filling it edge-to-edge). Gap between
+  them: 8px -> 2px -> 10px (final).
+  - Layers & Stickers are wired to open the same expandable side panel used
+    by Backgrounds/Props/etc. (header + back arrow), currently showing a
+    "coming soon" placeholder (no backend asset category exists for them yet).
+  - Upload stays a plain, unwired icon (no click behavior assigned).
+- Hover behavior: all three icons reuse the rail's existing hoveredIcon /
+  iconTip state for a lift-on-hover + floating label tooltip, instead of a
+  second parallel tooltip system.
+
+================================================================================
+4. ZOOM CONTROL (client/src/components/comic/ComicEditor.jsx)
+================================================================================
+
+- Replaced the old "125% ▾" dropdown (fixed presets: 50/75/100/125/150/200)
+  with a custom drag slider.
+- Iterated: vertical slider inside a click-to-open popup (140px track) ->
+  moved to a permanently-visible dock in the canvas's top-right corner
+  (240px track) -> back to hover-triggered (shows only while hovering the
+  "%" readout or actively dragging; a separate zoomDragging state keeps it
+  open if the cursor slips off mid-drag).
+- Max zoom lowered from 200% to 140% per feedback; min stays 50%.
+- Old ZOOM_PRESETS array, zoomMenu/zoomMenuItem styles, and showZoomMenu
+  state removed as dead code.
+
+================================================================================
+5. PAGE-LAYOUT PREVIEWS — LayoutThumb component (ComicEditor.jsx)
+================================================================================
+
+Used in three places: AddPagePicker, ChangeLayoutPicker (the "Choose/Change
+page layout" dialogs), and the bottom PAGES strip thumbnails.
+
+- SVG now scales to 100% width/height via viewBox + preserveAspectRatio=
+  "none" instead of a fixed 42x30px canvas, so the layout preview fills its
+  container edge-to-edge (previously left a visible gap/second smaller box
+  inside the tile).
+- Fixed a "Single" layout bug where the box had no visible frame at all
+  (its fill matched the button's own background) — added an always-drawn
+  outer frame rect, with internal divider *lines* (not full rects) for
+  multi-panel layouts (2h/2v/4) so shared edges don't double-stroke and look
+  darker than Single's border.
+- Line color iterated: var(--t-border) -> mild orange
+  rgba(249,115,22,0.4) for the layout-picker dialogs specifically (kept via a
+  new `mildLines` prop, default true) -> page-strip thumbnails pinned to
+  `mildLines={false}` (plain var(--t-border)) since an always-orange outline
+  there looked wrong on every page tile, not just the active one.
+  A brief detour added a `--t-layout-outline` theme token (orange in dark
+  mode) and was reverted per feedback — not present in the final state.
+- Empty-page detection: new `isPanelEmpty(data)` helper (checks
+  background === null and all placed-item arrays are length 0). Empty pages
+  in the PAGES strip get:
+  - fill #0a0a0a -> later switched to var(--t-bg3) so it's no longer
+    hardcoded black (was invisible-turned-jarring in light mode).
+  - A small centered "+" icon inside a rounded badge (22x22,
+    var(--t-bg2) background, var(--t-text-faint) border) instead of a bare
+    crosshair, echoing the panel's own "Add a Background" empty-state icon
+    treatment.
+- Page-strip container border switched from dashed to solid
+  (var(--t-border)) to stop clashing with the solid orange active-page
+  border.
+
+================================================================================
+6. BACKGROUND SUBCATEGORY PICKER (ComicEditor.jsx)
+================================================================================
+
+- Default-selected folder logic (Backgrounds panel: category chips like
+  Nature/Transport/School) fixed to re-apply every time the panel opens, not
+  just the first time bgSubcats was empty — previously it only defaulted
+  correctly on the very first open of a session.
+- Later generalized: no longer hardcodes a folder name ("Nature" then
+  briefly "Tour" after an admin rename) — now always defaults to
+  `cats[0]`, i.e. whatever subcategory sorts first per the backend's
+  admin-controlled sortOrder. Immune to future admin renames.
+- Images within a subcategory now shuffle into a random order every time the
+  folder is (re)opened (Fisher-Yates shuffle inside AssetGrid's sortedAssets
+  useMemo), instead of the fixed name/number order — scoped to the editor's
+  background picker only via a new `shuffle` prop (default false); the Admin
+  Panel's asset library keeps its Newest/Oldest/A-Z sort untouched.
+
+================================================================================
+7. ASSET CARDS — Sound category (client/src/components/library/AssetCard.jsx)
+================================================================================
+
+- Sound cards (CLANG!/CLICK!/BOOM! etc.) were showing a checkerboard
+  transparency pattern behind their cutout SFX art, same as Props/Effects.
+  Given the same treatment as Background cards:
+  - No checkered-bg — solid var(--t-bg3) mat background instead.
+  - Wide-shaped box (started as 16:9 thumbWide, shared with Background) —
+    later given its own dedicated `thumbSound` style (4:3, less
+    letterboxed) since Sound's burst-shaped art isn't a full-frame photo
+    like Background's.
+  - image object-fit kept as 'contain' (not Background's 'cover'), since
+    Sound art must not be cropped.
+  - Mat padding tightened to 2px for Sound vs 4px for Background.
+- Name label (visible text under each card) removed for Sound, same as
+  Background already had (an `isBgShaped = isBackground || isSound` flag
+  now gates both). The name is still available as a hover `title` tooltip.
+- Artwork enlarged ~2x by reusing the existing trim-to-content logic
+  (findTrimRect / the `trim` state) that Props/Characters/etc. already use —
+  crops out each image's baked-in transparent margin and scales the actual
+  drawn content to fill the box, rather than a blind CSS transform. Falls
+  back to plain object-fit:contain only until the trim rect finishes
+  computing on image load.
+
+================================================================================
+8. DASHBOARD (client/src/pages/DashboardPage.jsx)
+================================================================================
+
+- Comic card title font: same Alegreya bold/uppercase/letter-spaced treatment
+  as the editor's title bar, but WITHOUT the engraved text-shadow (that
+  effect only reads correctly against the colorful gradient header — on a
+  plain white/dark card it looked muddy). Uses var(--dark) for correct
+  color in both themes.
+- Long titles were being ellipsis-truncated ("THE UNICORN INDUSTRY F...") —
+  truncation removed (overflow/textOverflow/whiteSpace styles dropped),
+  replaced with textAlign: 'justify' and normal wrapping so the full title
+  is always visible across multiple lines.
+- Real page-1 thumbnail rendering: comic cards with exactly ONE page
+  (comic.pages.length === 1) now fetch the full comic (getComic) and render
+  its actual content via the existing comicRenderer.js canvas pipeline
+  (same one used for PNG/PDF export), shown as a real image instead of the
+  generic palette-emoji placeholder. Comics with 2+ pages keep the emoji
+  placeholder (avoids the cost/ambiguity of picking/rendering multiple
+  pages' worth of assets for every card on load).
+
+================================================================================
+9. LOGIN / PROFILE UI (client/src/components/ui/ProfileMenu.jsx)
+================================================================================
+
+- Logout button: was using the shared `.btn-outline` class, which is
+  hardcoded white (#FFFFFF) — invisible against ProfileMenu's dark dropdown
+  in dark mode. Switched to `.btn-danger` (red bg, white text) — visible in
+  both themes, and semantically appropriate for a destructive/session-ending
+  action. Text also center-aligned (the shared .btn class is inline-flex
+  with no justify-content, so a full-width button's label defaulted to the
+  left).
+- Edit-name pencil icon: was var(--mid) (too low-contrast against the dark
+  dropdown) -> tried var(--dark) (still not visible enough per feedback) ->
+  final version wraps the pencil in a small circular badge (24x24,
+  background: var(--dark), icon color: var(--surface)) — since --dark and
+  --surface invert opposite to each other per theme, this gives a
+  dark-badge/white-icon look in dark mode and white-badge/dark-icon in light
+  mode automatically, with no manual per-theme branching needed.
+
+================================================================================
+10. PRODUCTION DEPLOYMENT — LIGHTSAIL SERVER TROUBLESHOOTING
+================================================================================
+
+Context: BharathComic runs on an AWS Lightsail Windows Server 2022 instance,
+code at C:\BharathComic, deployed via git pull (no CI/CD), served by Node
+via PM2, with nginx optionally fronting port 80 -> proxy to Node on :3000.
+
+Issue #1 — untracked-file pull conflicts:
+  `git pull origin main` on the server failed twice with "The following
+  untracked working tree files would be overwritten by merge" — first for
+  client/public/tool-icons/* + bharath-comics-logo.png (this session's new
+  icon files had already been manually copied onto the server outside of
+  git), then again for server/uploads/renders/* (cached page-render files,
+  hashed filenames + .meta.json sidecars tied to live faceIds).
+  FIX (both cases, per explicit user confirmation each time): back up the
+  at-risk folders to a timestamped directory outside git first, then force
+  git to take the incoming version:
+    git fetch origin
+    git checkout origin/main -- <conflicting paths>
+    git pull origin main
+
+Issue #2 — blank white page after deploy (recurring, twice in this session):
+  Browser DevTools Console showed: "Failed to load resource... 500 (Internal
+  Server Error)" on the built JS/CSS bundle files. PM2 error log
+  (`pm2 logs bharatcomic --err --lines 50 --nostream`) showed repeated
+  "[Error] Not allowed by CORS" lines.
+  ROOT CAUSE: server/src/index.js's CORS origin-check throws an Error for
+  any non-matching Origin header, and that thrown error propagates as an
+  uncaught 500 for EVERY request (including static asset requests, not just
+  API calls) — matching the pre-existing warning already in
+  bharathcomic-lightsail-deploy memory ("this broke twice already"). The
+  underlying mismatch was server/.env's CLIENT_URL not exactly matching
+  however the site was actually being accessed:
+    - First occurrence: accessing http://13.234.72.92:3000 directly while
+      CLIENT_URL was set to just http://13.234.72.92 (no port).
+    - ALSO found in the same .env: DATABASE_URL's password contained a raw
+      un-encoded "@" (BharathComic@2024!), breaking pg_dump's connection
+      string parsing ("could not translate host name '2024!@localhost'") —
+      needs percent-encoding: BharathComic%402024!
+    - Second occurrence: after fixing the above, nginx (which proxies port
+      80 -> Node on :3000, stripping the :3000 from what the browser
+      shows/sends) started being used again, so CLIENT_URL needed to flip
+      back to the no-port form (http://13.234.72.92) to match nginx-proxied
+      requests.
+  FIX: edit CLIENT_URL (and DATABASE_URL's encoding) in server\.env to match
+  the live access URL exactly, then:
+    pm2 restart bharatcomic --update-env
+  IMPORTANT: a plain `pm2 restart` (no flag) does NOT reload .env — it
+  reuses whatever environment PM2 cached from the process's original start.
+  This was the actual cause of one "I fixed .env but it's still broken"
+  report in this session — always restart with --update-env after any .env
+  edit on this box.
+  DIAGNOSTIC LOG ADDED (kept in, on purpose): server/src/index.js's CORS
+  rejection handler now does
+    console.error(`[CORS] Rejected origin: "${origin}" — CLIENT_URL is: "${process.env.CLIENT_URL}"`)
+  before throwing, so future mismatches show the exact both-sides values in
+  `pm2 logs bharatcomic --err` instead of requiring another debug round.
+
+Issue #3 — nginx stopped proxying (separate incident):
+  Symptom: previously http://13.234.72.92 (no port) worked; suddenly only
+  :3000 worked, no-port failed to load. nginx.conf itself was reviewed and
+  is correctly configured (proxy_pass http://127.0.0.1:3000, proper
+  X-Forwarded-* headers, 130s timeouts covering the Ollama 120s call
+  timeout). `Get-Process nginx` showed nginx WAS running (2 worker
+  processes). Root cause not fully isolated in this session, but the
+  standard restart sequence (`nginx.exe -s stop` then `nginx.exe` again from
+  C:\nginx) was given as the fix — nginx has no persistent state to lose so
+  this is low-risk. After the restart, no-port access returned a real page
+  (not a connection failure) — landed back on Issue #2's CORS/CLIENT_URL
+  mismatch as the remaining problem, not nginx itself.
+
+================================================================================
+11. DEPLOYMENT REFERENCE DOC — SERVER_UPDATE.md (new file, repo root)
+================================================================================
+
+Created as a durable, at-a-glance reference (separate from CLAUDE.md, which
+is project instructions for the AI assistant, not a user runbook) covering:
+  - Option A: one-click `.\deploy.ps1` from C:\BharathComic (chains git
+    pull, .env check, npm install, DB backup, prisma generate+push, client
+    build, PM2 restart — backs up the database BEFORE touching schema).
+  - Option B: the same steps run manually one at a time.
+  - Reminder that .env is gitignored, so `git pull` never touches it — any
+    hand-edits (CLIENT_URL, DATABASE_URL, etc.) must be re-applied/verified
+    after every pull, they don't come from git.
+  - Always use `pm2 restart bharatcomic --update-env` after any .env change.
+  - Verification steps (pm2 status, pm2 logs, browser DevTools Console
+    checks) and what specific errors point to which specific .env field.
+  - The three known gotchas from section 10 above, written up for future
+    reference: npm.cmd crash-loop (bypass npm, start src/index.js directly),
+    Lightsail firewall rules not surviving a snapshot, and the CORS/
+    CLIENT_URL mismatch pattern with its two known trigger scenarios.
+
+================================================================================
+12. GIT / DEPLOYMENT WORKFLOW NOTES
+================================================================================
+
+- All of the above (sections 1-9) were committed and pushed across 4
+  commits this session (5d07a29, c7d882a, 055bcc6, ad9f1ba) — see the
+  header of this file for the full list and exact commit messages via
+  `git log`.
+- Real secrets (.env) were verified NOT committed at any point — only
+  .env.example (placeholder values) was staged; .env itself stays
+  gitignored on both this dev machine and the server.
+- server/uploads/renders/ (generated render-cache files, ~531KB, tied to
+  live database faceIds) was flagged as looking like build/cache output
+  rather than source content, but included in the commit anyway per
+  explicit user choice ("include it anyway") rather than silently excluded.
+- To ship any of this to production: on the Lightsail server, run
+  `.\deploy.ps1` from C:\BharathComic (see SERVER_UPDATE.md), resolving any
+  untracked-file pull conflicts first per Issue #1 above if they recur.

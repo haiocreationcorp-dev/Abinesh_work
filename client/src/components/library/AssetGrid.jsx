@@ -31,7 +31,7 @@ function SkeletonCard() {
 
 export default function AssetGrid({
   category, tags, search = '', partType, gender, view, poseType, eyeType, mouthType, costume,
-  onSelect, adminMode = false, onUploadClick, excludeTags, activeAssetId, shuffle = false,
+  onSelect, adminMode = false, onUploadClick, excludeTags, activeAssetId,
 }) {
   const [assets, setAssets] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -104,19 +104,17 @@ export default function AssetGrid({
     let arr = excludeTags && excludeTags.length
       ? assets.filter((a) => !(a.tags || []).some((t) => excludeTags.includes(t)))
       : [...assets];
-    // Editor-only (never adminMode, which needs predictable Newest/Oldest/A–Z sorting for
-    // management): re-shuffles on every load() — Fisher-Yates — instead of the fixed
-    // name/number order, so the same folder doesn't always show images in the same order.
-    if (shuffle && !adminMode) {
-      for (let i = arr.length - 1; i > 0; i--) {
-        const j = Math.floor(Math.random() * (i + 1));
-        [arr[i], arr[j]] = [arr[j], arr[i]];
-      }
-    } else if (sortBy === 'newest') arr.sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
+    // Editor's background picker (never adminMode, which needs predictable Newest/Oldest/
+    // A–Z sorting for management): use the fixed sortOrder a one-time shuffle script wrote
+    // to the database (server/scripts/shuffleBackgroundOrder.js) — a stable random-looking
+    // order shared by every user, instead of re-shuffling on every load or falling back to
+    // plain alphanumeric order.
+    if (category === 'BACKGROUND' && !adminMode) arr.sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
+    else if (sortBy === 'newest') arr.sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
     else if (sortBy === 'oldest') arr.sort((a, b) => new Date(a.createdAt || 0) - new Date(b.createdAt || 0));
     else if (sortBy === 'name') arr.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
     return arr;
-  }, [assets, sortBy, excludeTags, shuffle, adminMode]);
+  }, [assets, sortBy, excludeTags, category, adminMode]);
 
   const totalPages = Math.max(1, Math.ceil(sortedAssets.length / PAGE_SIZE));
   const pagedAssets = adminMode ? sortedAssets.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE) : sortedAssets;

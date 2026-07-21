@@ -239,7 +239,7 @@ export default function AssetCard({ asset, category, onSelect, onDelete, onRenam
           // mat (var(--t-bg3), same tone as the panel's buttons) with a small gap around the
           // art, rounded corners on the outer edge — instead of the image running edge-to-edge
           // with no visible container.
-          ...(isBgShaped ? { border: 'none', borderRadius: 8, background: 'var(--t-bg3)', padding: 4 } : {}),
+          ...(isBgShaped ? { border: 'none', borderRadius: 8, background: 'var(--t-bg3)', padding: isSound ? 2 : 4 } : {}),
           ...cardBorder,
           ...(hovering && !isSelected ? { boxShadow: 'var(--shadow-lg)', transform: 'translateY(-3px) scale(1.02)' } : {}),
         }}
@@ -255,7 +255,7 @@ export default function AssetCard({ asset, category, onSelect, onDelete, onRenam
             for a cleaner look — the transparency checker pattern only makes sense for asset
             types where the checker itself is expected/useful (Props, Effects, Characters, …).
             Both also get a landscape (not square) box instead of a square crop. */}
-        <div className={isBgShaped ? undefined : 'checkered-bg'} style={isBgShaped ? styles.thumbWide : styles.thumb}>
+        <div className={isBgShaped ? undefined : 'checkered-bg'} style={isSound ? styles.thumbSound : isBgShaped ? styles.thumbWide : styles.thumb}>
           <img
             src={bubbleSrc || thumb}
             alt={asset.name}
@@ -290,9 +290,11 @@ export default function AssetCard({ asset, category, onSelect, onDelete, onRenam
         </div>
 
         {/* Backgrounds are named by an internal code (A01, D07, …) that's meaningless to
-            the person picking a scene — hide the label, image only. Every other category
-            keeps its name (it's the only way to tell similar-looking props/effects apart). */}
-        {category !== 'BACKGROUND' && (
+            the person picking a scene — hide the label, image only. Sound labels duplicate
+            what's already legible in the artwork itself ("CLANG!", "BOOM!", …), so hiding
+            them frees up the card for a bigger image. Every other category keeps its name
+            (it's the only way to tell similar-looking props/effects apart). */}
+        {!isBgShaped && (
           <div style={styles.meta}>
             <span style={styles.metaName}>{asset.name}</span>
             {showFileMeta && (
@@ -330,6 +332,16 @@ const styles = {
   },
   thumbWide: {
     aspectRatio: '16 / 9',
+    width: '100%',
+    position: 'relative',
+    overflow: 'hidden',
+    borderRadius: 5,
+  },
+  // Less letterboxed than thumbWide (Background's photo shape) — Sound's burst-shaped
+  // cutout art reads bigger in a squarer box, since object-fit:contain leaves less
+  // unused space on the sides.
+  thumbSound: {
+    aspectRatio: '4 / 3',
     width: '100%',
     position: 'relative',
     overflow: 'hidden',

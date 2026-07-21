@@ -199,9 +199,11 @@ export default function AssetCard({ asset, category, onSelect, onDelete, onRenam
   let imgStyle;
   if (isBackground) {
     imgStyle = { width: '100%', height: '100%', objectFit: 'cover', pointerEvents: 'none' };
-  } else if (isSound) {
+  } else if (isSound && !trim) {
     // contain, not cover — Sound art is a cutout burst shape (not a full-frame photo like
-    // Background), so it needs to fit inside the wide card without being cropped.
+    // Background), so it needs to fit inside the wide card without being cropped. Used only
+    // until the trim rect loads in (below) — trimming to the actual drawn content makes the
+    // art render roughly 2x bigger by cropping out the source file's transparent margin.
     imgStyle = { width: '100%', height: '100%', objectFit: 'contain', pointerEvents: 'none' };
   } else if (trim) {
     const { minX, minY, maxX, maxY, nw, nh } = trim;
